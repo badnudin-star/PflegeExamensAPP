@@ -43,6 +43,9 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-test.log || {
+            grep -E '(^e: | FAILED$| tests completed, .* failed)' /tmp/gradle-test.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
             echo "### Unit-Tests fehlgeschlagen" >> "$GITHUB_STEP_SUMMARY"
             echo '```text' >> "$GITHUB_STEP_SUMMARY"
             tail -n 120 /tmp/gradle-test.log >> "$GITHUB_STEP_SUMMARY"
