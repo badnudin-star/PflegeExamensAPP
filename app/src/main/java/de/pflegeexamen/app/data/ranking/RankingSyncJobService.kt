@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 
 /**
@@ -33,8 +34,13 @@ class RankingSyncJobService : JobService() {
     }
 
     override fun onStopJob(params: JobParameters?): Boolean {
-        jobScope.cancel()
+        jobScope.coroutineContext.cancelChildren()
         return true
+    }
+
+    override fun onDestroy() {
+        jobScope.cancel()
+        super.onDestroy()
     }
 }
 

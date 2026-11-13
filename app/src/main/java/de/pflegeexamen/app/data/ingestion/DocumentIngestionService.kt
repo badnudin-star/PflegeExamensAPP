@@ -326,6 +326,10 @@ class DocumentIngestionService(
         return uri.lastPathSegment?.substringAfterLast('/')
     }
 
+    suspend fun recognizeTextFromImageUri(uri: Uri): String = withContext(Dispatchers.IO) {
+        ocrProcessor.recognizeFromUri(uri)
+    }
+
     fun openUriInputStream(uri: Uri) = context.contentResolver.openInputStream(uri)
 
     fun openUriOutputStream(uri: Uri) = context.contentResolver.openOutputStream(uri)

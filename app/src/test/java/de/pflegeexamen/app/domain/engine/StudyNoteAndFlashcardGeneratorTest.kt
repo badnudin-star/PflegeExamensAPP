@@ -137,4 +137,31 @@ class StudyNoteAndFlashcardGeneratorTest {
         assertNotNull(note)
         assertTrue(note!!.sections.any { it.parameterTitle == "Fingertest & Bradenskala" })
     }
+
+    @Test
+    fun `StudyNoteGenerator does not fabricate section for unmatched custom parameter`() {
+        val config = PrepGenerationConfig(
+            prepItemId = 3,
+            title = "Dekubitus",
+            categoryOrCompetenceArea = "",
+            keywords = listOf("Dekubitus", "Bradenskala"),
+            detailDepth = DetailDepth.STANDARD,
+            focusParameters = listOf("Dialysepflicht", "Wasserringe"),
+            targetFlashcardCount = 4,
+            flashcardTypes = setOf(FlashcardType.CAVE),
+            selectedSourceIds = emptySet(),
+            customPromptNote = ""
+        )
+        val retrieval = SourceRetriever.retrieve(
+            allChunks = sampleChunks,
+            titleQuery = config.title,
+            keywords = config.keywords,
+            focusParameters = config.focusParameters
+        ) as RetrievalOutcome.Found
+
+        val note = StudyNoteGenerator.generate(config, retrieval.passages)
+        assertNotNull(note)
+        assertTrue(note!!.sections.none { it.parameterTitle == "Dialysepflicht" })
+        assertTrue(note.sections.any { it.parameterTitle == "Wasserringe" })
+    }
 }

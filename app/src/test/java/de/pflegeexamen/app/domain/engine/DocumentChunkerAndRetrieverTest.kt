@@ -104,4 +104,17 @@ class DocumentChunkerAndRetrieverTest {
         val found = unscoped as RetrievalOutcome.Found
         assertEquals(10L, found.passages.first().chunk.sourceId)
     }
+
+    @Test
+    fun `mapParametersToRoles maps anatomy physiology and combined parameters to all matching roles`() {
+        val roles = SourceRetriever.mapParametersToRoles(
+            listOf(
+                "Anatomie & Physiologie",
+                "Pflegemaßnahmen & Begründungen"
+            )
+        )
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.DEFINITION in roles)
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.INTERVENTION_MEASURE in roles)
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.REASON_GOAL in roles)
+    }
 }

@@ -78,7 +78,7 @@ fun FlashcardsTab(
             .sorted()
     }
 
-    val now = remember(allCards.size, onlyDue, topicFilter, categoryFilter) { System.currentTimeMillis() }
+    val now = remember(allCards, onlyDue, topicFilter, categoryFilter) { System.currentTimeMillis() }
     val activeDeck = remember(allCards, topicFilter, categoryFilter, onlyDue, now) {
         allCards.filter { card ->
             val catOk = categoryFilter == null || card.categoryId == categoryFilter

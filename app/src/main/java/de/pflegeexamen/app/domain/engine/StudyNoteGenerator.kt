@@ -162,13 +162,18 @@ object StudyNoteGenerator {
 
         // Role match
         val roleMatches = cand.sentence.roles.count { it in targetRoles }
-        if (targetRoles.isNotEmpty() && roleMatches == 0) {
-            // Check direct parameter keyword match when parameter is custom
-            val pHit = paramTokens.count { GermanTextAnalyzer.matchesTerm(it, tokens, normText) }
-            if (pHit == 0) return 0.0
-            score += pHit * 1.8
-        } else {
-            score += roleMatches * 2.2
+        val pHits = paramTokens.count { GermanTextAnalyzer.matchesTerm(it, tokens, normText) }
+        if (targetRoles.isNotEmpty()) {
+            if (roleMatches == 0) {
+                if (pHits == 0) return 0.0
+                score += pHits * 1.8
+            } else {
+                score += roleMatches * 2.2
+            }
+        } else if (paramTokens.isNotEmpty()) {
+            // Frei benannter Parameter ohne vordefinierte Satzrolle: direkter Begriffstreffer erforderlich
+            if (pHits == 0) return 0.0
+            score += pHits * 2.2
         }
 
         // Query term relevance inside the specific sentence
@@ -176,7 +181,6 @@ object StudyNoteGenerator {
         score += qHits * 1.1
 
         // Parameter text tokens bonus
-        val pHits = paramTokens.count { GermanTextAnalyzer.matchesTerm(it, tokens, normText) }
         score += pHits * 1.4
 
         // Prefer clear informative statements

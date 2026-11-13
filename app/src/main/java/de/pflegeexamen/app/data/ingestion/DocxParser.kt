@@ -92,9 +92,11 @@ object DocxParser {
                 "pPr" -> {
                     val pStyles = childElem.getElementsByTagNameNS("*", "pStyle")
                     if (pStyles.length > 0) {
-                        val styleVal = (pStyles.item(0) as Element)
-                            .getAttributeNS("*", "val")
-                            .ifBlank { (pStyles.item(0) as Element).getAttribute("w:val") }
+                        val styleElem = pStyles.item(0) as Element
+                        val styleVal = styleElem
+                            .getAttributeNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val")
+                            .ifBlank { styleElem.getAttribute("w:val") }
+                            .ifBlank { styleElem.getAttribute("val") }
                         if (styleVal.contains("Heading", ignoreCase = true) ||
                             styleVal.contains("berschrift", ignoreCase = true) ||
                             styleVal.contains("Title", ignoreCase = true)

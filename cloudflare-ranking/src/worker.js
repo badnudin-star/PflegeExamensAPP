@@ -14,12 +14,16 @@ const CORS_HEADERS = {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, cacheSeconds = 0) {
+  const cacheControl =
+    status === 200 && cacheSeconds > 0
+      ? `public, max-age=${cacheSeconds}`
+      : "no-store";
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=300",
+      "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     },
   });
@@ -27,7 +31,8 @@ function jsonResponse(data, status = 200) {
 
 function sanitizeUsername(raw) {
   const cleaned = String(raw || "")
-    .replace(/[^a-zA-Z0-9äöüÄÖÜß _.-]/g, "")
+    .replace(/[^\p{L}\p{N}_\- .]/gu, "")
+    .replace(/\s+/g, " ")
     .trim()
     .slice(0, 24);
   return cleaned;
@@ -84,15 +89,27 @@ async function buildAndSaveHourlySnapshot(env, nowMs = Date.now()) {
   return { snapshot, payloadJson };
 }
 
-async function getCurrentHourlySnapshot(env) {
+async function getCurrentHourlySnapshot(env, rebuildIfEmpty = false) {
   const existing = await env.DB.prepare(
     `SELECT payload_json, next_update_at FROM hourly_snapshots WHERE id = 1`
   ).first();
 
-  if (existing && existing.payload_json) {
-    return JSON.parse(existing.payload_json);
+  const nowMs = Date.now();
+  if (
+    existing &&
+    existing.payload_json &&
+    Number(existing.next_update_at || 0) > nowMs
+  ) {
+    try {
+      const parsed = JSON.parse(existing.payload_json);
+      if (!rebuildIfEmpty || Number(parsed.totalParticipants || 0) > 0) {
+        return parsed;
+      }
+    } catch {
+      // Beschädigtes Snapshot-JSON wird unten neu aufgebaut.
+    }
   }
-  const built = await buildAndSaveHourlySnapshot(env, Date.now());
+  const built = await buildAndSaveHourlySnapshot(env, nowMs);
   return built.snapshot;
 }
 
@@ -157,7 +174,7 @@ export default {
 
     if (request.method === "GET" && (path === "/leaderboard" || path === "/")) {
       const snapshot = await getCurrentHourlySnapshot(env);
-      return jsonResponse(snapshot);
+      return jsonResponse(snapshot, 200, 60);
     }
 
     if (request.method === "POST" && path === "/score") {
@@ -174,8 +191,14 @@ export default {
         return jsonResponse({ error: "userId und gueltiger username erforderlich" }, 400);
       }
 
-      const requestedXp = Math.max(0, Math.min(500000, Math.floor(Number(body.totalXp || 0))));
-      const streakDays = Math.max(0, Math.min(3650, Math.floor(Number(body.streakDays || 0))));
+      const rawXp = Number(body.totalXp);
+      const requestedXp = Number.isFinite(rawXp)
+        ? Math.max(0, Math.min(500000, Math.floor(rawXp)))
+        : 0;
+      const rawStreak = Number(body.streakDays);
+      const streakDays = Number.isFinite(rawStreak)
+        ? Math.max(0, Math.min(3650, Math.floor(rawStreak)))
+        : 0;
       const rankTitle = String(body.rankTitle || "1. Ausbildungsjahr").trim().slice(0, 48);
       const nowMs = Date.now();
 
@@ -209,7 +232,7 @@ export default {
         .bind(userId, username, acceptedXp, streakDays, rankTitle, nowMs)
         .run();
 
-      const snapshot = await getCurrentHourlySnapshot(env);
+      const snapshot = await getCurrentHourlySnapshot(env, true);
       return jsonResponse(snapshot);
     }
 

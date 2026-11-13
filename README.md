@@ -59,7 +59,7 @@ Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistisch
 ## Nutzung & Installation auf Android
 
 ### Option A: Direkt als APK installieren
-Im Ordner `apk/` liegt die fertig kompilierte Debug-APK (`apk/PflegeExamenLokal-debug.apk`).
+Unter **GitHub Actions → „Build Android APK“ → Artifacts** (`PflegeExamenLokal-debug-apk`) oder unter **Releases** kann die fertig kompilierte Debug-APK (`PflegeExamenLokal-debug.apk`) direkt heruntergeladen und auf dem Android-Gerät installiert werden.
 
 ### Option B: In Android Studio öffnen & selbst bauen
 - Voraussetzungen: Android Studio, **JDK 17**, **Android SDK Platform 35** (`compileSdk = 35`, `minSdk = 26`).
@@ -67,8 +67,8 @@ Im Ordner `apk/` liegt die fertig kompilierte Debug-APK (`apk/PflegeExamenLokal-
   ```bash
   ./gradlew testDebugUnitTest assembleDebug
   ```
+  Die kompilierte APK liegt anschließend unter `app/build/outputs/apk/debug/app-debug.apk`.
 
 ### Option C: Automatischer APK-Build über GitHub Actions (`.github/workflows/android-apk.yml`)
-1. Repository auf GitHub anlegen und Inhalt von `PflegeExamenApp/` auf `main` pushen.
-2. Unter **Actions → „Build Android APK“** wird die APK automatisch gebaut und als Artifact (`PflegeExamenLokal-debug-apk`) bereitgestellt.
-3. Beim Pushen eines Tags (z. B. `git tag v2.0.0 && git push origin v2.0.0`) wird zusätzlich automatisch ein GitHub Release mit der APK erstellt.
+1. Bei jedem Push oder Pull Request auf `main` baut **Actions → „Build Android APK“** automatisch die App, führt alle Unit-Tests aus und stellt `PflegeExamenLokal-debug-apk` als Artifact bereit.
+2. Beim Pushen eines Tags (z. B. `git tag v2.0.0 && git push origin v2.0.0`) wird zusätzlich automatisch ein GitHub Release mit der APK erstellt.
