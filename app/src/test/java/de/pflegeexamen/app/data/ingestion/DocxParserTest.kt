@@ -10,6 +10,37 @@ import java.util.zip.ZipOutputStream
 class DocxParserTest {
 
     @Test
+    fun `large docx is streamed and retains beginning and end`() {
+        val xml = buildString {
+            append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>")
+            for (i in 0 until 12_000) append("<w:p><w:r><w:t>Pflegeabschnitt Nummer $i mit Herzinsuffizienz.</w:t></w:r></w:p>")
+            append("</w:body></w:document>")
+        }
+        val bytes = ByteArrayOutputStream().also { output ->
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry("word/document.xml")); zip.write(xml.toByteArray()); zip.closeEntry()
+            }
+        }.toByteArray()
+        val pages = DocxParser.parseToPages(ByteArrayInputStream(bytes))
+        assertTrue(pages.size > 100)
+        assertTrue(pages.first().text.contains("Nummer 0"))
+        assertTrue(pages.last().text.contains("Nummer 11999"))
+        assertTrue(pages.all { it.text.length <= 3500 })
+    }
+
+    @Test
+    fun `bounded input rejects excess and never closes its owner`() {
+        val input = ByteArrayInputStream(ByteArray(200))
+        val bounded = ImportLimits.bounded(input, 100, "Testdatei")
+        try {
+            bounded.readBytes()
+            org.junit.Assert.fail("Oversized stream was accepted")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("kleinere Teile"))
+        }
+    }
+
+    @Test
     fun `parseToPages extracts headings bullets and tables from valid docx zip`() {
         val documentXml = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>

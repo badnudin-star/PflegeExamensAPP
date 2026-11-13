@@ -26,13 +26,20 @@ object DocumentChunker {
     private val germanLocale = Locale.GERMAN
 
     fun chunkPages(pages: List<RawPage>): List<DraftChunk> {
-        val chunks = mutableListOf<DraftChunk>()
-        var chunkIdx = 0
-        var activeHeading = "Allgemein"
+        val session = Session()
+        return pages.flatMap { session.chunkPage(it) }
+    }
 
-        for (page in pages) {
+    /** Incremental chunking preserves headings and indices across pages. */
+    class Session {
+        private var chunkIdx = 0
+        private var activeHeading = "Allgemein"
+
+        fun chunkPage(page: RawPage): List<DraftChunk> {
+            val chunks = mutableListOf<DraftChunk>()
+            run {
             val cleaned = GermanTextAnalyzer.cleanRawText(page.text)
-            if (cleaned.isBlank()) continue
+            if (cleaned.isBlank()) return chunks
 
             val blocks = splitIntoParagraphBlocks(cleaned)
             val buffer = StringBuilder()
@@ -102,7 +109,8 @@ object DocumentChunker {
             }
             flushBuffer()
         }
-        return chunks
+            return chunks
+        }
     }
 
     private fun splitIntoParagraphBlocks(cleaned: String): List<String> {
@@ -117,13 +125,18 @@ object DocumentChunker {
         if (sentences.isEmpty()) return listOf(text)
         val out = mutableListOf<String>()
         val cur = StringBuilder()
-        for (s in sentences) {
+        for (sentence in sentences) {
+            // OCR, tables or malformed files may contain a single multi-megabyte sentence.
+            val parts = if (sentence.length > HARD_MAX_CHUNK_CHARS)
+                sentence.chunked(TARGET_MAX_CHUNK_CHARS) else listOf(sentence)
+            for (s in parts) {
             if (cur.isNotEmpty() && cur.length + s.length + 1 > TARGET_MAX_CHUNK_CHARS) {
                 out.add(cur.toString().trim())
                 cur.clear()
             }
             if (cur.isNotEmpty()) cur.append('\n')
             cur.append(s)
+            }
         }
         if (cur.isNotEmpty()) out.add(cur.toString().trim())
         return out

@@ -15,6 +15,7 @@ import de.pflegeexamen.app.data.bundle.BundleOperatorItem
 import de.pflegeexamen.app.data.bundle.BundlePreparationItem
 import de.pflegeexamen.app.data.bundle.BundleSourceItem
 import de.pflegeexamen.app.data.ingestion.DocumentIngestionService
+import de.pflegeexamen.app.data.ingestion.ImportLimits
 import de.pflegeexamen.app.data.ingestion.ParsedImportResult
 import de.pflegeexamen.app.data.local.AppDatabase
 import de.pflegeexamen.app.data.local.CaseQuestionEntity
@@ -63,6 +64,7 @@ import de.pflegeexamen.app.domain.model.ScoreSubmissionPayload
 import de.pflegeexamen.app.domain.model.SelfEvaluation
 import de.pflegeexamen.app.domain.model.SourceCitation
 import de.pflegeexamen.app.domain.model.SourceType
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.Flow
@@ -333,11 +335,16 @@ class PflegeRepository(
         ingestionService.openUriInputStream(uri)?.use { stream ->
             ZipInputStream(stream).use { zis ->
                 var entry: ZipEntry? = zis.nextEntry
+                var totalUncompressed = 0L
+                var entryCount = 0
                 while (entry != null) {
+                    if (++entryCount > ImportLimits.MAX_BUNDLE_ENTRIES) ImportLimits.tooLarge("Das Lernpaket")
                     if (!entry.isDirectory) {
                         val safeName = entry.name.replace('\\', '/').trimStart('/')
-                        if (!safeName.contains("..")) {
-                            val bytes = zis.readBytes()
+                        if (safeName.contains("..")) throw IllegalArgumentException("Ungültiger Dateiname im Lernpaket.")
+                        if (true) {
+                            val bytes = ImportLimits.readBounded(zis, ImportLimits.MAX_BUNDLE_BYTES - totalUncompressed, "Das Lernpaket")
+                            totalUncompressed += bytes.size
                             if (safeName.equals("manifest.json", ignoreCase = true) ||
                                 safeName.endsWith("/manifest.json", ignoreCase = true)
                             ) {
@@ -799,37 +806,40 @@ class PflegeRepository(
         categoryId: Long? = null,
         categoryLabel: String = ""
     ): Long = withContext(Dispatchers.IO) {
-        val draftChunks = DocumentChunker.chunkPages(pages)
-        if (draftChunks.isEmpty()) {
-            throw IllegalArgumentException(
-                "Aus der Quelle konnte kein verwertbarer Text extrahiert werden. Bitte prüfen Sie die Datei oder das Foto."
-            )
-        }
-        val totalChars = draftChunks.sumOf { it.content.length }
+        if (pages.sumOf { it.text.length.toLong() } > ImportLimits.MAX_TEXT_CHARS) ImportLimits.tooLarge("Der extrahierte Quelltext")
+        if (pages.any { it.text.length > ImportLimits.MAX_PAGE_CHARS }) ImportLimits.tooLarge("Ein Quellabschnitt")
         val now = System.currentTimeMillis()
         val doc = SourceDocumentEntity(
-            title = title.trim(),
-            sourceType = sourceType,
-            originalFileName = originalFileName,
-            totalPagesOrSections = pages.size.coerceAtLeast(1),
-            characterCount = totalChars,
-            tags = tags.trim(),
-            categoryId = categoryId,
-            categoryLabel = categoryLabel.trim(),
-            createdAt = now,
-            updatedAt = now
+            title = title.trim(), sourceType = sourceType, originalFileName = originalFileName,
+            totalPagesOrSections = pages.size.coerceAtLeast(1), characterCount = 0,
+            tags = tags.trim(), categoryId = categoryId, categoryLabel = categoryLabel.trim(),
+            createdAt = now, updatedAt = now
         )
-        val chunkEntities = draftChunks.map { draft ->
-            SourceChunkEntity(
-                sourceId = 0,
-                chunkIndex = draft.chunkIndex,
-                pageNumber = draft.pageNumber,
-                sectionHeading = draft.sectionHeading,
-                content = draft.content,
-                normalizedTokens = draft.normalizedTokens
+        val id = db.withTransaction {
+            val sourceId = sourceDao.insertSource(doc)
+            val chunker = DocumentChunker.Session()
+            var totalChars = 0
+            var totalChunks = 0
+            for (page in pages) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val drafts = chunker.chunkPage(page)
+                totalChunks += drafts.size
+                totalChars += drafts.sumOf { it.content.length }
+                // Insert bounded batches instead of holding every tokenized chunk twice in memory.
+                drafts.chunked(100).forEach { batch ->
+                    sourceDao.insertChunks(batch.map { draft ->
+                        SourceChunkEntity(sourceId = sourceId, chunkIndex = draft.chunkIndex,
+                            pageNumber = draft.pageNumber, sectionHeading = draft.sectionHeading,
+                            content = draft.content, normalizedTokens = draft.normalizedTokens)
+                    })
+                }
+            }
+            if (totalChunks == 0) throw IllegalArgumentException(
+                "Aus der Quelle konnte kein verwertbarer Text extrahiert werden. Bitte prüfen Sie die Datei oder das Foto."
             )
+            sourceDao.updateCharacterCount(sourceId, totalChars)
+            sourceId
         }
-        val id = sourceDao.insertSourceWithChunks(doc, chunkEntities)
         recordGamificationActivity(xpEarned = 15, goalPointsEarned = 4)
         id
     }
@@ -1383,19 +1393,7 @@ class PflegeRepository(
                 config.focusParameters, config.detailDepth) as? RetrievalOutcome.Found)?.passages.orEmpty()
         }
 
-    private suspend fun loadChunkInputs(): List<ChunkInput> {
-        return sourceDao.getAllChunksWithSource().map { row ->
-            ChunkInput(
-                chunkId = row.chunk.id,
-                sourceId = row.source.id,
-                sourceTitle = row.source.title,
-                sourceType = row.source.sourceType,
-                pageNumber = row.chunk.pageNumber,
-                sectionHeading = row.chunk.sectionHeading,
-                content = row.chunk.content
-            )
-        }
-    }
+    private suspend fun loadChunkInputs(): List<ChunkInput> = sourceDao.getChunkInputs()
 
     private fun PreparationItemEntity.toGenerationConfig(): PrepGenerationConfig {
         val kw = keywordsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }

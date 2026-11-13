@@ -58,10 +58,10 @@ class OcrProcessor(private val context: Context) {
             BitmapFactory.decodeStream(stream, null, boundsOptions)
         }
 
-        // Skaliere sehr große Kamera-Fotos behutsam auf max. ~2400px Kantenlänge für scharfe OCR ohne OOM
+        // Skaliere sehr große Kamera-Fotos behutsam auf max. ~1800px Kantenlänge für scharfe OCR ohne OOM
         val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
         var sampleSize = 1
-        while (maxDim / sampleSize > 2400) {
+        while (maxDim / sampleSize > 1800) {
             sampleSize *= 2
         }
 

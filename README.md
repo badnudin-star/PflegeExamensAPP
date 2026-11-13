@@ -15,6 +15,10 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 
 ---
 
+## Große Dateien
+
+PDFs werden mit temporärem Speicher verarbeitet und seitenweise ausgelesen; Word-Dateien werden stromweise gelesen. Sehr große oder beschädigte Dateien werden mit einem Hinweis abgelehnt, statt unvollständig gespeichert zu werden: maximal 256 MiB für ein PDF, 12 MiB für Textdateien und 8 Millionen Zeichen extrahierten Text. Gescanntes PDF: maximal 40 Seiten pro Datei für die OCR; größere Scans bitte vor dem Import aufteilen. Lernpakete sind auf 64 MiB entpackten Inhalt begrenzt. Das Original wird nicht verändert. Die tatsächliche Grenze kann je nach Gerätespeicher niedriger sein.
+
 ## Funktionsumfang
 
 1. **Eigene Quellen (direkt in der App oder über das HTML-Studio)**

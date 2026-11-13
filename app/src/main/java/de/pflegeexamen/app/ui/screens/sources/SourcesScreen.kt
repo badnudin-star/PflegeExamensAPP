@@ -127,10 +127,12 @@ fun SourcesScreen(
                 } else {
                     pendingFileImport = parsed
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar(
-                    e.message ?: "Fehler beim Importieren der Datei."
-                )
+                snackbarHostState.showSnackbar(e.message ?: "Fehler beim Importieren der Datei.")
+            } catch (e: OutOfMemoryError) {
+                snackbarHostState.showSnackbar("Nicht genügend Arbeitsspeicher. Bitte die Datei in kleinere Teile aufteilen.")
             } finally {
                 isProcessing = false
             }
@@ -250,6 +252,7 @@ fun SourcesScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
+                            enabled = !isProcessing,
                             onClick = {
                                 documentPickerLauncher.launch(
                                     arrayOf(
@@ -267,19 +270,19 @@ fun SourcesScreen(
                             Text("PDF / DOCX / TXT")
                         }
 
-                        FilledTonalButton(onClick = { requestCameraScan() }) {
+                        FilledTonalButton(onClick = { requestCameraScan() }, enabled = !isProcessing) {
                             Icon(Icons.Outlined.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
                             Text("Kamera-OCR")
                         }
 
-                        FilledTonalButton(onClick = { galleryImageLauncher.launch("image/*") }) {
+                        FilledTonalButton(onClick = { galleryImageLauncher.launch("image/*") }, enabled = !isProcessing) {
                             Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
                             Text("Foto-OCR")
                         }
 
-                        OutlinedButton(onClick = { showManualNoteDialog = true }) {
+                        OutlinedButton(onClick = { showManualNoteDialog = true }, enabled = !isProcessing) {
                             Icon(Icons.AutoMirrored.Outlined.NoteAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
                             Text("Text / Notiz")
@@ -358,8 +361,11 @@ fun SourcesScreen(
         ImportConfirmDialog(
             parsed = parsed,
             categories = categories,
-            onDismiss = { pendingFileImport = null },
+            isSaving = isProcessing,
+            onDismiss = { if (!isProcessing) pendingFileImport = null },
             onSave = { title, tags, cat ->
+                isProcessing = true
+                processingLabel = "Quelle wird gespeichert und indexiert..."
                 scope.launch {
                     try {
                         repository.saveParsedImport(
@@ -372,8 +378,14 @@ fun SourcesScreen(
                         pendingFileImport = null
                         val extra = if (parsed.usedOcrFallbackForPdf) " (inkl. automatischer OCR)" else ""
                         snackbarHostState.showSnackbar("Quelle „$title“ gespeichert$extra. Passende Textstellen werden automatisch bei den Themen gesucht.")
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         snackbarHostState.showSnackbar(e.message ?: "Speichern fehlgeschlagen.")
+                    } catch (e: OutOfMemoryError) {
+                        snackbarHostState.showSnackbar("Nicht genügend Arbeitsspeicher. Bitte die Datei in kleinere Teile aufteilen.")
+                    } finally {
+                        isProcessing = false
                     }
                 }
             }
@@ -577,6 +589,7 @@ private fun SourceItemCard(
 private fun ImportConfirmDialog(
     parsed: ParsedImportResult,
     categories: List<LearningCategoryEntity>,
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onSave: (title: String, tags: String, category: LearningCategoryEntity?) -> Unit
 ) {
@@ -639,13 +652,13 @@ private fun ImportConfirmDialog(
         confirmButton = {
             Button(
                 onClick = { onSave(title.ifBlank { parsed.suggestedTitle }, tags, selectedCategory) },
-                enabled = parsed.pages.isNotEmpty()
+                enabled = parsed.pages.isNotEmpty() && !isSaving
             ) {
-                Text("Quelle indexieren")
+                Text(if (isSaving) "Wird indexiert…" else "Quelle indexieren")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Abbrechen") }
+            TextButton(onClick = onDismiss, enabled = !isSaving) { Text("Abbrechen") }
         }
     )
 }

@@ -9,6 +9,7 @@ import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
 import androidx.room.Update
+import de.pflegeexamen.app.domain.model.ChunkInput
 import de.pflegeexamen.app.domain.model.MasteryStatus
 import de.pflegeexamen.app.domain.model.SelfEvaluation
 import kotlinx.coroutines.flow.Flow
@@ -82,11 +83,20 @@ interface SourceDao {
     @Query("SELECT * FROM source_chunks ORDER BY sourceId ASC, chunkIndex ASC")
     suspend fun getAllChunksWithSource(): List<ChunkWithSource>
 
+    @Query("""SELECT c.id AS chunkId, c.sourceId AS sourceId, s.title AS sourceTitle,
+        s.sourceType AS sourceType, c.pageNumber AS pageNumber, c.sectionHeading AS sectionHeading,
+        c.content AS content FROM source_chunks c JOIN source_documents s ON s.id = c.sourceId
+        ORDER BY c.sourceId ASC, c.chunkIndex ASC""")
+    suspend fun getChunkInputs(): List<ChunkInput>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSource(source: SourceDocumentEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChunks(chunks: List<SourceChunkEntity>)
+
+    @Query("UPDATE source_documents SET characterCount = :characterCount WHERE id = :id")
+    suspend fun updateCharacterCount(id: Long, characterCount: Int)
 
     @Delete
     suspend fun deleteSource(source: SourceDocumentEntity)
