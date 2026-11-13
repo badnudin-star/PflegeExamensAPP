@@ -10,14 +10,14 @@ plugins {
 
 android {
     namespace = "de.pflegeexamen.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "de.pflegeexamen.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.2.0"
+        versionCode = 6
+        versionName = "2.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -86,6 +86,7 @@ dependencies {
     // 100% Offline PDF & OCR (Bundled Latin Model)
     implementation(libs.pdfbox.android)
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.genai.prompt)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

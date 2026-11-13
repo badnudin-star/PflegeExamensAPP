@@ -1,5 +1,6 @@
 package de.pflegeexamen.app.domain.ai
 
+import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.model.OperatorPromptSpec
 import de.pflegeexamen.app.domain.model.PrepGenerationConfig
 import de.pflegeexamen.app.domain.model.RetrievedPassage
@@ -173,6 +174,94 @@ BESTÄTIGTE ANTWORT DES PRÜFLINGS:
 $userAnswerText
 """.trimIndent()
 
+        return PromptPair(system, user)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Smartphone-KI (Gemini Nano): bewusst KOMPAKTE Prompts ohne Quellenpflicht.
+    // Die On-Device-KI nutzt ihr eigenes Pflege-Fachwissen und erzeugt Lernzettel, Karten,
+    // Fallbeispiele und Fragen direkt auf dem Handy – ganz ohne eigene Quellen oder API-Key.
+    // Gesamtlänge bleibt unter ~3.500 Zeichen (Kontextfenster von Gemini Nano).
+    // ---------------------------------------------------------------------------------------------
+
+    private const val ON_DEVICE_SYSTEM = "Du bist ein erfahrener Pflegelehrer für das deutsche Pflegeexamen (generalistische Pflegeausbildung). Antworte AUSSCHLIESSLICH mit validem JSON ohne Markdown-Erklärung davor oder danach. Sei fachlich präzise, praxisnah und prüfungsorientiert."
+
+    fun buildOnDeviceStudyPrompt(
+        config: PrepGenerationConfig,
+        passages: List<RetrievedPassage> = emptyList()
+    ): PromptPair {
+        val params = config.focusParameters.ifEmpty {
+            listOf("Definitionen", "Ursachen & Risiken", "Pflegemaßnahmen", "Begründungen", "Cave / Merksätze")
+        }
+        val cardTypes = config.flashcardTypes.joinToString(", ") { it.name }
+        val evidenceBlock = if (passages.isNotEmpty()) {
+            val snippet = passages.take(3).joinToString("\n---\n") { it.chunk.content.take(350) }
+            "\n\nZUSÄTZLICHE STICHWORTE AUS EIGENEN QUELLEN (falls vorhanden, einbeziehen):\n$snippet"
+        } else {
+            ""
+        }
+
+        val user = """
+Erstelle einen strukturierten Examens-Lernzettel und genau bis zu ${config.targetFlashcardCount} präzise Karteikarten zum Thema.
+
+THEMA: ${config.title.take(150)}
+BEREICH: ${config.categoryOrCompetenceArea.ifBlank { "Allgemein" }.take(100)}
+SCHWERPUNKTE: ${params.joinToString(" | ").take(400)}
+KARTENTYPEN (exakte Enum-Namen): $cardTypes
+ZUSATZ: ${config.customPromptNote.ifBlank { "Keiner" }.take(250)}$evidenceBlock
+
+JSON-SCHEMA:
+{"sections":[{"parameterTitle":"Name","bullets":[{"statement":"Klare Aussage","evidenceIndex":1}]}],"flashcards":[{"cardType":"DEFINITION|CAUSAL|LIST|CLOZE|CAVE","parameterTag":"Schwerpunkt","frontText":"Frage oder Lückentext mit [____]","backText":"Antwort","evidenceIndex":1}]}
+""".trimIndent()
+
+        return PromptPair(ON_DEVICE_SYSTEM, user)
+    }
+
+    fun buildOnDeviceCasePrompt(
+        topicTitle: String,
+        operators: List<OperatorPromptSpec>,
+        passages: List<RetrievedPassage> = emptyList()
+    ): PromptPair {
+        val evidence = passages.take(3).joinToString("\n") { it.chunk.content.take(300) }
+        val clinical = DefaultCatalogs.defaultPreparations.any { it.title.equals(topicTitle, true) && it.isClinicalPicture }
+        val opsText = operators.take(4).joinToString("\n") { op ->
+            "${op.operatorId}. ${op.name} (${op.requirementLevel}, ${op.defaultPoints} P): ${op.caseRelationRule.promptInstruction.take(200)}"
+        }
+
+        val user = """
+Erstelle ein schriftliches Pflegeexamen-Fallbeispiel zum Thema „${topicTitle.take(150)}“ mit Aufgaben zu exakt diesen Operatoren.
+${if (clinical) "Berücksichtige die zum Krankheitsbild passende Anatomie und Physiologie." else ""}
+
+OPERATOREN:
+$opsText
+
+MATERIAL ZUM THEMA (falls vorhanden):
+$evidence
+
+JSON-SCHEMA:
+{"vignetteText":"Praxisnahe Fallbeschreibung auf Deutsch (Person, Situation, Beobachtungen)","isOriginalCaseFromSource":false,"vignetteEvidenceIndices":[1],"questions":[{"operatorId":1,"questionText":"Aufgabenstellung","modelAnswerText":"Ausformulierte Musterlösung","expectedKeyPoints":["Kernaspekt 1","Kernaspekt 2"],"evidenceIndices":[1]}]}
+""".trimIndent()
+
+        return PromptPair(ON_DEVICE_SYSTEM, user)
+    }
+
+    fun buildOnDeviceFeedbackPrompt(
+        questionText: String,
+        operatorName: String,
+        modelAnswerText: String,
+        userAnswerText: String
+    ): PromptPair {
+        val system = "Du bist ein wohlwollender, fachlich genauer Pflege-Prüfer für das deutsche Examen. Bewerte die Antwort kurz (max. 4 Sätze): Stärken und konkrete fehlende Punkte. Antworte auf Deutsch."
+        val user = """
+AUFGABE (Operator: $operatorName):
+${questionText.take(400)}
+
+MUSTERLÖSUNG:
+${modelAnswerText.take(700)}
+
+ANTWORT DES PRÜFLINGS:
+${userAnswerText.take(700)}
+""".trimIndent()
         return PromptPair(system, user)
     }
 }

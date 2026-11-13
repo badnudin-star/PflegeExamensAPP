@@ -65,9 +65,7 @@ import kotlinx.coroutines.launch
 fun CaseStudiesScreen(
     repository: PflegeRepository,
     snackbarHostState: SnackbarHostState,
-    onOpenCaseStudy: (Long) -> Unit,
-    onNavigateToSources: () -> Unit,
-    onNavigateToOperators: () -> Unit
+    onOpenCaseStudy: (Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val caseStudies by repository.caseStudies.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -97,11 +95,11 @@ fun CaseStudiesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Examens-Fallbeispiele & Operator-Fragen",
+                        text = "Falltraining und Prüfungsfragen",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "Generiere aus deinen eigenen Quellen und deiner Operatorenliste schriftliche Fallbeispiele samt Aufgaben. Die quellenbasierte Musterlösung bleibt bis zur Bestätigung deiner Antwort gesperrt.",
+                        text = "Übe mit Fallbeispielen und Fragen. Die Musterlösung erscheint nach deiner Antwort. KI-Inhalte bitte fachlich überprüfen.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -109,17 +107,13 @@ fun CaseStudiesScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { showGeneratorDialog = true },
-                            enabled = sources.isNotEmpty() && operators.isNotEmpty() && !isGenerating
+                            enabled = operators.isNotEmpty() && !isGenerating
                         ) {
                             Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
                             Text("Fallbeispiel generieren")
                         }
-                        if (sources.isEmpty()) {
-                            OutlinedButton(onClick = onNavigateToSources) { Text("Quellen hinzufügen") }
-                        } else if (operators.isEmpty()) {
-                            OutlinedButton(onClick = onNavigateToOperators) { Text("Operatoren anlegen") }
-                        }
+
                     }
 
                     if (isGenerating) {
@@ -129,7 +123,7 @@ fun CaseStudiesScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Text(
-                                "Erzeuge Fallvignette & Operator-Aufgaben aus deinen Quellen...",
+                                "Erstelle Fallbeispiel und Fragen...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -152,8 +146,7 @@ fun CaseStudiesScreen(
         if (filteredCaseStudies.isEmpty()) {
             item {
                 val desc = when {
-                    sources.isEmpty() -> "Füge zuerst eigene Quellen hinzu (PDF, Word, Text oder Foto-OCR)."
-                    operators.isEmpty() -> "Lege zuerst deine Operatoren in der Operatorenliste an."
+                    operators.isEmpty() -> "Importiere ein Lernpaket mit Aufgaben in den Einstellungen."
                     caseStudies.isNotEmpty() -> "Keine Fallbeispiele in dieser Kategorie. Wähle „Alle Bereiche“."
                     else -> "Starte dein erstes Fallbeispiel über „Fallbeispiel generieren“."
                 }
@@ -161,8 +154,8 @@ fun CaseStudiesScreen(
                     icon = Icons.AutoMirrored.Outlined.Assignment,
                     title = if (caseStudies.isEmpty()) "Noch keine Fallbeispiele erstellt" else "Keine passenden Fallbeispiele",
                     description = desc,
-                    actionLabel = if (sources.isNotEmpty() && operators.isNotEmpty() && caseStudies.isEmpty()) "Jetzt generieren" else null,
-                    onAction = if (sources.isNotEmpty() && operators.isNotEmpty() && caseStudies.isEmpty()) {
+                    actionLabel = if (operators.isNotEmpty() && caseStudies.isEmpty()) "Jetzt generieren" else null,
+                    onAction = if (operators.isNotEmpty() && caseStudies.isEmpty()) {
                         { showGeneratorDialog = true }
                     } else null
                 )
@@ -274,7 +267,7 @@ private fun CaseStudyListCard(
                     onClick = onOpen,
                     label = {
                         Text(
-                            if (item.caseStudy.isExtractedOriginalCase) "Originalfall aus Quelle" else "Quellen-Synthese",
+                            if (item.caseStudy.isExtractedOriginalCase) "Originalfall aus Quelle" else "Lernfall",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -291,7 +284,7 @@ private fun CaseStudyListCard(
             )
 
             Text(
-                text = "Quellen: ${item.caseStudy.sourceBasisLabel}",
+                text = "Grundlage: ${item.caseStudy.sourceBasisLabel}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -341,7 +334,7 @@ private fun CaseStudyGeneratorDialog(
             ) {
                 if (prepItems.isNotEmpty()) {
                     var prepDayFilter by remember { mutableStateOf("Alle") }
-                    Text("Optional Thema aus Vorbereitungsliste übernehmen:", style = MaterialTheme.typography.labelLarge)
+                    Text("Thema aus der festen Themenliste wählen:", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("Alle", "Tag 1", "Tag 2", "Tag 3").forEach { d ->
                             FilterChip(
@@ -378,86 +371,8 @@ private fun CaseStudyGeneratorDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = topicTitle,
-                    onValueChange = { topicTitle = it },
-                    label = { Text("Thema / Fallfokus *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = keywordsCsv,
-                    onValueChange = { keywordsCsv = it },
-                    label = { Text("Zusätzliche Suchbegriffe (kommagetrennt)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
 
-                if (categories.isNotEmpty()) {
-                    Text("Kategorie / Kompetenzbereich (optional):", style = MaterialTheme.typography.labelLarge)
-                    CategorySelectorChips(
-                        categories = categories,
-                        selectedCategoryId = selectedCategory?.id,
-                        onSelect = { selectedCategory = it }
-                    )
-                }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Operatoren für Fragen wählen *", style = MaterialTheme.typography.labelLarge)
-                    TextButton(
-                        onClick = {
-                            if (chosenOperatorIds.size == operators.size) {
-                                chosenOperatorIds.clear()
-                            } else {
-                                chosenOperatorIds.clear()
-                                chosenOperatorIds.addAll(operators.map { it.id })
-                            }
-                        }
-                    ) {
-                        Text(if (chosenOperatorIds.size == operators.size) "Keine" else "Alle")
-                    }
-                }
-
-                operators.forEach { op ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = op.id in chosenOperatorIds,
-                            onCheckedChange = { checked ->
-                                if (checked) chosenOperatorIds.add(op.id) else chosenOperatorIds.remove(op.id)
-                            }
-                        )
-                        Column {
-                            Text(
-                                text = op.name + if (op.requirementLevel.isNotBlank()) " (${op.requirementLevel} · ${op.defaultPoints} P.)" else "",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = "${op.caseRelationRule.displayLabel} · ${op.structureType.displayLabel}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    "Quellen eingrenzen (leer = alle ${sources.size} Quellen)",
-                    style = MaterialTheme.typography.labelLarge
-                )
-                sources.forEach { src ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = src.id in chosenSourceIds,
-                            onCheckedChange = { checked ->
-                                if (checked) chosenSourceIds.add(src.id) else chosenSourceIds.remove(src.id)
-                            }
-                        )
-                        Text(src.title, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
             }
         },
         confirmButton = {
@@ -475,7 +390,7 @@ private fun CaseStudyGeneratorDialog(
                         ops
                     )
                 },
-                enabled = topicTitle.isNotBlank() && chosenOperatorIds.isNotEmpty()
+                enabled = selectedPrepId != null && chosenOperatorIds.isNotEmpty()
             ) {
                 Text("Generieren")
             }

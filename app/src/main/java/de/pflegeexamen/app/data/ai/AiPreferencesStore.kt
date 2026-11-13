@@ -52,9 +52,15 @@ class AiPreferencesStore(context: Context) {
     }
 
     private fun loadSettings(): AiSettings {
-        val mode = runCatching {
-            AiProviderMode.valueOf(prefs.getString(KEY_MODE, AiProviderMode.OFFLINE_ONLY.name)!!)
-        }.getOrDefault(AiProviderMode.OFFLINE_ONLY)
+        // Standard ist die Smartphone-interne KI. Nur wenn der Nutzer bewusst einen anderen
+        // Modus gespeichert hat, wird dieser übernommen (Bestandskunden migrieren automatisch).
+        val mode = if (prefs.contains(KEY_MODE)) {
+            runCatching {
+                AiProviderMode.valueOf(prefs.getString(KEY_MODE, AiProviderMode.ON_DEVICE.name)!!)
+            }.getOrDefault(AiProviderMode.ON_DEVICE)
+        } else {
+            AiProviderMode.ON_DEVICE
+        }
 
         return AiSettings(
             mode = mode,

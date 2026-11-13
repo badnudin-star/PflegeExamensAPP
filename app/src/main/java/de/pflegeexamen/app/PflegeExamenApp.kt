@@ -4,6 +4,7 @@ import android.app.Application
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import de.pflegeexamen.app.data.ai.AiPreferencesStore
 import de.pflegeexamen.app.data.ai.HttpAiTextClient
+import de.pflegeexamen.app.data.ai.OnDeviceAiClient
 import de.pflegeexamen.app.data.ingestion.DocumentIngestionService
 import de.pflegeexamen.app.data.ingestion.OcrProcessor
 import de.pflegeexamen.app.data.local.AppDatabase
@@ -39,6 +40,7 @@ class PflegeExamenApp : Application() {
             ingestionService = ingestionService,
             aiPreferencesStore = aiPreferencesStore,
             aiClient = aiClient,
+            onDeviceAiClient = OnDeviceAiClient(),
             rankingPreferencesStore = rankingPreferencesStore,
             rankingClient = rankingClient
         )

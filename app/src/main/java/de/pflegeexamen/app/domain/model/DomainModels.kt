@@ -87,6 +87,12 @@ enum class AiProviderMode(
     val description: String,
     val defaultModel: String
 ) {
+    ON_DEVICE(
+        displayLabel = "Smartphone-KI (Gemini Nano, auf dem Gerät)",
+        badgeLabel = "Smartphone-KI",
+        description = "Nutzt die eingebaute KI deines Smartphones (Android AICore / Gemini Nano) – komplett offline, ohne API-Key und ohne Internet. Lernzettel, Karteikarten, Fallbeispiele und Fragen werden direkt auf dem Handy erzeugt.",
+        defaultModel = "gemini-nano-on-device"
+    ),
     OFFLINE_ONLY(
         displayLabel = "100 % Offline (ohne KI)",
         badgeLabel = "Offline",
@@ -114,7 +120,7 @@ enum class AiProviderMode(
 }
 
 data class AiSettings(
-    val mode: AiProviderMode = AiProviderMode.OFFLINE_ONLY,
+    val mode: AiProviderMode = AiProviderMode.ON_DEVICE,
     val groqApiKey: String = "",
     val groqModel: String = AiProviderMode.GROQ_FREE.defaultModel,
     val geminiApiKey: String = "",
@@ -122,7 +128,10 @@ data class AiSettings(
     val ollamaBaseUrl: String = "http://192.168.178.20:11434",
     val ollamaModel: String = AiProviderMode.OLLAMA_LOCAL.defaultModel
 ) {
+    fun isOnDevice(): Boolean = mode == AiProviderMode.ON_DEVICE
+
     fun isReadyForRemoteCall(): Boolean = when (mode) {
+        AiProviderMode.ON_DEVICE -> false
         AiProviderMode.OFFLINE_ONLY -> false
         AiProviderMode.GROQ_FREE -> groqApiKey.isNotBlank()
         AiProviderMode.GEMINI_FREE -> geminiApiKey.isNotBlank()
@@ -130,6 +139,7 @@ data class AiSettings(
     }
 
     fun activeModelName(): String = when (mode) {
+        AiProviderMode.ON_DEVICE -> "Smartphone-KI (Gemini Nano)"
         AiProviderMode.OFFLINE_ONLY -> "Lokale Engine"
         AiProviderMode.GROQ_FREE -> groqModel.ifBlank { mode.defaultModel }
         AiProviderMode.GEMINI_FREE -> geminiModel.ifBlank { mode.defaultModel }
@@ -225,7 +235,7 @@ data class DefaultPreparationTemplate(
  * Offizielle Prüfungskataloge:
  * - Vorbereitungsliste Frühjahr 2027 (Landesarbeitsgruppe schriftliches Examen, Tag 1–3 inkl. Anatomie/Physiologie-Regel)
  * - Operatorenliste der Landes-AG Schriftliches Examen auf Grundlage von Jann Wegner (Überarbeitung Dezember 2025)
- * Alle Einträge können in der App beliebig bearbeitet, ergänzt, ersetzt oder gelöscht werden.
+ * Die Themen sind fest; Operatoren und Quellen werden über das HTML-Studio verwaltet.
  */
 object DefaultCatalogs {
 
@@ -247,12 +257,6 @@ object DefaultCatalogs {
             shortCode = "Tag 3",
             colorHex = 0xFF6A1B9AL,
             description = "Kritische & lebensbedrohliche Lebenssituationen, Notfall, Ethik & ärztliche Anordnungen"
-        ),
-        DefaultCategoryTemplate(
-            name = "Anatomie & Physiologie (Krankheitsbilder)",
-            shortCode = "Ana/Phys",
-            colorHex = 0xFFD84315L,
-            description = "Anatomische & physiologische Grundlagen zu allen prüfungsrelevanten Krankheitsbildern"
         ),
         DefaultCategoryTemplate(
             name = "Übergreifend / Eigene Quellen",

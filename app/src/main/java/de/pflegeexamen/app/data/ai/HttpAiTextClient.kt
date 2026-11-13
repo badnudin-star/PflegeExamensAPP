@@ -47,6 +47,8 @@ class HttpAiTextClient {
 
         try {
             when (settings.mode) {
+                AiProviderMode.ON_DEVICE ->
+                    AiCallResult.Failure("Smartphone-KI läuft direkt auf dem Gerät – kein HTTP-Aufruf nötig.")
                 AiProviderMode.OFFLINE_ONLY ->
                     AiCallResult.Failure("Offline-Modus aktiv.")
                 AiProviderMode.GROQ_FREE ->

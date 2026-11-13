@@ -23,48 +23,75 @@ jobs:
 
     steps:
       - name: Repository auschecken
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: JDK 17 einrichten
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
       - name: Android SDK bereitstellen
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Gradle Wrapper ausführbar machen
         run: chmod +x ./gradlew
 
       - name: Unit-Tests ausführen
-        run: ./gradlew testDebugUnitTest --no-daemon
+        id: unit-tests
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-test.log || {
+            grep -E '(^e: | FAILED$| tests completed, .* failed)' /tmp/gradle-test.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            echo "### Unit-Tests fehlgeschlagen" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 120 /tmp/gradle-test.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
 
       - name: Testberichte als Artifact hochladen
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: always() && (steps.unit-tests.outcome == 'success' || steps.unit-tests.outcome == 'failure')
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-reports
           path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
 
       - name: Debug-APK bauen
-        run: ./gradlew assembleDebug --no-daemon
+        id: assemble-apk
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-assemble.log || {
+            echo "### APK-Build fehlgeschlagen" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 120 /tmp/gradle-assemble.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
 
       - name: Debug-APK umbenennen
         run: |
           mkdir -p dist-apk
           cp app/build/outputs/apk/debug/app-debug.apk dist-apk/PflegeExamenLokal-debug.apk
+          SIZE_BYTES=$(wc -c < dist-apk/PflegeExamenLokal-debug.apk)
+          echo "### Build erfolgreich" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Unit-Tests:** erfolgreich bestanden" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Debug-APK:** \`PflegeExamenLokal-debug.apk\` (${SIZE_BYTES} Bytes)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Debug-APK als Artifact bereitstellen
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PflegeExamenLokal-debug-apk
           path: dist-apk/PflegeExamenLokal-debug.apk
+          if-no-files-found: error
           retention-days: 30
 
       - name: GitHub Release bei Tag (v*) erstellen
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist-apk/PflegeExamenLokal-debug.apk

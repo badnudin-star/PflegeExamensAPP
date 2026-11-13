@@ -202,6 +202,11 @@ object DocumentChunker {
             lower.contains("ist eine ") ||
             lower.contains("ist ein ") ||
             lower.contains("sind erkrankungen") ||
+            lower.contains("besteht aus") ||
+            lower.contains("gliedert sich in") ||
+            lower.contains("unterteilt in") ||
+            lower.contains("anatomisch") ||
+            lower.contains("physiologisch") ||
             isColonDefinition
         ) {
             roles.add(SentenceRole.DEFINITION)

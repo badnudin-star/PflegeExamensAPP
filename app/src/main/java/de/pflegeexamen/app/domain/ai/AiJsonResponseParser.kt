@@ -96,7 +96,6 @@ object AiJsonResponseParser {
         }.getOrNull() ?: return null
 
         val maxPassages = passages.take(12)
-        if (maxPassages.isEmpty()) return null
 
         val sections = payload.sections.mapNotNull { sec ->
             val bullets = sec.bullets.mapNotNull { b ->
@@ -109,7 +108,7 @@ object AiJsonResponseParser {
             else StudyNoteSection(parameterTitle = sec.parameterTitle.trim(), bullets = bullets)
         }
 
-        val usedSources = maxPassages
+        val usedSources = if (maxPassages.isEmpty()) "KI-generiert – kein Quellenbeleg; fachlich überprüfen" else maxPassages
             .map { it.chunk }
             .distinctBy { it.sourceId }
             .joinToString("; ") { c ->
@@ -133,7 +132,7 @@ object AiJsonResponseParser {
                     appendLine("**Kategorie / Bereich:** ${config.categoryOrCompetenceArea}")
                 }
                 appendLine("**Detailtiefe:** ${config.detailDepth.displayLabel}")
-                appendLine("**Ausschließlich verwendete Quellen:** $usedSources")
+                appendLine("**Grundlage:** $usedSources")
                 appendLine()
                 for (sec in sections) {
                     appendLine("## ${sec.parameterTitle}")
@@ -162,7 +161,7 @@ object AiJsonResponseParser {
             GeneratedFlashcard(
                 cardType = type,
                 frontText = front,
-                backText = "$back\n\nBeleg: ${citation.shortLabel()}",
+                backText = "$back\n\nGrundlage: ${citation.shortLabel()}",
                 citationLabel = citation.shortLabel(),
                 sourceExcerpt = citation.excerpt,
                 parameterTag = dto.parameterTag.ifBlank { type.displayLabel }
@@ -185,7 +184,7 @@ object AiJsonResponseParser {
         }.getOrNull() ?: return null
 
         val maxPassages = passages.take(12)
-        if (payload.vignetteText.isBlank() || payload.questions.isEmpty() || maxPassages.isEmpty()) {
+        if (payload.vignetteText.isBlank() || payload.questions.isEmpty()) {
             return null
         }
 
@@ -194,7 +193,7 @@ object AiJsonResponseParser {
             .map { citationForIndex(it, maxPassages) }
             .distinctBy { "${it.sourceId}_${it.pageLabel}_${it.excerpt.take(35)}" }
 
-        val sourceBasisLabel = maxPassages
+        val sourceBasisLabel = if (maxPassages.isEmpty()) "KI-generiert – kein Quellenbeleg; fachlich überprüfen" else maxPassages
             .map { it.chunk }
             .distinctBy { it.sourceId }
             .joinToString("; ") { c ->
@@ -260,6 +259,16 @@ object AiJsonResponseParser {
     }
 
     private fun citationForIndex(oneBasedIndex: Int, passages: List<RetrievedPassage>): SourceCitation {
+        if (passages.isEmpty()) {
+            // Smartphone-KI ohne Quellen: Kennzeichnung statt eines vorgetäuschten Quellenbelegs.
+            return SourceCitation(
+                sourceId = 0L,
+                sourceTitle = "KI-generiert – kein Quellenbeleg",
+                pageLabel = "On-Device",
+                sectionHeading = "Fachlich überprüfen",
+                excerpt = "Erzeugt von der Smartphone-KI direkt auf dem Gerät – ohne eigene Quellen."
+            )
+        }
         val idx = (oneBasedIndex - 1).coerceIn(0, passages.lastIndex)
         val c = passages[idx].chunk
         return SourceCitation(

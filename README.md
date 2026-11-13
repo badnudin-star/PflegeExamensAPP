@@ -1,36 +1,35 @@
 # PflegeExamen Lokal (Android · Kotlin / Jetpack Compose)
 
-Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistischen Pflegeausbildung (Deutschland)** – **100 % Offline im Standard** und optional mit **kostenloser Hybrid-KI (0 €)** ohne Backend- oder Abo-Kosten.
+Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen Pflegeausbildung.
 
-## Kernprinzipien
-- **Dauerhaft 0 € Kosten:** Kein kostenpflichtiges Backend, kein Entwickler-API-Key, kein Abo. Im Standard läuft die App **100 % offline** auf deinem Gerät.
-- **Optionales Gratis-KI-Hybridmodell (`SettingsScreen`):**
-  - **100 % Offline (Standard):** Vollständig lokal ohne Internet.
-  - **Groq Free Tier (0 €, ohne Kreditkarte):** Schnelle Ausformulierung über deinen eigenen kostenlosen Groq-Key (`console.groq.com`).
-  - **Google Gemini Free Tier (0 €, ohne Kreditkarte):** Nutzung über eigenen AI-Studio-Key (`aistudio.google.com`) inkl. Datenschutzhinweis.
-  - **Lokales Ollama (0 €, Heim-WLAN):** Verbindung zu deinem eigenen Rechner/Laptop im lokalen Netzwerk (`OLLAMA_HOST=0.0.0.0`).
-  - **Automatischer Offline-Fallback:** Bei fehlendem Netz, Timeout oder Limit übernimmt nahtlos die lokale Engine.
-- **Streng quellenbasiert (Zero Hallucination):** Alle Lernzettel, Karteikarten, Fallvignetten und Musterlösungen entstehen **ausschließlich aus deinen eigenen Quellen** und tragen Belege (`SourceCitation`) mit Dokumenttitel, Seiten-/Scan-Nummer, Abschnitt und Originalzitat. Bei KI-Nutzung werden nur lokal ermittelte Belegstellen `[BELEG-X]` übergeben.
-- **Zukunftssicher für iOS (KMP-vorbereitet):** Die reine Kotlin-Domain (`domain/model`, `domain/engine`, `domain/ai`) ist plattformunabhängig gehalten, sodass sie später per **Kotlin Multiplatform (KMP)** auch unter iOS (inkl. identischer Gratis-REST-Provider oder Apple Foundation Models ab iOS 26) geteilt werden kann.
+## Lernen und Smartphone-KI
+
+- Die Navigation konzentriert sich auf **Heute**, **Themen**, **Karten** und **Falltraining**. Die Prüfungsthemen sind fest vorgegeben und können nicht erstellt, gelöscht oder durch Paketimporte ersetzt werden. Bestehende Lernstände und ältere eigene Themen bleiben gespeichert.
+- Quellen und Operatoren werden ausschließlich mit `tools/PflegeBundleStudio.html` bearbeitet und als `.pflegebundle.zip` in den App-Einstellungen importiert. Jede Quelle lässt sich im Studio einem oder mehreren vorhandenen Themen zuordnen (Mehrfachauswahl mit Strg/Cmd). Beim Lernen werden die zugeordneten Quellen verwendet; ältere Pakete ohne Zuordnung bleiben durchsuchbar.
+- Anatomie und Physiologie sind kein eigener Themenbereich: Sie sind Teil der passenden Krankheitsbilder. Entsprechende Skripte können diesen Themen zugeordnet werden.
+- Auf kompatiblen Android-Geräten nutzt die App standardmäßig **Gemini Nano über Android AICore / ML Kit GenAI**. Die Generierung erfolgt auf dem Gerät ohne API-Schlüssel; der erste Modelldownload benötigt Internet und genügend Speicherplatz. Verfügbarkeit und Download können in den Einstellungen geprüft werden.
+- Nicht jedes Smartphone unterstützt Gemini Nano. Wenn es nicht verfügbar ist oder die KI-Antwort fehlschlägt, kann die Offline-Engine nur dann Material erstellen, wenn passende Texte über ein Lernpaket importiert wurden. Ohne Modell und ohne passende Texte gibt die App einen Hinweis aus; sie kann kein Fachwissen aus dem Nichts erzeugen.
+- KI-generierte Inhalte sind **keine Quellenbelege** und können fachliche Fehler enthalten. Vor der Prüfung und insbesondere vor der Anwendung in der Pflege stets mit verlässlichen Fachquellen und aktuellen Standards abgleichen.
+- Die optionalen externen Anbieter bleiben in den Einstellungen verfügbar. Dabei können Inhalte an den jeweiligen Anbieter übertragen werden.
 
 ---
 
 ## Funktionsumfang
 
-1. **Eigene Quellen (`SourcesScreen`)**
+1. **Eigene Quellen (ausschließlich über das HTML-Studio)**
    - **PDF-Import:** Seitenweise Textextraktion via `pdfbox-android` (inkl. automatischem Fallback auf Android `PdfRenderer` + Offline-OCR bei eingescannten PDFs).
    - **Word-Import (`.docx`):** Lokaler Parser für Absätze, Überschriften, Aufzählungen und Tabellen.
    - **Text & Markdown (`.txt`, `.md`) & Direkteingabe:** Schneller Import eigener Mitschriften.
-   - **Foto-OCR (Kamera & Galerie):** On-Device-Texterkennung via Google ML Kit mit mehrseitigem Korrekturdialog.
-   - **Kategorien & Abschnitt-Inspektor:** Zuordnung zu Kompetenzbereichen/Fächern und Einsicht in alle indexierten Textabschnitte.
+
+
 
 2. **Vorbereitungsliste Frühjahr 2027 & Lernkategorien (`PreparationScreen`, `SettingsScreen`)**
    - Vorbefüllt mit allen **42 offiziellen Prüfungsthemen (Vorbereitungsliste Frühjahr 2027)**, strukturiert nach **Tag 1** (`I.1, I.5, I.6, II.1, IV`), **Tag 2** (`I.2, II.2, IV.1`) und **Tag 3** (`I.3, I.4, II.3, III.2`).
-   - Alle **Krankheitsbilder** tragen automatisch **Anatomie & Physiologie** als ersten Lern- und Frageparameter neben Pathophysiologie, Symptomen, Pflegemaßnahmen, Begründungen und Cave – komplett editierbar, filterbar und bereit für deine Quellen.
+   - Alle **Krankheitsbilder** tragen automatisch **Anatomie & Physiologie** als ersten Lern- und Frageparameter neben Pathophysiologie, Symptomen, Pflegemaßnahmen, Begründungen und Cave – fest vorgegeben, filterbar und bereit für zugeordnete Quellen.
    - **Lernzettel (`StudyNotesScreen`) & Karteikarten (`FlashcardsScreen`):** Strukturierte Markdown-Lernzettel mit anklickbaren Quellenbelegen sowie 5 Karteikartentypen mit **SM-2 Spaced Repetition**.
 
 3. **Operatorenliste nach Landes-AG / Jann Wegner (Überarbeitung Dezember 2025, `OperatorsScreen`)**
-   - Vorbefüllt mit allen **17 offiziellen Operatoren** aus **Teil A (Taxonomie WV)** und **Teil B (Taxonomie ASB)** sowie anatomischer Beschriftung – jeweils inkl. *Beispielfrage*, *Erwartungshorizont*, *Kommentar (K1–K3)*, *Fallbezugs-Regel* (allgemeingültig vs. Fallbezug Pflicht) und *Bepunktungsschema*. Jeder Eintrag ist frei editierbar, löschbar, per JSON ex-/importierbar und wiederherstellbar.
+   - Vorbefüllt mit allen **17 offiziellen Operatoren** aus **Teil A (Taxonomie WV)** und **Teil B (Taxonomie ASB)** sowie anatomischer Beschriftung – jeweils inkl. *Beispielfrage*, *Erwartungshorizont*, *Kommentar (K1–K3)*, *Fallbezugs-Regel* (allgemeingültig vs. Fallbezug Pflicht) und *Bepunktungsschema*. Die Einträge werden im HTML-Studio bearbeitet und über ein Paket importiert.
 
 4. **Externes Einspeise-Tool & feste App-Integration (`tools/PflegeBundleStudio.html` & `.pflegebundle.zip`)**
    - **`tools/PflegeBundleStudio.html`** läuft 100 % offline am PC im Browser und enthält bereits alle 42 Themen (Frühjahr 2027) sowie die 17 Operatoren (Dez. 2025).
@@ -50,7 +49,7 @@ Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistisch
    - **Tagesziel, Examens-Reife (%) & Schwachstellen-Radar** direkt auf dem Startbildschirm.
 
 7. **Benutzername & Stündliches Community-Ranking (0 € · `RankingScreen` & `cloudflare-ranking/`)**
-   - **Pflicht-Pseudonym beim ersten Öffnen:** Beim ersten Start vergibt jede*r Lernende einen Benutzernamen (jederzeit in den Einstellungen änderbar oder pausierbar).
+   - **Optionales Pseudonym:** Ein Benutzername kann in den Einstellungen für das Ranking eingerichtet werden.
    - **Stündlicher Abgleich ohne laufende Kosten:** Nativer Android-`JobScheduler` (60-Minuten-Takt) + stündlicher App-Check senden ausschließlich `{ userId, username, totalXp, streakDays, rankTitle }` und laden den vorberechneten Stunden-Snapshot (offline gepuffert).
    - **Fertiges 0-€-Backend (`cloudflare-ranking/`):** Cloudflare Worker + D1 SQLite Free Tier + Cron (`0 * * * *`) + optionaler automatischer `leaderboard.json`-Export zu GitHub Pages (inkl. Workflow `.github/workflows/deploy-ranking-worker.yml`). Einrichtung in ca. 5 Minuten ohne Kreditkarte – Details siehe `cloudflare-ranking/README.md`.
 
@@ -59,7 +58,7 @@ Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistisch
 ## Nutzung & Installation auf Android
 
 ### Option A: Direkt als APK installieren
-Im Ordner `apk/` liegt die fertig kompilierte Debug-APK (`apk/PflegeExamenLokal-debug.apk`).
+Unter **GitHub Actions → „Build Android APK“ → Artifacts** (`PflegeExamenLokal-debug-apk`) oder unter **Releases** kann die fertig kompilierte Debug-APK (`PflegeExamenLokal-debug.apk`) direkt heruntergeladen und auf dem Android-Gerät installiert werden.
 
 ### Option B: In Android Studio öffnen & selbst bauen
 - Voraussetzungen: Android Studio, **JDK 17**, **Android SDK Platform 35** (`compileSdk = 35`, `minSdk = 26`).
@@ -67,8 +66,8 @@ Im Ordner `apk/` liegt die fertig kompilierte Debug-APK (`apk/PflegeExamenLokal-
   ```bash
   ./gradlew testDebugUnitTest assembleDebug
   ```
+  Die kompilierte APK liegt anschließend unter `app/build/outputs/apk/debug/app-debug.apk`.
 
 ### Option C: Automatischer APK-Build über GitHub Actions (`.github/workflows/android-apk.yml`)
-1. Repository auf GitHub anlegen und Inhalt von `PflegeExamenApp/` auf `main` pushen.
-2. Unter **Actions → „Build Android APK“** wird die APK automatisch gebaut und als Artifact (`PflegeExamenLokal-debug-apk`) bereitgestellt.
-3. Beim Pushen eines Tags (z. B. `git tag v2.0.0 && git push origin v2.0.0`) wird zusätzlich automatisch ein GitHub Release mit der APK erstellt.
+1. Bei jedem Push oder Pull Request auf `main` baut **Actions → „Build Android APK“** automatisch die App, führt alle Unit-Tests aus und stellt `PflegeExamenLokal-debug-apk` als Artifact bereit.
+2. Beim Pushen eines Tags (z. B. `git tag v2.0.0 && git push origin v2.0.0`) wird zusätzlich automatisch ein GitHub Release mit der APK erstellt.

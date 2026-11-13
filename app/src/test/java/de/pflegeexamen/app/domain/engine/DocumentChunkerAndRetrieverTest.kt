@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DocumentChunkerAndRetrieverTest {
+    @Test
+    fun `explicit topic links include physiology without disease terms and exclude other topics`() {
+        val chunks = listOf(
+            ChunkInput(1, 10, "Herz", SourceType.TXT, 1, "Kreislauf", "Das Herz pumpt Blut durch den Kreislauf."),
+            ChunkInput(2, 20, "Hygiene", SourceType.TXT, 1, "Hände", "Händedesinfektion unterbricht Infektionsketten.")
+        )
+        val result = SourceRetriever.retrieveAssigned(chunks, "Herzinsuffizienz", listOf("NYHA"), selectedSourceIds = setOf(10)) as RetrievalOutcome.Found
+        assertEquals(listOf(10L), result.passages.map { it.chunk.sourceId })
+        assertTrue(SourceRetriever.retrieveAssigned(chunks, "Herzinsuffizienz", listOf("NYHA"), selectedSourceIds = setOf(99)) is RetrievalOutcome.NoSources)
+    }
+
 
     @Test
     fun `chunkPages preserves page numbers and headings`() {
@@ -103,5 +114,18 @@ class DocumentChunkerAndRetrieverTest {
         assertTrue(unscoped is RetrievalOutcome.Found)
         val found = unscoped as RetrievalOutcome.Found
         assertEquals(10L, found.passages.first().chunk.sourceId)
+    }
+
+    @Test
+    fun `mapParametersToRoles maps anatomy physiology and combined parameters to all matching roles`() {
+        val roles = SourceRetriever.mapParametersToRoles(
+            listOf(
+                "Anatomie & Physiologie",
+                "Pflegemaßnahmen & Begründungen"
+            )
+        )
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.DEFINITION in roles)
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.INTERVENTION_MEASURE in roles)
+        assertTrue(de.pflegeexamen.app.domain.model.SentenceRole.REASON_GOAL in roles)
     }
 }

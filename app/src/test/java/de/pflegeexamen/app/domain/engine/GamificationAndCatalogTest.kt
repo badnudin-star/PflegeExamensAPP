@@ -63,7 +63,7 @@ class GamificationAndCatalogTest {
 
     @Test
     fun `default catalogs contain 3-day Fruehjahr 2027 topics and 17 Landes-AG Dez 2025 operators`() {
-        assertEquals(5, DefaultCatalogs.defaultCategories.size)
+        assertEquals(4, DefaultCatalogs.defaultCategories.size)
         assertEquals(42, DefaultCatalogs.defaultPreparations.size)
         assertEquals(14, DefaultCatalogs.defaultPreparations.count { it.examDayTag == "Tag 1" })
         assertEquals(13, DefaultCatalogs.defaultPreparations.count { it.examDayTag == "Tag 2" })

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ML Kit GenAI (Smartphone-KI) benötigt SDK 36 zum Bauen; minSdk bleibt 26.
+         Auf Geräten unter Android 12 wird die On-Device-KI zur Laufzeit sauber übersprungen. -->
+    <uses-sdk tools:overrideLibrary="com.google.mlkit.genai.prompt,com.google.mlkit.genai.common,com.google.ai.edge.aicore" />
 
     <!-- Kamera-Berechtigung für Buchseiten-OCR -->
     <uses-feature

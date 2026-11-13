@@ -1,9 +1,13 @@
 package de.pflegeexamen.app.data.repository
 
 import android.net.Uri
+import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import de.pflegeexamen.app.data.ai.AiCallResult
 import de.pflegeexamen.app.data.ai.AiPreferencesStore
 import de.pflegeexamen.app.data.ai.HttpAiTextClient
+import de.pflegeexamen.app.data.ai.OnDeviceAiClient
+import de.pflegeexamen.app.data.ai.OnDeviceAiStatus
 import de.pflegeexamen.app.data.bundle.BundleCategoryItem
 import de.pflegeexamen.app.data.bundle.BundleImportReport
 import de.pflegeexamen.app.data.bundle.BundleManifest
@@ -60,6 +64,7 @@ import de.pflegeexamen.app.domain.model.SelfEvaluation
 import de.pflegeexamen.app.domain.model.SourceCitation
 import de.pflegeexamen.app.domain.model.SourceType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -136,6 +141,7 @@ class PflegeRepository(
     val ingestionService: DocumentIngestionService,
     private val aiPreferencesStore: AiPreferencesStore,
     private val aiClient: HttpAiTextClient,
+    private val onDeviceAiClient: OnDeviceAiClient,
     private val rankingPreferencesStore: RankingPreferencesStore,
     private val rankingClient: HttpRankingClient
 ) {
@@ -159,10 +165,13 @@ class PflegeRepository(
     val rankingSettings: StateFlow<RankingSettings> = rankingPreferencesStore.settings
     val cachedLeaderboard: StateFlow<LeaderboardSnapshot?> = rankingPreferencesStore.cachedSnapshot
 
-    val categories: Flow<List<LearningCategoryEntity>> = categoryDao.observeAll()
+    val categories: Flow<List<LearningCategoryEntity>> = categoryDao.observeAll().map { categories -> categories.filterNot { it.shortCode.equals("Ana/Phys", true) } }
     val studyProfile: Flow<StudyProfileEntity?> = profileDao.observeProfile()
     val sources: Flow<List<SourceDocumentEntity>> = sourceDao.observeAllSources()
-    val preparationItems: Flow<List<PreparationItemEntity>> = preparationDao.observeAll()
+    val preparationItems: Flow<List<PreparationItemEntity>> = preparationDao.observeAll().map { items ->
+        val titles = DefaultCatalogs.defaultPreparations.map { it.title.lowercase() }.toSet()
+        items.filter { it.title.trim().lowercase() in titles }
+    }
     val operators: Flow<List<OperatorItemEntity>> = operatorDao.observeAll()
     val studyNotes: Flow<List<StudyNoteEntity>> = studyNoteDao.observeAll()
     val flashcards: Flow<List<FlashcardEntity>> = flashcardDao.observeAll()
@@ -177,6 +186,7 @@ class PflegeRepository(
             restoreMissingDefaultCategories()
             restoreMissingDefaultOperators()
             restoreMissingDefaultPreparations()
+            enforceClinicalFocus()
             aiPreferencesStore.markInitialCatalogSeeded()
             aiPreferencesStore.setLastSeededVersionCode(CURRENT_CATALOG_SEED_VERSION)
         }
@@ -280,6 +290,17 @@ class PflegeRepository(
         toInsert.size
     }
 
+    // Bestehende Lernstände und Quellenzuordnungen bleiben dabei erhalten.
+    private suspend fun enforceClinicalFocus() {
+        val templates = DefaultCatalogs.defaultPreparations.associateBy { it.title.lowercase() }
+        preparationDao.getAll().forEach { item ->
+            val template = templates[item.title.trim().lowercase()] ?: return@forEach
+            if (template.isClinicalPicture && !item.focusParametersCsv.contains("Anatomie & Physiologie", ignoreCase = true)) {
+                preparationDao.update(item.copy(focusParametersCsv = (listOf("Anatomie & Physiologie") + item.focusParametersCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }).joinToString(", ")))
+            }
+        }
+    }
+
     suspend fun restoreMissingDefaultCategories(): Int = withContext(Dispatchers.IO) {
         val existing = categoryDao.getAll().map { it.shortCode.trim().lowercase() to it.name.trim().lowercase() }
         val existingNames = existing.map { it.second }.toSet()
@@ -365,7 +386,7 @@ class PflegeRepository(
         var catCount = 0
         val existingCats = categoryDao.getAll().toMutableList()
         for ((idx, c) in manifest.categories.withIndex()) {
-            if (c.name.isBlank() || c.shortCode.isBlank()) continue
+            if (c.name.isBlank() || c.shortCode.isBlank() || c.shortCode.equals("Ana/Phys", true)) continue
             val exists = existingCats.any {
                 it.shortCode.equals(c.shortCode.trim(), ignoreCase = true) ||
                     it.name.equals(c.name.trim(), ignoreCase = true)
@@ -433,70 +454,72 @@ class PflegeRepository(
             opCount++
         }
 
-        // 3. Themenliste importieren / aktualisieren
-        var prepCount = 0
-        if (manifest.replaceExistingPreparations) {
-            preparationDao.deleteAll()
-        }
-        val currentPreps = preparationDao.getAll().associateBy { it.title.trim().lowercase() }.toMutableMap()
-        for (p in manifest.preparations) {
-            if (p.title.isBlank()) continue
-            val depth = runCatching { DetailDepth.valueOf(p.detailDepth.trim()) }.getOrDefault(DetailDepth.STANDARD)
-            val prio = runCatching { PriorityLevel.valueOf(p.priority.trim()) }.getOrDefault(PriorityLevel.MEDIUM)
-            val matchedCat = allCats.firstOrNull {
-                it.shortCode.equals(p.categoryOrCompetenceArea.trim(), ignoreCase = true) ||
-                    it.name.equals(p.categoryOrCompetenceArea.trim(), ignoreCase = true) ||
-                    (p.examDayTag.isNotBlank() && it.shortCode.equals(p.examDayTag.trim(), ignoreCase = true))
-            }
-            val key = p.title.trim().lowercase()
-            val prev = currentPreps[key]
-            val entity = PreparationItemEntity(
-                id = prev?.id ?: 0L,
-                title = p.title.trim(),
-                categoryOrCompetenceArea = matchedCat?.name ?: p.categoryOrCompetenceArea.trim(),
-                categoryId = matchedCat?.id ?: prev?.categoryId,
-                examDayTag = p.examDayTag.trim(),
-                competenceFocusCodes = p.competenceFocusCodes.trim(),
-                keywordsCsv = p.keywordsCsv.trim(),
-                detailDepth = depth,
-                priority = prio,
-                focusParametersCsv = p.focusParametersCsv.trim(),
-                targetFlashcardCount = p.targetFlashcardCount.coerceIn(1, 50),
-                flashcardTypesCsv = p.flashcardTypesCsv.ifBlank { "DEFINITION,CAUSAL,LIST,CLOZE,CAVE" },
-                selectedSourceIdsCsv = prev?.selectedSourceIdsCsv.orEmpty(),
-                customPromptNote = p.customPromptNote.trim(),
-                isCompleted = prev?.isCompleted ?: false
-            )
-            if (prev == null) {
-                val id = preparationDao.insert(entity)
-                currentPreps[key] = entity.copy(id = id)
-            } else {
-                preparationDao.update(entity)
-                currentPreps[key] = entity
-            }
-            prepCount++
-        }
+        // Themen sind fest vorgegeben. Alte Pakete können sie weder ersetzen noch erweitern.
+        val prepCount = 0
+        restoreMissingDefaultPreparations()
 
         // 4. Quellen einlesen (inlineText oder Datei aus ZIP/Assets)
         var sourceCount = 0
         val skippedSources = mutableListOf<String>()
-        val existingSourceTitles = sourceDao.getAllSources().map { it.title.trim().lowercase() }.toMutableSet()
+        try {
+        db.withTransaction {
+        val previousSources = sourceDao.getAllSources()
+        // Erst neue Quellen einlesen; vorhandene Daten nur nach vollständig erfolgreichem
+        // Import entfernen. Fehlende oder defekte Dateien dürfen nie Daten löschen.
+        val existingSourceTitles = (if (manifest.replaceExistingSources) emptyList() else previousSources)
+            .associate { it.title.trim().lowercase() to it.id }.toMutableMap()
+        val topics = preparationDao.getAll().filter { item ->
+            DefaultCatalogs.defaultPreparations.any { it.title.equals(item.title, true) }
+        }
+        if (manifest.replaceExistingSources) {
+            topics.forEach { preparationDao.update(it.copy(selectedSourceIdsCsv = "")) }
+        }
+        val topicByTitle = topics.associateBy { it.title.trim().lowercase() }.mapValues { (_, topic) ->
+            if (manifest.replaceExistingSources) topic.copy(selectedSourceIdsCsv = "") else topic
+        }.toMutableMap()
+        suspend fun assignTopics(sourceId: Long, titles: List<String>?) {
+            if (titles == null) return // Legacy-Paket: bestehende Zuordnungen nicht verändern.
+            topicByTitle.toMap().forEach { (key, topic) ->
+                val ids = topic.selectedSourceIdsCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.filter { it != sourceId }
+                val updated = topic.copy(selectedSourceIdsCsv = ids.joinToString(","))
+                preparationDao.update(updated)
+                topicByTitle[key] = updated
+            }
+            titles.distinct().forEach { title ->
+                val key = title.trim().lowercase()
+                val topic = topicByTitle[key]
+                if (topic == null) {
+                    skippedSources.add("Unbekanntes Thema: $title")
+                } else {
+                    val ids = topic.selectedSourceIdsCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toMutableSet()
+                    ids.add(sourceId)
+                    val updated = topic.copy(selectedSourceIdsCsv = ids.sorted().joinToString(","))
+                    preparationDao.update(updated)
+                    topicByTitle[key] = updated
+                }
+            }
+        }
 
         for (src in manifest.sources) {
-            if (src.title.isBlank() && src.fileName.isBlank()) continue
+            if (src.title.isBlank() && src.fileName.isBlank()) {
+                skippedSources.add("Quelle ohne Titel oder Datei")
+                continue
+            }
             val matchedCat = allCats.firstOrNull {
                 it.shortCode.equals(src.categoryShortCode.trim(), ignoreCase = true) ||
                     it.name.equals(src.categoryShortCode.trim(), ignoreCase = true)
             }
             val resolvedTitle = src.title.ifBlank { src.fileName.substringAfterLast('/').substringBeforeLast('.') }
-            if (resolvedTitle.trim().lowercase() in existingSourceTitles) {
-                skippedSources.add("$resolvedTitle (bereits vorhanden)")
+            val previous = existingSourceTitles[resolvedTitle.trim().lowercase()]
+            if (previous != null) {
+                assignTopics(previous, src.topicTitles)
+                skippedSources.add("$resolvedTitle (bereits vorhanden; Themenzuordnung aktualisiert)")
                 continue
             }
 
             if (src.inlineText.isNotBlank()) {
                 val pages = ingestionService.splitPlainTextToLogicalSections(src.inlineText)
-                saveRawPagesAsSource(
+                val sourceId = saveRawPagesAsSource(
                     title = resolvedTitle,
                     tags = src.tags,
                     sourceType = SourceType.TXT,
@@ -505,7 +528,8 @@ class PflegeRepository(
                     categoryId = matchedCat?.id,
                     categoryLabel = matchedCat?.name ?: src.categoryShortCode
                 )
-                existingSourceTitles.add(resolvedTitle.trim().lowercase())
+                assignTopics(sourceId, src.topicTitles)
+                existingSourceTitles[resolvedTitle.trim().lowercase()] = sourceId
                 sourceCount++
                 continue
             }
@@ -525,12 +549,26 @@ class PflegeRepository(
                     categoryId = matchedCat?.id,
                     categoryLabel = matchedCat?.name ?: src.categoryShortCode
                 )
-            }.onSuccess {
-                existingSourceTitles.add(resolvedTitle.trim().lowercase())
+            }.onSuccess { sourceId ->
+                assignTopics(sourceId, src.topicTitles)
+                existingSourceTitles[resolvedTitle.trim().lowercase()] = sourceId
                 sourceCount++
             }.onFailure { err ->
                 skippedSources.add("$resolvedTitle (${err.message ?: "Importfehler"})")
             }
+        }
+
+        if (manifest.replaceExistingSources && skippedSources.isEmpty() && sourceCount == manifest.sources.size) {
+            previousSources.forEach { sourceDao.deleteSource(it) }
+        } else if (manifest.replaceExistingSources) {
+            throw IllegalStateException("Quellenersetzung unvollständig")
+        }
+        }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            sourceCount = 0
+            skippedSources.add("Quellenimport zurückgerollt; vorhandene Quellen bleiben erhalten: ${e.message.orEmpty()}")
         }
 
         return BundleImportReport(
@@ -569,7 +607,8 @@ class PflegeRepository(
                     fileName = relFileName,
                     title = doc.title,
                     categoryShortCode = matchedCat?.shortCode ?: doc.categoryLabel,
-                    tags = doc.tags
+                    tags = doc.tags,
+                    topicTitles = preps.filter { prep -> prep.selectedSourceIdsCsv.split(",").any { it.trim().toLongOrNull() == doc.id } }.map { it.title }
                 )
             )
             sourceFilePayloads.add(relFileName to fullText.toByteArray(StandardCharsets.UTF_8))
@@ -662,7 +701,10 @@ class PflegeRepository(
     }
 
     suspend fun testAiConnection(settings: AiSettings): AiCallResult =
-        aiClient.testConnection(settings)
+        if (settings.isOnDevice()) onDeviceAiClient.testConnection() else aiClient.testConnection(settings)
+
+    suspend fun smartphoneAiStatus(): OnDeviceAiStatus = onDeviceAiClient.checkStatus()
+    fun downloadSmartphoneAi() = onDeviceAiClient.startBackgroundDownload()
 
     suspend fun saveUsernameAndSync(rawUsername: String): RankingSyncResult {
         val clean = RankingEngine.sanitizeUsername(rawUsername)
@@ -937,11 +979,11 @@ class PflegeRepository(
         item: PreparationItemEntity,
         replacePreviousCardsForTopic: Boolean = false
     ): GenerationReport = withContext(Dispatchers.Default) {
-        val chunkInputs = loadChunkInputs()
         val config = item.toGenerationConfig()
+        val chunkInputs = loadChunksForTopic(config.selectedSourceIds)
 
         when (
-            val outcome = SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
                 allChunks = chunkInputs,
                 titleQuery = config.title,
                 keywords = config.keywords,
@@ -949,7 +991,7 @@ class PflegeRepository(
                 customPromptNote = config.customPromptNote,
                 selectedSourceIds = config.selectedSourceIds,
                 detailDepth = config.detailDepth
-            )
+            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
             is RetrievalOutcome.NoSources -> GenerationReport.NoEvidenceFound(
                 "Es sind aktuell keine eigenen Quellen hinterlegt (oder die ausgewählten Quellen existieren nicht mehr). Bitte fügen Sie zuerst eigene Quellen hinzu."
@@ -967,25 +1009,28 @@ class PflegeRepository(
                 var note: de.pflegeexamen.app.domain.engine.GeneratedStudyNote? = null
                 var cards: List<de.pflegeexamen.app.domain.engine.GeneratedFlashcard> = emptyList()
 
-                if (activeAi.isReadyForRemoteCall()) {
-                    val prompt = AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
-                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
+                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceStudyPrompt(config, outcome.passages) else AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
+                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, outcome.passages)
+                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, if (activeAi.isOnDevice()) emptyList() else outcome.passages)
                             if (parsed != null) {
                                 note = parsed.studyNote
                                 cards = parsed.flashcards
                                 usedLabel = res.providerLabel
                             } else {
-                                fallbackHint = "Hinweis: KI-Antwort war unvollständig – Offline-Engine hat zuverlässig übernommen."
+                                fallbackHint = "Hinweis: KI-Antwort war unvollständig."
                             }
                         }
                         is AiCallResult.Failure -> {
-                            fallbackHint = "Hinweis: ${res.reason} – Offline-Engine hat automatisch übernommen."
+                            fallbackHint = "Hinweis: ${res.reason}"
                         }
                     }
                 }
 
+                if (note == null && cards.isEmpty() && outcome.passages.isEmpty()) {
+                    return@withContext GenerationReport.NoEvidenceFound(fallbackHint ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
+                }
                 if (note == null && cards.isEmpty()) {
                     note = StudyNoteGenerator.generate(config, outcome.passages)
                     cards = FlashcardGenerator.generate(config, outcome.passages)
@@ -1076,16 +1121,17 @@ class PflegeRepository(
                 "Bitte wählen Sie mindestens einen Operator aus Ihrer Operatorenliste aus."
             )
         }
-        val chunkInputs = loadChunkInputs()
+        val topicSourceIds = prepItemId?.let { preparationDao.getById(it)?.toGenerationConfig()?.selectedSourceIds }.orEmpty()
+        val chunkInputs = loadChunksForTopic(topicSourceIds)
         when (
-            val outcome = SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
                 allChunks = chunkInputs,
                 titleQuery = topicTitle,
                 keywords = keywords,
                 focusParameters = listOf("Anatomie & Physiologie", "Definition", "Symptome", "Ursachen", "Pflegemaßnahmen", "Begründungen", "Cave"),
-                selectedSourceIds = selectedSourceIds,
+                selectedSourceIds = topicSourceIds.ifEmpty { selectedSourceIds },
                 detailDepth = detailDepth
-            )
+            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
             is RetrievalOutcome.NoSources -> CaseGenerationReport.NoEvidenceFound(
                 "Es liegen noch keine eigenen Quellen vor. Bitte fügen Sie zuerst Skripte, PDFs, Word-Dateien, Texte oder Foto-Scans hinzu."
@@ -1117,24 +1163,27 @@ class PflegeRepository(
                 var fallbackNote: String? = null
                 var generated: de.pflegeexamen.app.domain.engine.GeneratedCaseStudy? = null
 
-                if (activeAi.isReadyForRemoteCall()) {
-                    val prompt = AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
-                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
+                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceCasePrompt(topicTitle, specs, outcome.passages) else AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
+                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, outcome.passages, specs)
+                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, if (activeAi.isOnDevice()) emptyList() else outcome.passages, specs)
                             if (parsed != null) {
                                 generated = parsed
                                 usedLabel = res.providerLabel
                             } else {
-                                fallbackNote = "KI-Antwort war nicht strukturiert genug – Offline-Generator hat übernommen."
+                                fallbackNote = "KI-Antwort war nicht strukturiert genug."
                             }
                         }
                         is AiCallResult.Failure -> {
-                            fallbackNote = "${res.reason} – Offline-Generator hat übernommen."
+                            fallbackNote = "${res.reason}"
                         }
                     }
                 }
 
+                if (generated == null && outcome.passages.isEmpty()) {
+                    return@withContext CaseGenerationReport.NoEvidenceFound(fallbackNote ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
+                }
                 if (generated == null) {
                     generated = CaseStudyGenerator.generate(
                         topicTitle = topicTitle,
@@ -1216,7 +1265,7 @@ class PflegeRepository(
 
         var aiFeedback = ""
         val activeAi = aiPreferencesStore.current()
-        if (activeAi.isReadyForRemoteCall() && !answeredOnPaper && effectiveAnswer.isNotBlank()) {
+        if ((activeAi.isOnDevice() || activeAi.isReadyForRemoteCall()) && !answeredOnPaper && effectiveAnswer.isNotBlank()) {
             val prompt = AiPromptBuilder.buildAnswerFeedbackPrompt(
                 questionText = current.questionText,
                 operatorName = current.operatorName,
@@ -1225,7 +1274,7 @@ class PflegeRepository(
                 gradingRubric = current.operatorGradingRubric,
                 commentNotes = current.operatorCommentNotes
             )
-            val res = aiClient.complete(activeAi, prompt, expectJson = false)
+            val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(AiPromptBuilder.buildOnDeviceFeedbackPrompt(current.questionText, current.operatorName, current.modelAnswerText, effectiveAnswer)) else aiClient.complete(activeAi, prompt, expectJson = false)
             if (res is AiCallResult.Success) {
                 aiFeedback = res.text.trim()
             }
@@ -1330,6 +1379,17 @@ class PflegeRepository(
         )
     }
 
+    private suspend fun loadChunksForTopic(assignedIds: Set<Long>): List<ChunkInput> {
+        val chunks = loadChunkInputs()
+        if (assignedIds.isNotEmpty()) return chunks.filter { it.sourceId in assignedIds }
+        // Alt-Pakete ohne explizite Zuordnung bleiben durchsuchbar, aber Quellen,
+        // die anderen Themen zugeordnet wurden, werden nicht versehentlich verwendet.
+        val assignedElsewhere = preparationDao.getAll().flatMap {
+            it.selectedSourceIdsCsv.split(",").mapNotNull { value -> value.trim().toLongOrNull() }
+        }.toSet()
+        return chunks.filterNot { it.sourceId in assignedElsewhere }
+    }
+
     private suspend fun loadChunkInputs(): List<ChunkInput> {
         return sourceDao.getAllChunksWithSource().map { row ->
             ChunkInput(
@@ -1369,6 +1429,6 @@ class PflegeRepository(
     }
 
     companion object {
-        const val CURRENT_CATALOG_SEED_VERSION = 3
+        const val CURRENT_CATALOG_SEED_VERSION = 4
     }
 }

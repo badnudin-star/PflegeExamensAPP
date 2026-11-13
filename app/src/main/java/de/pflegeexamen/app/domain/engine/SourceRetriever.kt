@@ -17,6 +17,36 @@ object SourceRetriever {
 
     private const val MIN_RELEVANCE_SCORE = 1.25
 
+    /** Explicitly linked sources belong to the topic even if, for example, a
+     * physiology passage contains only an organ name and not the disease name. */
+    fun retrieveAssigned(
+        allChunks: List<ChunkInput>,
+        titleQuery: String,
+        keywords: List<String>,
+        focusParameters: List<String> = emptyList(),
+        customPromptNote: String = "",
+        selectedSourceIds: Set<Long> = emptySet(),
+        detailDepth: DetailDepth = DetailDepth.STANDARD
+    ): RetrievalOutcome {
+        val ranked = retrieve(allChunks, titleQuery, keywords, focusParameters, customPromptNote, selectedSourceIds, detailDepth)
+        if (selectedSourceIds.isEmpty()) return ranked
+        val found = (ranked as? RetrievalOutcome.Found)?.passages.orEmpty()
+        val assigned = allChunks.filter { it.sourceId in selectedSourceIds }
+        // Mindestens ein Abschnitt pro zugeordneter Quelle, damit ein gesondertes
+        // Anatomie-Skript nicht von zahlreichen Krankheits-Abschnitten verdrängt wird.
+        val representatives = assigned.groupBy { it.sourceId }.values.map { group ->
+            found.firstOrNull { it.chunk.sourceId == group.first().sourceId }
+                ?: group.first().let { RetrievedPassage(it, 0.0, emptySet(), DocumentChunker.classifyChunkSentences(it.content)) }
+        }
+        val represented = representatives.map { it.chunk.chunkId }.toSet()
+        val rest = found.filterNot { it.chunk.chunkId in represented } + assigned.asSequence()
+            .filter { it.chunkId !in represented && found.none { passage -> passage.chunk.chunkId == it.chunkId } }
+            .map { RetrievedPassage(it, 0.0, emptySet(), DocumentChunker.classifyChunkSentences(it.content)) }
+            .toList()
+        val passages = (representatives + rest).take(detailDepth.maxTotalPassages)
+        return if (passages.isEmpty()) ranked else RetrievalOutcome.Found(passages)
+    }
+
     fun retrieve(
         allChunks: List<ChunkInput>,
         titleQuery: String,
@@ -164,28 +194,44 @@ object SourceRetriever {
         val roles = LinkedHashSet<SentenceRole>()
         for (param in focusParameters) {
             val lower = param.lowercase(Locale.GERMAN)
-            when {
-                lower.contains("definit") || lower.contains("begriff") || lower.contains("grundlag") ->
-                    roles.add(SentenceRole.DEFINITION)
-                lower.contains("ursach") || lower.contains("risiko") || lower.contains("ätiolog") ->
-                    roles.add(SentenceRole.CAUSE_RISK)
-                lower.contains("symptom") || lower.contains("beobacht") || lower.contains("assess") ||
-                    lower.contains("wert") || lower.contains("skala") || lower.contains("stadi") ||
-                    lower.contains("diagnost") || lower.contains("befund") ->
-                    roles.add(SentenceRole.SYMPTOM_ASSESSMENT)
-                lower.contains("maßnahm") || lower.contains("prophylax") || lower.contains("intervent") ||
-                    lower.contains("pflegeplan") || lower.contains("berat") || lower.contains("anleit") ||
-                    lower.contains("therap") || lower.contains("handlung") ->
-                    roles.add(SentenceRole.INTERVENTION_MEASURE)
-                lower.contains("begründ") || lower.contains("ziel") || lower.contains("zusammenhang") ||
-                    lower.contains("pathophys") || lower.contains("wirk") ->
-                    roles.add(SentenceRole.REASON_GOAL)
-                lower.contains("merk") || lower.contains("cave") || lower.contains("warn") ||
-                    lower.contains("komplikat") || lower.contains("kontraind") ->
-                    roles.add(SentenceRole.CAVE_WARNING)
-                lower.contains("recht") || lower.contains("ethik") || lower.contains("gesetz") ||
-                    lower.contains("delegat") || lower.contains("dokument") ->
-                    roles.add(SentenceRole.LEGAL_ETHICS)
+            if (lower.contains("anatom") || lower.contains("physiolog") ||
+                lower.contains("aufbau") || lower.contains("organ")
+            ) {
+                roles.add(SentenceRole.DEFINITION)
+                roles.add(SentenceRole.REASON_GOAL)
+            }
+            if (lower.contains("definit") || lower.contains("begriff") || lower.contains("grundlag")) {
+                roles.add(SentenceRole.DEFINITION)
+            }
+            if (lower.contains("ursach") || lower.contains("risiko") || lower.contains("ätiolog")) {
+                roles.add(SentenceRole.CAUSE_RISK)
+            }
+            if (lower.contains("symptom") || lower.contains("beobacht") || lower.contains("assess") ||
+                lower.contains("wert") || lower.contains("skala") || lower.contains("stadi") ||
+                lower.contains("diagnost") || lower.contains("befund")
+            ) {
+                roles.add(SentenceRole.SYMPTOM_ASSESSMENT)
+            }
+            if (lower.contains("maßnahm") || lower.contains("prophylax") || lower.contains("intervent") ||
+                lower.contains("pflegeplan") || lower.contains("berat") || lower.contains("anleit") ||
+                lower.contains("therap") || lower.contains("handlung")
+            ) {
+                roles.add(SentenceRole.INTERVENTION_MEASURE)
+            }
+            if (lower.contains("begründ") || lower.contains("ziel") || lower.contains("zusammenhang") ||
+                lower.contains("pathophys") || lower.contains("wirk")
+            ) {
+                roles.add(SentenceRole.REASON_GOAL)
+            }
+            if (lower.contains("merk") || lower.contains("cave") || lower.contains("warn") ||
+                lower.contains("komplikat") || lower.contains("kontraind")
+            ) {
+                roles.add(SentenceRole.CAVE_WARNING)
+            }
+            if (lower.contains("recht") || lower.contains("ethik") || lower.contains("gesetz") ||
+                lower.contains("delegat") || lower.contains("dokument")
+            ) {
+                roles.add(SentenceRole.LEGAL_ETHICS)
             }
         }
         return roles

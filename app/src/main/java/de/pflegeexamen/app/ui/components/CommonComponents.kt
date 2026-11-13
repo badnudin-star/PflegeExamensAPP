@@ -51,6 +51,7 @@ fun OfflineSourceBanner(
 ) {
     val isRemoteReady = aiSettings.isReadyForRemoteCall()
     val bannerText = text ?: when {
+        aiSettings.isOnDevice() -> "Smartphone-KI: Verfügbarkeit in den Einstellungen prüfen. KI-Ergebnisse fachlich überprüfen."
         aiSettings.mode == AiProviderMode.OFFLINE_ONLY ->
             "100 % Offline & streng quellenbasiert (0 €): Alle Ausgaben stammen ausschließlich aus deinen eigenen Quellen."
         isRemoteReady ->

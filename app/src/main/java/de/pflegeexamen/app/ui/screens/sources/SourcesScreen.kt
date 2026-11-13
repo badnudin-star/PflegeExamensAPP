@@ -48,6 +48,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,7 +63,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import de.pflegeexamen.app.data.ingestion.OcrProcessor
 import de.pflegeexamen.app.data.ingestion.ParsedImportResult
 import de.pflegeexamen.app.data.local.LearningCategoryEntity
 import de.pflegeexamen.app.data.local.SourceDocumentEntity
@@ -103,7 +103,6 @@ fun SourcesScreen(
     var editingSource by remember { mutableStateOf<SourceDocumentEntity?>(null) }
     var deletingSource by remember { mutableStateOf<SourceDocumentEntity?>(null) }
 
-    val ocrProcessor = remember(context) { OcrProcessor(context) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
     val filteredSources = remember(sources, selectedCategoryFilter) {
@@ -152,7 +151,7 @@ fun SourcesScreen(
                 isProcessing = true
                 processingLabel = "Offline-OCR erkennt Text auf Foto..."
                 try {
-                    val text = ocrProcessor.recognizeFromUri(uri)
+                    val text = repository.ingestionService.recognizeTextFromImageUri(uri)
                     if (text.isBlank()) {
                         snackbarHostState.showSnackbar("Es konnte kein lesbarer Text im Foto erkannt werden.")
                     } else {
@@ -176,7 +175,7 @@ fun SourcesScreen(
                 isProcessing = true
                 processingLabel = "Offline-OCR liest abfotografierte Seite..."
                 try {
-                    val text = ocrProcessor.recognizeFromUri(uri)
+                    val text = repository.ingestionService.recognizeTextFromImageUri(uri)
                     if (text.isBlank()) {
                         snackbarHostState.showSnackbar("Kein Text auf der Aufnahme erkannt – bitte bei gutem Licht wiederholen.")
                     } else {
@@ -663,8 +662,15 @@ private fun OcrReviewDialog(
     var title by remember { mutableStateOf("Buchscan ${SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN).format(Date())}") }
     var tags by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<LearningCategoryEntity?>(null) }
-    val editedPages = remember(initialPages.size) {
+    val editedPages = remember {
         mutableStateListOf<String>().apply { addAll(initialPages) }
+    }
+    LaunchedEffect(initialPages.size) {
+        if (initialPages.size > editedPages.size) {
+            for (idx in editedPages.size until initialPages.size) {
+                editedPages.add(initialPages[idx])
+            }
+        }
     }
 
     AlertDialog(
