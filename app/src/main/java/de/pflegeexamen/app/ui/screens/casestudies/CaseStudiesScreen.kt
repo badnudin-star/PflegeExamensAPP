@@ -95,7 +95,7 @@ fun CaseStudiesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Examens-Fallbeispiele & Operator-Fragen",
+                        text = "Falltraining und Prüfungsfragen",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(

@@ -203,11 +203,11 @@ $userAnswerText
         val user = """
 Erstelle einen strukturierten Examens-Lernzettel und genau bis zu ${config.targetFlashcardCount} präzise Karteikarten zum Thema.
 
-THEMA: ${config.title}
-BEREICH: ${config.categoryOrCompetenceArea.ifBlank { "Allgemein" }}
-SCHWERPUNKTE: ${params.joinToString(" | ")}
+THEMA: ${config.title.take(150)}
+BEREICH: ${config.categoryOrCompetenceArea.ifBlank { "Allgemein" }.take(100)}
+SCHWERPUNKTE: ${params.joinToString(" | ").take(400)}
 KARTENTYPEN (exakte Enum-Namen): $cardTypes
-ZUSATZ: ${config.customPromptNote.ifBlank { "Keiner" }}$evidenceBlock
+ZUSATZ: ${config.customPromptNote.ifBlank { "Keiner" }.take(250)}$evidenceBlock
 
 JSON-SCHEMA:
 {"sections":[{"parameterTitle":"Name","bullets":[{"statement":"Klare Aussage","evidenceIndex":1}]}],"flashcards":[{"cardType":"DEFINITION|CAUSAL|LIST|CLOZE|CAVE","parameterTag":"Schwerpunkt","frontText":"Frage oder Lückentext mit [____]","backText":"Antwort","evidenceIndex":1}]}
@@ -221,11 +221,11 @@ JSON-SCHEMA:
         operators: List<OperatorPromptSpec>
     ): PromptPair {
         val opsText = operators.take(4).joinToString("\n") { op ->
-            "${op.operatorId}. ${op.name} (${op.requirementLevel}, ${op.defaultPoints} P): ${op.caseRelationRule.promptInstruction}"
+            "${op.operatorId}. ${op.name} (${op.requirementLevel}, ${op.defaultPoints} P): ${op.caseRelationRule.promptInstruction.take(200)}"
         }
 
         val user = """
-Erstelle ein schriftliches Pflegeexamen-Fallbeispiel zum Thema „$topicTitle“ mit Aufgaben zu exakt diesen Operatoren.
+Erstelle ein schriftliches Pflegeexamen-Fallbeispiel zum Thema „${topicTitle.take(150)}“ mit Aufgaben zu exakt diesen Operatoren.
 
 OPERATOREN:
 $opsText

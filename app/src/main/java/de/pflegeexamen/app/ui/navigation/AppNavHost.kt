@@ -189,16 +189,7 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
         }
     }
 
-    if (false && !rankingSettings.hasUsername()) {
-        UsernameOnboardingDialog(
-            onConfirm = { cleanName ->
-                scope.launch {
-                    repository.saveUsernameAndSync(cleanName)
-                    snackbarHostState.showSnackbar("Willkommen, $cleanName!")
-                }
-            }
-        )
-    }
+
 }
 
 @Composable

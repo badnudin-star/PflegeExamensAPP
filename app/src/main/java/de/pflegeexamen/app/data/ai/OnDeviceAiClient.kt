@@ -156,11 +156,11 @@ class OnDeviceAiClient {
             OnDeviceAiStatus.DOWNLOADABLE -> {
                 startBackgroundDownload()
                 return@withContext AiCallResult.Failure(
-                    "Smartphone-KI wird gerade heruntergeladen – bitte in wenigen Minuten erneut versuchen. Offline-Engine übernimmt."
+                    "Smartphone-KI wird gerade heruntergeladen – bitte nach dem Download erneut versuchen."
                 )
             }
             OnDeviceAiStatus.DOWNLOADING -> return@withContext AiCallResult.Failure(
-                "Smartphone-KI lädt noch herunter – bitte gleich erneut versuchen. Offline-Engine übernimmt."
+                "Smartphone-KI lädt noch herunter – bitte nach dem Download erneut versuchen."
             )
             OnDeviceAiStatus.UNAVAILABLE, OnDeviceAiStatus.UNSUPPORTED -> return@withContext AiCallResult.Failure(
                 "Smartphone-KI auf diesem Gerät nicht verfügbar."

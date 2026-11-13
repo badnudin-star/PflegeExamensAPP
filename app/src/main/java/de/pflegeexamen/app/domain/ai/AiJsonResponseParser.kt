@@ -132,7 +132,7 @@ object AiJsonResponseParser {
                     appendLine("**Kategorie / Bereich:** ${config.categoryOrCompetenceArea}")
                 }
                 appendLine("**Detailtiefe:** ${config.detailDepth.displayLabel}")
-                appendLine("**Ausschließlich verwendete Quellen:** $usedSources")
+                appendLine("**Grundlage:** $usedSources")
                 appendLine()
                 for (sec in sections) {
                     appendLine("## ${sec.parameterTitle}")
@@ -161,7 +161,7 @@ object AiJsonResponseParser {
             GeneratedFlashcard(
                 cardType = type,
                 frontText = front,
-                backText = "$back\n\nBeleg: ${citation.shortLabel()}",
+                backText = "$back\n\nGrundlage: ${citation.shortLabel()}",
                 citationLabel = citation.shortLabel(),
                 sourceExcerpt = citation.excerpt,
                 parameterTag = dto.parameterTag.ifBlank { type.displayLabel }

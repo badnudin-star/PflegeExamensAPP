@@ -58,6 +58,7 @@ data class BundleManifest(
     val bundleVersion: Int = 1,
     val bundleName: String = "PflegeExamen Gesamtpaket",
     val replaceExistingOperators: Boolean = false,
+    val replaceExistingSources: Boolean = false,
     val replaceExistingPreparations: Boolean = false,
     val dailyGoalPoints: Int? = null,
     val rankingEndpointUrl: String? = null,

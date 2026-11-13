@@ -13,6 +13,7 @@ class BundleManifestTest {
         val manifest = BundleManifest(
             bundleVersion = 1,
             bundleName = "Examen 2027 Test",
+            replaceExistingSources = true,
             dailyGoalPoints = 25,
             categories = listOf(
                 BundleCategoryItem(name = "Tag 1", shortCode = "Tag 1", colorHex = 0xFF0E6B6EL)
@@ -48,6 +49,8 @@ class BundleManifestTest {
         val decoded = json.decodeFromString<BundleManifest>(encoded)
 
         assertEquals("Examen 2027 Test", decoded.bundleName)
+        assertEquals(true, decoded.replaceExistingSources)
+        assertEquals(false, json.decodeFromString<BundleManifest>("{}").replaceExistingSources)
         assertEquals(25, decoded.dailyGoalPoints)
         assertEquals("Tag 1", decoded.preparations.first().examDayTag)
         assertEquals("NO_CASE_RELATION", decoded.operators.first().caseRelationRule)

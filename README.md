@@ -1,28 +1,25 @@
 # PflegeExamen Lokal (Android · Kotlin / Jetpack Compose)
 
-Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistischen Pflegeausbildung (Deutschland)** – **100 % Offline im Standard** und optional mit **kostenloser Hybrid-KI (0 €)** ohne Backend- oder Abo-Kosten.
+Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen Pflegeausbildung.
 
-## Kernprinzipien
-- **Dauerhaft 0 € Kosten:** Kein kostenpflichtiges Backend, kein Entwickler-API-Key, kein Abo. Im Standard läuft die App **100 % offline** auf deinem Gerät.
-- **Optionales Gratis-KI-Hybridmodell (`SettingsScreen`):**
-  - **100 % Offline (Standard):** Vollständig lokal ohne Internet.
-  - **Groq Free Tier (0 €, ohne Kreditkarte):** Schnelle Ausformulierung über deinen eigenen kostenlosen Groq-Key (`console.groq.com`).
-  - **Google Gemini Free Tier (0 €, ohne Kreditkarte):** Nutzung über eigenen AI-Studio-Key (`aistudio.google.com`) inkl. Datenschutzhinweis.
-  - **Lokales Ollama (0 €, Heim-WLAN):** Verbindung zu deinem eigenen Rechner/Laptop im lokalen Netzwerk (`OLLAMA_HOST=0.0.0.0`).
-  - **Automatischer Offline-Fallback:** Bei fehlendem Netz, Timeout oder Limit übernimmt nahtlos die lokale Engine.
-- **Streng quellenbasiert (Zero Hallucination):** Alle Lernzettel, Karteikarten, Fallvignetten und Musterlösungen entstehen **ausschließlich aus deinen eigenen Quellen** und tragen Belege (`SourceCitation`) mit Dokumenttitel, Seiten-/Scan-Nummer, Abschnitt und Originalzitat. Bei KI-Nutzung werden nur lokal ermittelte Belegstellen `[BELEG-X]` übergeben.
-- **Zukunftssicher für iOS (KMP-vorbereitet):** Die reine Kotlin-Domain (`domain/model`, `domain/engine`, `domain/ai`) ist plattformunabhängig gehalten, sodass sie später per **Kotlin Multiplatform (KMP)** auch unter iOS (inkl. identischer Gratis-REST-Provider oder Apple Foundation Models ab iOS 26) geteilt werden kann.
+## Lernen und Smartphone-KI
+
+- Die Navigation konzentriert sich auf **Heute**, **Themen**, **Karten** und **Falltraining**. Quellen und Operatoren werden ausschließlich mit `tools/PflegeBundleStudio.html` bearbeitet und als `.pflegebundle.zip` in den App-Einstellungen importiert.
+- Auf kompatiblen Android-Geräten nutzt die App standardmäßig **Gemini Nano über Android AICore / ML Kit GenAI**. Die Generierung erfolgt auf dem Gerät ohne API-Schlüssel; der erste Modelldownload benötigt Internet und genügend Speicherplatz. Verfügbarkeit und Download können in den Einstellungen geprüft werden.
+- Nicht jedes Smartphone unterstützt Gemini Nano. Wenn es nicht verfügbar ist oder die KI-Antwort fehlschlägt, kann die Offline-Engine nur dann Material erstellen, wenn passende Texte über ein Lernpaket importiert wurden. Ohne Modell und ohne passende Texte gibt die App einen Hinweis aus; sie kann kein Fachwissen aus dem Nichts erzeugen.
+- KI-generierte Inhalte sind **keine Quellenbelege** und können fachliche Fehler enthalten. Vor der Prüfung und insbesondere vor der Anwendung in der Pflege stets mit verlässlichen Fachquellen und aktuellen Standards abgleichen.
+- Die optionalen externen Anbieter bleiben in den Einstellungen verfügbar. Dabei können Inhalte an den jeweiligen Anbieter übertragen werden.
 
 ---
 
 ## Funktionsumfang
 
-1. **Eigene Quellen (`SourcesScreen`)**
+1. **Eigene Quellen (ausschließlich über das HTML-Studio)**
    - **PDF-Import:** Seitenweise Textextraktion via `pdfbox-android` (inkl. automatischem Fallback auf Android `PdfRenderer` + Offline-OCR bei eingescannten PDFs).
    - **Word-Import (`.docx`):** Lokaler Parser für Absätze, Überschriften, Aufzählungen und Tabellen.
    - **Text & Markdown (`.txt`, `.md`) & Direkteingabe:** Schneller Import eigener Mitschriften.
-   - **Foto-OCR (Kamera & Galerie):** On-Device-Texterkennung via Google ML Kit mit mehrseitigem Korrekturdialog.
-   - **Kategorien & Abschnitt-Inspektor:** Zuordnung zu Kompetenzbereichen/Fächern und Einsicht in alle indexierten Textabschnitte.
+
+
 
 2. **Vorbereitungsliste Frühjahr 2027 & Lernkategorien (`PreparationScreen`, `SettingsScreen`)**
    - Vorbefüllt mit allen **42 offiziellen Prüfungsthemen (Vorbereitungsliste Frühjahr 2027)**, strukturiert nach **Tag 1** (`I.1, I.5, I.6, II.1, IV`), **Tag 2** (`I.2, II.2, IV.1`) und **Tag 3** (`I.3, I.4, II.3, III.2`).
@@ -30,7 +27,7 @@ Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistisch
    - **Lernzettel (`StudyNotesScreen`) & Karteikarten (`FlashcardsScreen`):** Strukturierte Markdown-Lernzettel mit anklickbaren Quellenbelegen sowie 5 Karteikartentypen mit **SM-2 Spaced Repetition**.
 
 3. **Operatorenliste nach Landes-AG / Jann Wegner (Überarbeitung Dezember 2025, `OperatorsScreen`)**
-   - Vorbefüllt mit allen **17 offiziellen Operatoren** aus **Teil A (Taxonomie WV)** und **Teil B (Taxonomie ASB)** sowie anatomischer Beschriftung – jeweils inkl. *Beispielfrage*, *Erwartungshorizont*, *Kommentar (K1–K3)*, *Fallbezugs-Regel* (allgemeingültig vs. Fallbezug Pflicht) und *Bepunktungsschema*. Jeder Eintrag ist frei editierbar, löschbar, per JSON ex-/importierbar und wiederherstellbar.
+   - Vorbefüllt mit allen **17 offiziellen Operatoren** aus **Teil A (Taxonomie WV)** und **Teil B (Taxonomie ASB)** sowie anatomischer Beschriftung – jeweils inkl. *Beispielfrage*, *Erwartungshorizont*, *Kommentar (K1–K3)*, *Fallbezugs-Regel* (allgemeingültig vs. Fallbezug Pflicht) und *Bepunktungsschema*. Die Einträge werden im HTML-Studio bearbeitet und über ein Paket importiert.
 
 4. **Externes Einspeise-Tool & feste App-Integration (`tools/PflegeBundleStudio.html` & `.pflegebundle.zip`)**
    - **`tools/PflegeBundleStudio.html`** läuft 100 % offline am PC im Browser und enthält bereits alle 42 Themen (Frühjahr 2027) sowie die 17 Operatoren (Dez. 2025).
@@ -50,7 +47,7 @@ Kostenlose Lernapp für die **schriftliche Examensprüfung in der generalistisch
    - **Tagesziel, Examens-Reife (%) & Schwachstellen-Radar** direkt auf dem Startbildschirm.
 
 7. **Benutzername & Stündliches Community-Ranking (0 € · `RankingScreen` & `cloudflare-ranking/`)**
-   - **Pflicht-Pseudonym beim ersten Öffnen:** Beim ersten Start vergibt jede*r Lernende einen Benutzernamen (jederzeit in den Einstellungen änderbar oder pausierbar).
+   - **Optionales Pseudonym:** Ein Benutzername kann in den Einstellungen für das Ranking eingerichtet werden.
    - **Stündlicher Abgleich ohne laufende Kosten:** Nativer Android-`JobScheduler` (60-Minuten-Takt) + stündlicher App-Check senden ausschließlich `{ userId, username, totalXp, streakDays, rankTitle }` und laden den vorberechneten Stunden-Snapshot (offline gepuffert).
    - **Fertiges 0-€-Backend (`cloudflare-ranking/`):** Cloudflare Worker + D1 SQLite Free Tier + Cron (`0 * * * *`) + optionaler automatischer `leaderboard.json`-Export zu GitHub Pages (inkl. Workflow `.github/workflows/deploy-ranking-worker.yml`). Einrichtung in ca. 5 Minuten ohne Kreditkarte – Details siehe `cloudflare-ranking/README.md`.
 

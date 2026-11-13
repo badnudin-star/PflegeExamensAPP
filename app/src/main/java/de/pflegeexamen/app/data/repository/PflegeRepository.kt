@@ -1,6 +1,8 @@
 package de.pflegeexamen.app.data.repository
 
 import android.net.Uri
+import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import de.pflegeexamen.app.data.ai.AiCallResult
 import de.pflegeexamen.app.data.ai.AiPreferencesStore
 import de.pflegeexamen.app.data.ai.HttpAiTextClient
@@ -483,10 +485,19 @@ class PflegeRepository(
         // 4. Quellen einlesen (inlineText oder Datei aus ZIP/Assets)
         var sourceCount = 0
         val skippedSources = mutableListOf<String>()
-        val existingSourceTitles = sourceDao.getAllSources().map { it.title.trim().lowercase() }.toMutableSet()
+        try {
+        db.withTransaction {
+        val previousSources = sourceDao.getAllSources()
+        // Erst neue Quellen einlesen; vorhandene Daten nur nach vollständig erfolgreichem
+        // Import entfernen. Fehlende oder defekte Dateien dürfen nie Daten löschen.
+        val existingSourceTitles = (if (manifest.replaceExistingSources) emptyList() else previousSources)
+            .map { it.title.trim().lowercase() }.toMutableSet()
 
         for (src in manifest.sources) {
-            if (src.title.isBlank() && src.fileName.isBlank()) continue
+            if (src.title.isBlank() && src.fileName.isBlank()) {
+                skippedSources.add("Quelle ohne Titel oder Datei")
+                continue
+            }
             val matchedCat = allCats.firstOrNull {
                 it.shortCode.equals(src.categoryShortCode.trim(), ignoreCase = true) ||
                     it.name.equals(src.categoryShortCode.trim(), ignoreCase = true)
@@ -534,6 +545,19 @@ class PflegeRepository(
             }.onFailure { err ->
                 skippedSources.add("$resolvedTitle (${err.message ?: "Importfehler"})")
             }
+        }
+
+        if (manifest.replaceExistingSources && skippedSources.isEmpty() && sourceCount == manifest.sources.size) {
+            previousSources.forEach { sourceDao.deleteSource(it) }
+        } else if (manifest.replaceExistingSources) {
+            throw IllegalStateException("Quellenersetzung unvollständig")
+        }
+        }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            sourceCount = 0
+            skippedSources.add("Quellenimport zurückgerollt; vorhandene Quellen bleiben erhalten: ${e.message.orEmpty()}")
         }
 
         return BundleImportReport(
@@ -944,7 +968,7 @@ class PflegeRepository(
         replacePreviousCardsForTopic: Boolean = false
     ): GenerationReport = withContext(Dispatchers.Default) {
         val chunkInputs = loadChunkInputs()
-        val config = item.toGenerationConfig()
+        val config = item.toGenerationConfig().copy(selectedSourceIds = emptySet())
 
         when (
             val outcome: RetrievalOutcome = (SourceRetriever.retrieve(

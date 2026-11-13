@@ -16,6 +16,31 @@ import org.junit.Test
 
 class AiPromptAndParserTest {
 
+    @Test
+    fun `on device output works without sources and is not presented as evidence`() {
+        val config = PrepGenerationConfig(
+            prepItemId = 1, title = "Dekubitus", categoryOrCompetenceArea = "",
+            keywords = emptyList(), detailDepth = DetailDepth.STANDARD,
+            focusParameters = emptyList(), targetFlashcardCount = 2,
+            flashcardTypes = setOf(FlashcardType.DEFINITION), selectedSourceIds = emptySet(),
+            customPromptNote = ""
+        )
+        val response = """{"sections":[{"parameterTitle":"Grundlagen","bullets":[{"statement":"Anhaltender Druck kann Gewebe schädigen."}]}],"flashcards":[{"frontText":"Was ist ein Dekubitus?","backText":"Eine lokale Gewebeschädigung."}]}"""
+        val parsed = AiJsonResponseParser.parseStudyAndCards(response, config, emptyList())!!
+        assertNotNull(parsed.studyNote)
+        assertEquals(1, parsed.flashcards.size)
+        assertTrue(parsed.studyNote!!.sourceSummary.contains("kein Quellenbeleg"))
+        assertTrue(parsed.flashcards.first().citationLabel.contains("kein Quellenbeleg"))
+        assertTrue(AiPromptBuilder.buildOnDeviceStudyPrompt(config).userPrompt.contains("Dekubitus"))
+    }
+
+    @Test
+    fun `smartphone ai is default and not a remote provider`() {
+        val settings = de.pflegeexamen.app.domain.model.AiSettings()
+        assertTrue(settings.isOnDevice())
+        assertTrue(!settings.isReadyForRemoteCall())
+    }
+
     private val passages = listOf(
         RetrievedPassage(
             chunk = ChunkInput(
