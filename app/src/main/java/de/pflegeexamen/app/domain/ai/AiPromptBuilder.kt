@@ -1,5 +1,6 @@
 package de.pflegeexamen.app.domain.ai
 
+import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.model.OperatorPromptSpec
 import de.pflegeexamen.app.domain.model.PrepGenerationConfig
 import de.pflegeexamen.app.domain.model.RetrievedPassage
@@ -218,17 +219,24 @@ JSON-SCHEMA:
 
     fun buildOnDeviceCasePrompt(
         topicTitle: String,
-        operators: List<OperatorPromptSpec>
+        operators: List<OperatorPromptSpec>,
+        passages: List<RetrievedPassage> = emptyList()
     ): PromptPair {
+        val evidence = passages.take(3).joinToString("\n") { it.chunk.content.take(300) }
+        val clinical = DefaultCatalogs.defaultPreparations.any { it.title.equals(topicTitle, true) && it.isClinicalPicture }
         val opsText = operators.take(4).joinToString("\n") { op ->
             "${op.operatorId}. ${op.name} (${op.requirementLevel}, ${op.defaultPoints} P): ${op.caseRelationRule.promptInstruction.take(200)}"
         }
 
         val user = """
 Erstelle ein schriftliches Pflegeexamen-Fallbeispiel zum Thema „${topicTitle.take(150)}“ mit Aufgaben zu exakt diesen Operatoren.
+${if (clinical) "Berücksichtige die zum Krankheitsbild passende Anatomie und Physiologie." else ""}
 
 OPERATOREN:
 $opsText
+
+MATERIAL ZUM THEMA (falls vorhanden):
+$evidence
 
 JSON-SCHEMA:
 {"vignetteText":"Praxisnahe Fallbeschreibung auf Deutsch (Person, Situation, Beobachtungen)","isOriginalCaseFromSource":false,"vignetteEvidenceIndices":[1],"questions":[{"operatorId":1,"questionText":"Aufgabenstellung","modelAnswerText":"Ausformulierte Musterlösung","expectedKeyPoints":["Kernaspekt 1","Kernaspekt 2"],"evidenceIndices":[1]}]}

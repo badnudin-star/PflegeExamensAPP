@@ -64,6 +64,7 @@ import de.pflegeexamen.app.domain.model.SelfEvaluation
 import de.pflegeexamen.app.domain.model.SourceCitation
 import de.pflegeexamen.app.domain.model.SourceType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -164,10 +165,13 @@ class PflegeRepository(
     val rankingSettings: StateFlow<RankingSettings> = rankingPreferencesStore.settings
     val cachedLeaderboard: StateFlow<LeaderboardSnapshot?> = rankingPreferencesStore.cachedSnapshot
 
-    val categories: Flow<List<LearningCategoryEntity>> = categoryDao.observeAll()
+    val categories: Flow<List<LearningCategoryEntity>> = categoryDao.observeAll().map { categories -> categories.filterNot { it.shortCode.equals("Ana/Phys", true) } }
     val studyProfile: Flow<StudyProfileEntity?> = profileDao.observeProfile()
     val sources: Flow<List<SourceDocumentEntity>> = sourceDao.observeAllSources()
-    val preparationItems: Flow<List<PreparationItemEntity>> = preparationDao.observeAll()
+    val preparationItems: Flow<List<PreparationItemEntity>> = preparationDao.observeAll().map { items ->
+        val titles = DefaultCatalogs.defaultPreparations.map { it.title.lowercase() }.toSet()
+        items.filter { it.title.trim().lowercase() in titles }
+    }
     val operators: Flow<List<OperatorItemEntity>> = operatorDao.observeAll()
     val studyNotes: Flow<List<StudyNoteEntity>> = studyNoteDao.observeAll()
     val flashcards: Flow<List<FlashcardEntity>> = flashcardDao.observeAll()
@@ -182,6 +186,7 @@ class PflegeRepository(
             restoreMissingDefaultCategories()
             restoreMissingDefaultOperators()
             restoreMissingDefaultPreparations()
+            enforceClinicalFocus()
             aiPreferencesStore.markInitialCatalogSeeded()
             aiPreferencesStore.setLastSeededVersionCode(CURRENT_CATALOG_SEED_VERSION)
         }
@@ -285,6 +290,17 @@ class PflegeRepository(
         toInsert.size
     }
 
+    // Bestehende Lernstände und Quellenzuordnungen bleiben dabei erhalten.
+    private suspend fun enforceClinicalFocus() {
+        val templates = DefaultCatalogs.defaultPreparations.associateBy { it.title.lowercase() }
+        preparationDao.getAll().forEach { item ->
+            val template = templates[item.title.trim().lowercase()] ?: return@forEach
+            if (template.isClinicalPicture && !item.focusParametersCsv.contains("Anatomie & Physiologie", ignoreCase = true)) {
+                preparationDao.update(item.copy(focusParametersCsv = (listOf("Anatomie & Physiologie") + item.focusParametersCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }).joinToString(", ")))
+            }
+        }
+    }
+
     suspend fun restoreMissingDefaultCategories(): Int = withContext(Dispatchers.IO) {
         val existing = categoryDao.getAll().map { it.shortCode.trim().lowercase() to it.name.trim().lowercase() }
         val existingNames = existing.map { it.second }.toSet()
@@ -370,7 +386,7 @@ class PflegeRepository(
         var catCount = 0
         val existingCats = categoryDao.getAll().toMutableList()
         for ((idx, c) in manifest.categories.withIndex()) {
-            if (c.name.isBlank() || c.shortCode.isBlank()) continue
+            if (c.name.isBlank() || c.shortCode.isBlank() || c.shortCode.equals("Ana/Phys", true)) continue
             val exists = existingCats.any {
                 it.shortCode.equals(c.shortCode.trim(), ignoreCase = true) ||
                     it.name.equals(c.name.trim(), ignoreCase = true)
@@ -438,49 +454,9 @@ class PflegeRepository(
             opCount++
         }
 
-        // 3. Themenliste importieren / aktualisieren
-        var prepCount = 0
-        if (manifest.replaceExistingPreparations) {
-            preparationDao.deleteAll()
-        }
-        val currentPreps = preparationDao.getAll().associateBy { it.title.trim().lowercase() }.toMutableMap()
-        for (p in manifest.preparations) {
-            if (p.title.isBlank()) continue
-            val depth = runCatching { DetailDepth.valueOf(p.detailDepth.trim()) }.getOrDefault(DetailDepth.STANDARD)
-            val prio = runCatching { PriorityLevel.valueOf(p.priority.trim()) }.getOrDefault(PriorityLevel.MEDIUM)
-            val matchedCat = allCats.firstOrNull {
-                it.shortCode.equals(p.categoryOrCompetenceArea.trim(), ignoreCase = true) ||
-                    it.name.equals(p.categoryOrCompetenceArea.trim(), ignoreCase = true) ||
-                    (p.examDayTag.isNotBlank() && it.shortCode.equals(p.examDayTag.trim(), ignoreCase = true))
-            }
-            val key = p.title.trim().lowercase()
-            val prev = currentPreps[key]
-            val entity = PreparationItemEntity(
-                id = prev?.id ?: 0L,
-                title = p.title.trim(),
-                categoryOrCompetenceArea = matchedCat?.name ?: p.categoryOrCompetenceArea.trim(),
-                categoryId = matchedCat?.id ?: prev?.categoryId,
-                examDayTag = p.examDayTag.trim(),
-                competenceFocusCodes = p.competenceFocusCodes.trim(),
-                keywordsCsv = p.keywordsCsv.trim(),
-                detailDepth = depth,
-                priority = prio,
-                focusParametersCsv = p.focusParametersCsv.trim(),
-                targetFlashcardCount = p.targetFlashcardCount.coerceIn(1, 50),
-                flashcardTypesCsv = p.flashcardTypesCsv.ifBlank { "DEFINITION,CAUSAL,LIST,CLOZE,CAVE" },
-                selectedSourceIdsCsv = prev?.selectedSourceIdsCsv.orEmpty(),
-                customPromptNote = p.customPromptNote.trim(),
-                isCompleted = prev?.isCompleted ?: false
-            )
-            if (prev == null) {
-                val id = preparationDao.insert(entity)
-                currentPreps[key] = entity.copy(id = id)
-            } else {
-                preparationDao.update(entity)
-                currentPreps[key] = entity
-            }
-            prepCount++
-        }
+        // Themen sind fest vorgegeben. Alte Pakete können sie weder ersetzen noch erweitern.
+        val prepCount = 0
+        restoreMissingDefaultPreparations()
 
         // 4. Quellen einlesen (inlineText oder Datei aus ZIP/Assets)
         var sourceCount = 0
@@ -491,7 +467,38 @@ class PflegeRepository(
         // Erst neue Quellen einlesen; vorhandene Daten nur nach vollständig erfolgreichem
         // Import entfernen. Fehlende oder defekte Dateien dürfen nie Daten löschen.
         val existingSourceTitles = (if (manifest.replaceExistingSources) emptyList() else previousSources)
-            .map { it.title.trim().lowercase() }.toMutableSet()
+            .associate { it.title.trim().lowercase() to it.id }.toMutableMap()
+        val topics = preparationDao.getAll().filter { item ->
+            DefaultCatalogs.defaultPreparations.any { it.title.equals(item.title, true) }
+        }
+        if (manifest.replaceExistingSources) {
+            topics.forEach { preparationDao.update(it.copy(selectedSourceIdsCsv = "")) }
+        }
+        val topicByTitle = topics.associateBy { it.title.trim().lowercase() }.mapValues { (_, topic) ->
+            if (manifest.replaceExistingSources) topic.copy(selectedSourceIdsCsv = "") else topic
+        }.toMutableMap()
+        suspend fun assignTopics(sourceId: Long, titles: List<String>?) {
+            if (titles == null) return // Legacy-Paket: bestehende Zuordnungen nicht verändern.
+            topicByTitle.toMap().forEach { (key, topic) ->
+                val ids = topic.selectedSourceIdsCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.filter { it != sourceId }
+                val updated = topic.copy(selectedSourceIdsCsv = ids.joinToString(","))
+                preparationDao.update(updated)
+                topicByTitle[key] = updated
+            }
+            titles.distinct().forEach { title ->
+                val key = title.trim().lowercase()
+                val topic = topicByTitle[key]
+                if (topic == null) {
+                    skippedSources.add("Unbekanntes Thema: $title")
+                } else {
+                    val ids = topic.selectedSourceIdsCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toMutableSet()
+                    ids.add(sourceId)
+                    val updated = topic.copy(selectedSourceIdsCsv = ids.sorted().joinToString(","))
+                    preparationDao.update(updated)
+                    topicByTitle[key] = updated
+                }
+            }
+        }
 
         for (src in manifest.sources) {
             if (src.title.isBlank() && src.fileName.isBlank()) {
@@ -503,14 +510,16 @@ class PflegeRepository(
                     it.name.equals(src.categoryShortCode.trim(), ignoreCase = true)
             }
             val resolvedTitle = src.title.ifBlank { src.fileName.substringAfterLast('/').substringBeforeLast('.') }
-            if (resolvedTitle.trim().lowercase() in existingSourceTitles) {
-                skippedSources.add("$resolvedTitle (bereits vorhanden)")
+            val previous = existingSourceTitles[resolvedTitle.trim().lowercase()]
+            if (previous != null) {
+                assignTopics(previous, src.topicTitles)
+                skippedSources.add("$resolvedTitle (bereits vorhanden; Themenzuordnung aktualisiert)")
                 continue
             }
 
             if (src.inlineText.isNotBlank()) {
                 val pages = ingestionService.splitPlainTextToLogicalSections(src.inlineText)
-                saveRawPagesAsSource(
+                val sourceId = saveRawPagesAsSource(
                     title = resolvedTitle,
                     tags = src.tags,
                     sourceType = SourceType.TXT,
@@ -519,7 +528,8 @@ class PflegeRepository(
                     categoryId = matchedCat?.id,
                     categoryLabel = matchedCat?.name ?: src.categoryShortCode
                 )
-                existingSourceTitles.add(resolvedTitle.trim().lowercase())
+                assignTopics(sourceId, src.topicTitles)
+                existingSourceTitles[resolvedTitle.trim().lowercase()] = sourceId
                 sourceCount++
                 continue
             }
@@ -539,8 +549,9 @@ class PflegeRepository(
                     categoryId = matchedCat?.id,
                     categoryLabel = matchedCat?.name ?: src.categoryShortCode
                 )
-            }.onSuccess {
-                existingSourceTitles.add(resolvedTitle.trim().lowercase())
+            }.onSuccess { sourceId ->
+                assignTopics(sourceId, src.topicTitles)
+                existingSourceTitles[resolvedTitle.trim().lowercase()] = sourceId
                 sourceCount++
             }.onFailure { err ->
                 skippedSources.add("$resolvedTitle (${err.message ?: "Importfehler"})")
@@ -596,7 +607,8 @@ class PflegeRepository(
                     fileName = relFileName,
                     title = doc.title,
                     categoryShortCode = matchedCat?.shortCode ?: doc.categoryLabel,
-                    tags = doc.tags
+                    tags = doc.tags,
+                    topicTitles = preps.filter { prep -> prep.selectedSourceIdsCsv.split(",").any { it.trim().toLongOrNull() == doc.id } }.map { it.title }
                 )
             )
             sourceFilePayloads.add(relFileName to fullText.toByteArray(StandardCharsets.UTF_8))
@@ -967,11 +979,11 @@ class PflegeRepository(
         item: PreparationItemEntity,
         replacePreviousCardsForTopic: Boolean = false
     ): GenerationReport = withContext(Dispatchers.Default) {
-        val chunkInputs = loadChunkInputs()
-        val config = item.toGenerationConfig().copy(selectedSourceIds = emptySet())
+        val config = item.toGenerationConfig()
+        val chunkInputs = loadChunksForTopic(config.selectedSourceIds)
 
         when (
-            val outcome: RetrievalOutcome = (SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
                 allChunks = chunkInputs,
                 titleQuery = config.title,
                 keywords = config.keywords,
@@ -1109,14 +1121,15 @@ class PflegeRepository(
                 "Bitte wählen Sie mindestens einen Operator aus Ihrer Operatorenliste aus."
             )
         }
-        val chunkInputs = loadChunkInputs()
+        val topicSourceIds = prepItemId?.let { preparationDao.getById(it)?.toGenerationConfig()?.selectedSourceIds }.orEmpty()
+        val chunkInputs = loadChunksForTopic(topicSourceIds)
         when (
-            val outcome: RetrievalOutcome = (SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
                 allChunks = chunkInputs,
                 titleQuery = topicTitle,
                 keywords = keywords,
                 focusParameters = listOf("Anatomie & Physiologie", "Definition", "Symptome", "Ursachen", "Pflegemaßnahmen", "Begründungen", "Cave"),
-                selectedSourceIds = selectedSourceIds,
+                selectedSourceIds = topicSourceIds.ifEmpty { selectedSourceIds },
                 detailDepth = detailDepth
             ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
@@ -1151,7 +1164,7 @@ class PflegeRepository(
                 var generated: de.pflegeexamen.app.domain.engine.GeneratedCaseStudy? = null
 
                 if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
-                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceCasePrompt(topicTitle, specs) else AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
+                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceCasePrompt(topicTitle, specs, outcome.passages) else AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
                     when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
                             val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, if (activeAi.isOnDevice()) emptyList() else outcome.passages, specs)
@@ -1366,6 +1379,17 @@ class PflegeRepository(
         )
     }
 
+    private suspend fun loadChunksForTopic(assignedIds: Set<Long>): List<ChunkInput> {
+        val chunks = loadChunkInputs()
+        if (assignedIds.isNotEmpty()) return chunks.filter { it.sourceId in assignedIds }
+        // Alt-Pakete ohne explizite Zuordnung bleiben durchsuchbar, aber Quellen,
+        // die anderen Themen zugeordnet wurden, werden nicht versehentlich verwendet.
+        val assignedElsewhere = preparationDao.getAll().flatMap {
+            it.selectedSourceIdsCsv.split(",").mapNotNull { value -> value.trim().toLongOrNull() }
+        }.toSet()
+        return chunks.filterNot { it.sourceId in assignedElsewhere }
+    }
+
     private suspend fun loadChunkInputs(): List<ChunkInput> {
         return sourceDao.getAllChunksWithSource().map { row ->
             ChunkInput(
@@ -1405,6 +1429,6 @@ class PflegeRepository(
     }
 
     companion object {
-        const val CURRENT_CATALOG_SEED_VERSION = 3
+        const val CURRENT_CATALOG_SEED_VERSION = 4
     }
 }

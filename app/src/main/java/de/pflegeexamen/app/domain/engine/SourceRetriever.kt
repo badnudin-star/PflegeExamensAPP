@@ -17,6 +17,36 @@ object SourceRetriever {
 
     private const val MIN_RELEVANCE_SCORE = 1.25
 
+    /** Explicitly linked sources belong to the topic even if, for example, a
+     * physiology passage contains only an organ name and not the disease name. */
+    fun retrieveAssigned(
+        allChunks: List<ChunkInput>,
+        titleQuery: String,
+        keywords: List<String>,
+        focusParameters: List<String> = emptyList(),
+        customPromptNote: String = "",
+        selectedSourceIds: Set<Long> = emptySet(),
+        detailDepth: DetailDepth = DetailDepth.STANDARD
+    ): RetrievalOutcome {
+        val ranked = retrieve(allChunks, titleQuery, keywords, focusParameters, customPromptNote, selectedSourceIds, detailDepth)
+        if (selectedSourceIds.isEmpty()) return ranked
+        val found = (ranked as? RetrievalOutcome.Found)?.passages.orEmpty()
+        val assigned = allChunks.filter { it.sourceId in selectedSourceIds }
+        // Mindestens ein Abschnitt pro zugeordneter Quelle, damit ein gesondertes
+        // Anatomie-Skript nicht von zahlreichen Krankheits-Abschnitten verdrängt wird.
+        val representatives = assigned.groupBy { it.sourceId }.values.map { group ->
+            found.firstOrNull { it.chunk.sourceId == group.first().sourceId }
+                ?: group.first().let { RetrievedPassage(it, 0.0, emptySet(), DocumentChunker.classifyChunkSentences(it.content)) }
+        }
+        val represented = representatives.map { it.chunk.chunkId }.toSet()
+        val rest = found.filterNot { it.chunk.chunkId in represented } + assigned.asSequence()
+            .filter { it.chunkId !in represented && found.none { passage -> passage.chunk.chunkId == it.chunkId } }
+            .map { RetrievedPassage(it, 0.0, emptySet(), DocumentChunker.classifyChunkSentences(it.content)) }
+            .toList()
+        val passages = (representatives + rest).take(detailDepth.maxTotalPassages)
+        return if (passages.isEmpty()) ranked else RetrievalOutcome.Found(passages)
+    }
+
     fun retrieve(
         allChunks: List<ChunkInput>,
         titleQuery: String,

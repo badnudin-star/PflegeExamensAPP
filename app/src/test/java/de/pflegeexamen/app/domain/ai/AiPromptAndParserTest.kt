@@ -15,6 +15,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiPromptAndParserTest {
+    @Test
+    fun `clinical cases include anatomy and physiology`() {
+        val prompt = AiPromptBuilder.buildOnDeviceCasePrompt("Herzinsuffizienz", emptyList())
+        assertTrue(prompt.userPrompt.contains("Anatomie und Physiologie"))
+        assertTrue(de.pflegeexamen.app.domain.model.DefaultCatalogs.defaultCategories.none { it.shortCode == "Ana/Phys" })
+        assertTrue(de.pflegeexamen.app.domain.model.DefaultCatalogs.defaultPreparations.filter { it.isClinicalPicture }.all { "Anatomie & Physiologie" in it.focusParameters() })
+    }
+
 
     @Test
     fun `on device output works without sources and is not presented as evidence`() {

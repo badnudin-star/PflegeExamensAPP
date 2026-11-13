@@ -4,7 +4,9 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 
 ## Lernen und Smartphone-KI
 
-- Die Navigation konzentriert sich auf **Heute**, **Themen**, **Karten** und **Falltraining**. Quellen und Operatoren werden ausschließlich mit `tools/PflegeBundleStudio.html` bearbeitet und als `.pflegebundle.zip` in den App-Einstellungen importiert.
+- Die Navigation konzentriert sich auf **Heute**, **Themen**, **Karten** und **Falltraining**. Die Prüfungsthemen sind fest vorgegeben und können nicht erstellt, gelöscht oder durch Paketimporte ersetzt werden. Bestehende Lernstände und ältere eigene Themen bleiben gespeichert.
+- Quellen und Operatoren werden ausschließlich mit `tools/PflegeBundleStudio.html` bearbeitet und als `.pflegebundle.zip` in den App-Einstellungen importiert. Jede Quelle lässt sich im Studio einem oder mehreren vorhandenen Themen zuordnen (Mehrfachauswahl mit Strg/Cmd). Beim Lernen werden die zugeordneten Quellen verwendet; ältere Pakete ohne Zuordnung bleiben durchsuchbar.
+- Anatomie und Physiologie sind kein eigener Themenbereich: Sie sind Teil der passenden Krankheitsbilder. Entsprechende Skripte können diesen Themen zugeordnet werden.
 - Auf kompatiblen Android-Geräten nutzt die App standardmäßig **Gemini Nano über Android AICore / ML Kit GenAI**. Die Generierung erfolgt auf dem Gerät ohne API-Schlüssel; der erste Modelldownload benötigt Internet und genügend Speicherplatz. Verfügbarkeit und Download können in den Einstellungen geprüft werden.
 - Nicht jedes Smartphone unterstützt Gemini Nano. Wenn es nicht verfügbar ist oder die KI-Antwort fehlschlägt, kann die Offline-Engine nur dann Material erstellen, wenn passende Texte über ein Lernpaket importiert wurden. Ohne Modell und ohne passende Texte gibt die App einen Hinweis aus; sie kann kein Fachwissen aus dem Nichts erzeugen.
 - KI-generierte Inhalte sind **keine Quellenbelege** und können fachliche Fehler enthalten. Vor der Prüfung und insbesondere vor der Anwendung in der Pflege stets mit verlässlichen Fachquellen und aktuellen Standards abgleichen.
@@ -23,7 +25,7 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 
 2. **Vorbereitungsliste Frühjahr 2027 & Lernkategorien (`PreparationScreen`, `SettingsScreen`)**
    - Vorbefüllt mit allen **42 offiziellen Prüfungsthemen (Vorbereitungsliste Frühjahr 2027)**, strukturiert nach **Tag 1** (`I.1, I.5, I.6, II.1, IV`), **Tag 2** (`I.2, II.2, IV.1`) und **Tag 3** (`I.3, I.4, II.3, III.2`).
-   - Alle **Krankheitsbilder** tragen automatisch **Anatomie & Physiologie** als ersten Lern- und Frageparameter neben Pathophysiologie, Symptomen, Pflegemaßnahmen, Begründungen und Cave – komplett editierbar, filterbar und bereit für deine Quellen.
+   - Alle **Krankheitsbilder** tragen automatisch **Anatomie & Physiologie** als ersten Lern- und Frageparameter neben Pathophysiologie, Symptomen, Pflegemaßnahmen, Begründungen und Cave – fest vorgegeben, filterbar und bereit für zugeordnete Quellen.
    - **Lernzettel (`StudyNotesScreen`) & Karteikarten (`FlashcardsScreen`):** Strukturierte Markdown-Lernzettel mit anklickbaren Quellenbelegen sowie 5 Karteikartentypen mit **SM-2 Spaced Repetition**.
 
 3. **Operatorenliste nach Landes-AG / Jann Wegner (Überarbeitung Dezember 2025, `OperatorsScreen`)**

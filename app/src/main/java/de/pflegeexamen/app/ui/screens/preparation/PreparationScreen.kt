@@ -142,7 +142,6 @@ private fun PreparationListTab(
     snackbarHostState: SnackbarHostState,
     onOpenStudyNotes: () -> Unit
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prepItems by repository.preparationItems.collectAsStateWithLifecycle(initialValue = emptyList())
     val sources by repository.sources.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -151,8 +150,6 @@ private fun PreparationListTab(
     var selectedCategoryFilter by remember { mutableStateOf<Long?>(null) }
     var selectedExamDayFilter by remember { mutableStateOf("Alle") }
     var searchQuery by remember { mutableStateOf("") }
-    var editingItem by remember { mutableStateOf<PreparationItemEntity?>(null) }
-    var showCreateDialog by remember { mutableStateOf(false) }
     var isGenerating by remember { mutableStateOf(false) }
     var generationSummaryDialog by remember { mutableStateOf<String?>(null) }
 
@@ -166,42 +163,6 @@ private fun PreparationListTab(
                 item.keywordsCsv.contains(searchQuery.trim(), ignoreCase = true) ||
                 item.competenceFocusCodes.contains(searchQuery.trim(), ignoreCase = true)
             catOk && dayOk && queryOk
-        }
-    }
-
-    val importJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val raw = context.contentResolver.openInputStream(uri)?.use {
-                        it.bufferedReader().readText()
-                    }.orEmpty()
-                    val count = repository.importPreparationListJson(raw)
-                    snackbarHostState.showSnackbar("$count Themen in Vorbereitungsliste importiert.")
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("JSON-Import fehlgeschlagen: ${e.message}")
-                }
-            }
-        }
-    }
-
-    val exportJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val json = repository.exportPreparationListJson()
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(json.toByteArray(Charsets.UTF_8))
-                    }
-                    snackbarHostState.showSnackbar("Vorbereitungsliste als JSON exportiert.")
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("Export fehlgeschlagen: ${e.message}")
-                }
-            }
         }
     }
 
@@ -258,12 +219,6 @@ private fun PreparationListTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(onClick = { showCreateDialog = true }) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.size(6.dp))
-                            Text("Thema anlegen")
-                        }
-
                         if (filteredItems.isNotEmpty()) {
                             FilledTonalButton(
                                 onClick = { runGenerationFor(filteredItems) },
@@ -275,35 +230,7 @@ private fun PreparationListTab(
                             }
                         }
 
-                        OutlinedButton(onClick = { importJsonLauncher.launch(arrayOf("application/json", "text/plain")) }) {
-                            Icon(Icons.Outlined.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text("JSON Import")
-                        }
 
-                        if (prepItems.isNotEmpty()) {
-                            OutlinedButton(onClick = { exportJsonLauncher.launch("vorbereitungsliste_2027.json") }) {
-                                Icon(Icons.Outlined.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.size(4.dp))
-                                Text("Export")
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    val added = repository.restoreMissingDefaultPreparations()
-                                    snackbarHostState.showSnackbar(
-                                        if (added > 0) "$added Themen der Liste Frühjahr 2027 ergänzt."
-                                        else "Alle 42 Themen der Liste Frühjahr 2027 sind bereits vorhanden."
-                                    )
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Outlined.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text("Liste 2027 ergänzen")
-                        }
                     }
 
                     if (isGenerating) {
@@ -349,7 +276,7 @@ private fun PreparationListTab(
                     }
                     if (categories.isNotEmpty()) {
                         CategoryFilterBar(
-                            categories = categories,
+                            categories = categories.filterNot { it.shortCode.equals("Ana/Phys", true) },
                             selectedCategoryId = selectedCategoryFilter,
                             onSelectCategory = { selectedCategoryFilter = it }
                         )
@@ -364,7 +291,7 @@ private fun PreparationListTab(
                     icon = Icons.AutoMirrored.Outlined.ListAlt,
                     title = if (prepItems.isEmpty()) "Vorbereitungsliste ist noch leer" else "Keine Themen für diesen Filter",
                     description = if (prepItems.isEmpty()) {
-                        "Lade die 42 offiziellen Themen für Frühjahr 2027 oder lege eigene Themen mit Parametern an."
+                        "Lade die fest vorgegebenen Themen für Frühjahr 2027."
                     } else {
                         "Passe Suchbegriff, Prüfungstag oder Kategorie an."
                     },
@@ -388,13 +315,6 @@ private fun PreparationListTab(
                     hasAnySources = sources.isNotEmpty(),
                     isGenerating = isGenerating,
                     onGenerate = { runGenerationFor(listOf(item)) },
-                    onEdit = { editingItem = item },
-                    onDelete = {
-                        scope.launch {
-                            repository.deletePreparationItem(item)
-                            snackbarHostState.showSnackbar("Thema „${item.title}“ gelöscht.")
-                        }
-                    },
                     onToggleComplete = { checked ->
                         scope.launch {
                             repository.savePreparationItem(item.copy(isCompleted = checked))
@@ -403,26 +323,6 @@ private fun PreparationListTab(
                 )
             }
         }
-    }
-
-    if (showCreateDialog || editingItem != null) {
-        PreparationItemEditorDialog(
-            initial = editingItem,
-            availableSources = sources,
-            categories = categories,
-            onDismiss = {
-                showCreateDialog = false
-                editingItem = null
-            },
-            onSave = { savedItem ->
-                scope.launch {
-                    repository.savePreparationItem(savedItem)
-                    showCreateDialog = false
-                    editingItem = null
-                    snackbarHostState.showSnackbar("Thema „${savedItem.title}“ gespeichert.")
-                }
-            }
-        )
     }
 
     generationSummaryDialog?.let { summary ->
@@ -463,8 +363,6 @@ private fun PreparationItemCard(
     hasAnySources: Boolean,
     isGenerating: Boolean,
     onGenerate: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
     onToggleComplete: (Boolean) -> Unit
 ) {
     val params = remember(item.focusParametersCsv) {
@@ -520,12 +418,7 @@ private fun PreparationItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, contentDescription = "Bearbeiten")
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Löschen")
-                }
+
             }
 
             if (item.keywordsCsv.isNotBlank()) {
@@ -579,243 +472,4 @@ private fun PreparationItemCard(
             }
         }
     }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PreparationItemEditorDialog(
-    initial: PreparationItemEntity?,
-    availableSources: List<SourceDocumentEntity>,
-    categories: List<LearningCategoryEntity>,
-    onDismiss: () -> Unit,
-    onSave: (PreparationItemEntity) -> Unit
-) {
-    var title by remember { mutableStateOf(initial?.title.orEmpty()) }
-    var examDayTag by remember { mutableStateOf(initial?.examDayTag.orEmpty()) }
-    var competenceCodes by remember { mutableStateOf(initial?.competenceFocusCodes.orEmpty()) }
-    var selectedCategory by remember {
-        mutableStateOf(categories.firstOrNull { it.id == initial?.categoryId })
-    }
-    var category by remember { mutableStateOf(initial?.categoryOrCompetenceArea.orEmpty()) }
-    var keywords by remember { mutableStateOf(initial?.keywordsCsv.orEmpty()) }
-    var depth by remember { mutableStateOf(initial?.detailDepth ?: DetailDepth.STANDARD) }
-    var priority by remember { mutableStateOf(initial?.priority ?: PriorityLevel.MEDIUM) }
-    var customNote by remember { mutableStateOf(initial?.customPromptNote.orEmpty()) }
-    var targetCardCount by remember { mutableStateOf((initial?.targetFlashcardCount ?: 10).toFloat()) }
-
-    val selectedParams = remember {
-        mutableStateListOf<String>().apply {
-            val existing = initial?.focusParametersCsv?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotBlank() }
-                .orEmpty()
-            addAll(existing)
-        }
-    }
-    var newCustomParam by remember { mutableStateOf("") }
-
-    val selectedCardTypes = remember {
-        mutableStateListOf<FlashcardType>().apply {
-            val existing = initial?.flashcardTypesCsv?.split(",")
-                ?.mapNotNull { runCatching { FlashcardType.valueOf(it.trim()) }.getOrNull() }
-                .orEmpty()
-            if (existing.isNotEmpty()) addAll(existing) else addAll(FlashcardType.entries)
-        }
-    }
-
-    val selectedSourceIds = remember {
-        mutableStateListOf<Long>().apply {
-            val existing = initial?.selectedSourceIdsCsv?.split(",")
-                ?.mapNotNull { it.trim().toLongOrNull() }
-                .orEmpty()
-            addAll(existing)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Vorbereitungsthema anlegen" else "Thema bearbeiten") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 480.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Thema / Titel *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Prüfungstag:", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("", "Tag 1", "Tag 2", "Tag 3").forEach { day ->
-                        FilterChip(
-                            selected = examDayTag == day,
-                            onClick = { examDayTag = day },
-                            label = { Text(if (day.isBlank()) "Ohne Tag" else day) }
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = competenceCodes,
-                    onValueChange = { competenceCodes = it },
-                    label = { Text("Kompetenzschwerpunkte (z. B. I.1, I.5, II.1, IV)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (categories.isNotEmpty()) {
-                    Text("Kategorie:", style = MaterialTheme.typography.labelLarge)
-                    CategorySelectorChips(
-                        categories = categories,
-                        selectedCategoryId = selectedCategory?.id,
-                        onSelect = { cat ->
-                            selectedCategory = cat
-                            category = cat?.name ?: ""
-                        }
-                    )
-                }
-
-                OutlinedTextField(
-                    value = keywords,
-                    onValueChange = { keywords = it },
-                    label = { Text("Suchbegriffe / Synonyme (kommagetrennt)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Priorität", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    PriorityLevel.entries.forEach { p ->
-                        FilterChip(
-                            selected = priority == p,
-                            onClick = { priority = p },
-                            label = { Text(p.displayLabel) }
-                        )
-                    }
-                }
-
-                Text("Detailtiefe für Lernzettel", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DetailDepth.entries.forEach { d ->
-                        FilterChip(
-                            selected = depth == d,
-                            onClick = { depth = d },
-                            label = { Text(d.displayLabel) }
-                        )
-                    }
-                }
-
-                Text("Fokus-Parameter (inkl. Anatomie & Physiologie bei Krankheitsbildern)", style = MaterialTheme.typography.labelLarge)
-                val allParamChips = (ParameterSuggestions.suggestedFocusParameters + selectedParams).distinct()
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    allParamChips.forEach { param ->
-                        val isSelected = param in selectedParams
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                if (isSelected) selectedParams.remove(param) else selectedParams.add(param)
-                            },
-                            label = { Text(param, style = MaterialTheme.typography.labelMedium) }
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    OutlinedTextField(
-                        value = newCustomParam,
-                        onValueChange = { newCustomParam = it },
-                        label = { Text("Eigener Parameter") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilledTonalButton(
-                        onClick = {
-                            val trimmed = newCustomParam.trim()
-                            if (trimmed.isNotBlank() && trimmed !in selectedParams) {
-                                selectedParams.add(trimmed)
-                                newCustomParam = ""
-                            }
-                        }
-                    ) {
-                        Text("+")
-                    }
-                }
-
-                Text(
-                    "Maximale Karteikarten pro Lauf: ${targetCardCount.roundToInt()}",
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Slider(
-                    value = targetCardCount,
-                    onValueChange = { targetCardCount = it },
-                    valueRange = 3f..30f,
-                    steps = 26
-                )
-
-                Text("Gewünschte Karteikarten-Typen", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FlashcardType.entries.forEach { type ->
-                        val active = type in selectedCardTypes
-                        FilterChip(
-                            selected = active,
-                            onClick = {
-                                if (active && selectedCardTypes.size > 1) {
-                                    selectedCardTypes.remove(type)
-                                } else if (!active) {
-                                    selectedCardTypes.add(type)
-                                }
-                            },
-                            label = { Text(type.displayLabel, style = MaterialTheme.typography.labelMedium) }
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = customNote,
-                    onValueChange = { customNote = it },
-                    label = { Text("Zusätzliche Filterwörter / Fokus-Hinweis (optional)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val entity = (initial ?: PreparationItemEntity(title = title.trim())).copy(
-                        title = title.trim(),
-                        categoryId = selectedCategory?.id,
-                        categoryOrCompetenceArea = category.trim().ifBlank { selectedCategory?.name ?: examDayTag },
-                        examDayTag = examDayTag.trim(),
-                        competenceFocusCodes = competenceCodes.trim(),
-                        keywordsCsv = keywords.trim(),
-                        detailDepth = depth,
-                        priority = priority,
-                        focusParametersCsv = selectedParams.joinToString(", "),
-                        targetFlashcardCount = targetCardCount.roundToInt(),
-                        flashcardTypesCsv = selectedCardTypes.joinToString(",") { it.name },
-                        selectedSourceIdsCsv = selectedSourceIds.joinToString(","),
-                        customPromptNote = customNote.trim()
-                    )
-                    onSave(entity)
-                },
-                enabled = title.isNotBlank()
-            ) {
-                Text("Speichern")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Abbrechen") }
-        }
-    )
 }

@@ -50,7 +50,8 @@ data class BundleSourceItem(
     val title: String,
     val categoryShortCode: String = "",
     val tags: String = "",
-    val inlineText: String = ""
+    val inlineText: String = "",
+    val topicTitles: List<String>? = null
 )
 
 @Serializable

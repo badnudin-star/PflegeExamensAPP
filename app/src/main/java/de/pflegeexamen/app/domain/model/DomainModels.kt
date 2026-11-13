@@ -235,7 +235,7 @@ data class DefaultPreparationTemplate(
  * Offizielle Prüfungskataloge:
  * - Vorbereitungsliste Frühjahr 2027 (Landesarbeitsgruppe schriftliches Examen, Tag 1–3 inkl. Anatomie/Physiologie-Regel)
  * - Operatorenliste der Landes-AG Schriftliches Examen auf Grundlage von Jann Wegner (Überarbeitung Dezember 2025)
- * Alle Einträge können in der App beliebig bearbeitet, ergänzt, ersetzt oder gelöscht werden.
+ * Die Themen sind fest; Operatoren und Quellen werden über das HTML-Studio verwaltet.
  */
 object DefaultCatalogs {
 
@@ -257,12 +257,6 @@ object DefaultCatalogs {
             shortCode = "Tag 3",
             colorHex = 0xFF6A1B9AL,
             description = "Kritische & lebensbedrohliche Lebenssituationen, Notfall, Ethik & ärztliche Anordnungen"
-        ),
-        DefaultCategoryTemplate(
-            name = "Anatomie & Physiologie (Krankheitsbilder)",
-            shortCode = "Ana/Phys",
-            colorHex = 0xFFD84315L,
-            description = "Anatomische & physiologische Grundlagen zu allen prüfungsrelevanten Krankheitsbildern"
         ),
         DefaultCategoryTemplate(
             name = "Übergreifend / Eigene Quellen",

@@ -334,7 +334,7 @@ private fun CaseStudyGeneratorDialog(
             ) {
                 if (prepItems.isNotEmpty()) {
                     var prepDayFilter by remember { mutableStateOf("Alle") }
-                    Text("Optional Thema aus Vorbereitungsliste übernehmen:", style = MaterialTheme.typography.labelLarge)
+                    Text("Thema aus der festen Themenliste wählen:", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("Alle", "Tag 1", "Tag 2", "Tag 3").forEach { d ->
                             FilterChip(
@@ -371,28 +371,6 @@ private fun CaseStudyGeneratorDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = topicTitle,
-                    onValueChange = { topicTitle = it },
-                    label = { Text("Thema / Fallfokus *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = keywordsCsv,
-                    onValueChange = { keywordsCsv = it },
-                    label = { Text("Zusätzliche Suchbegriffe (kommagetrennt)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (categories.isNotEmpty()) {
-                    Text("Kategorie / Kompetenzbereich (optional):", style = MaterialTheme.typography.labelLarge)
-                    CategorySelectorChips(
-                        categories = categories,
-                        selectedCategoryId = selectedCategory?.id,
-                        onSelect = { selectedCategory = it }
-                    )
-                }
 
 
             }
@@ -412,7 +390,7 @@ private fun CaseStudyGeneratorDialog(
                         ops
                     )
                 },
-                enabled = topicTitle.isNotBlank() && chosenOperatorIds.isNotEmpty()
+                enabled = selectedPrepId != null && chosenOperatorIds.isNotEmpty()
             ) {
                 Text("Generieren")
             }

@@ -40,7 +40,8 @@ class BundleManifestTest {
                     fileName = "sources/herz.pdf",
                     title = "Herzinsuffizienz Skript",
                     categoryShortCode = "Tag 1",
-                    tags = "Anatomie, Herz"
+                    tags = "Anatomie, Herz",
+                    topicTitles = listOf("Herzinsuffizienz", "Thrombose")
                 )
             )
         )
@@ -55,5 +56,7 @@ class BundleManifestTest {
         assertEquals("Tag 1", decoded.preparations.first().examDayTag)
         assertEquals("NO_CASE_RELATION", decoded.operators.first().caseRelationRule)
         assertEquals("sources/herz.pdf", decoded.sources.first().fileName)
+        assertEquals(listOf("Herzinsuffizienz", "Thrombose"), decoded.sources.first().topicTitles)
+        assertEquals(null, json.decodeFromString<BundleSourceItem>("{\"title\":\"Alt\"}").topicTitles)
     }
 }
