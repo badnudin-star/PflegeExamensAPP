@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Clean stylized book + nursing cross emblem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,30 h22 c3,0 5,2 5,5 v38 c0,-2 -2,-4 -5,-4 H30 c-2,0 -4,-2 -4,-4 V34 c0,-2 2,-4 4,-4 z" />
+    <path
+        android:fillColor="#E3F2F1"
+        android:pathData="M78,30 h-22 c-3,0 -5,2 -5,5 v38 c0,-2 2,-4 5,-4 h22 c2,0 4,-2 4,-4 V34 c0,-2 -2,-4 -4,-4 z" />
+    <path
+        android:fillColor="#0E6B6E"
+        android:pathData="M39,40 h4 v16 h-4 z" />
+    <path
+        android:fillColor="#0E6B6E"
+        android:pathData="M33,46 h16 v4 h-16 z" />
+    <path
+        android:fillColor="#0E6B6E"
+        android:pathData="M59,41 h14 v3 h-14 z M59,48 h14 v3 h-14 z M59,55 h10 v3 h-10 z" />
+</vector>

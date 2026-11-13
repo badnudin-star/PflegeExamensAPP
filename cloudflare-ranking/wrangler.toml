@@ -1,0 +1,12 @@
+name = "pflege-examen-ranking"
+main = "src/worker.js"
+compatibility_date = "2025-11-01"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pflege_ranking_db"
+# Nach `npx wrangler d1 create pflege_ranking_db` hier deine erhaltene UUID eintragen:
+database_id = "DEINE_D1_DATABASE_ID_HIER"

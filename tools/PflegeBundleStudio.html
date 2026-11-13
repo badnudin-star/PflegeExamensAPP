@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PflegeExamen Bundle-Studio (Externes Einspeise-Tool)</title>
+<style>
+  :root {
+    --bg: #f4f7f7;
+    --card: #ffffff;
+    --primary: #0e6b6e;
+    --primary-soft: #e0f2f1;
+    --border: #d5e0e0;
+    --text: #1c2828;
+    --muted: #5a6c6c;
+    --warn: #b45309;
+    --warn-bg: #fef3c7;
+  }
+  * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.45; }
+  header { background: var(--primary); color: #fff; padding: 20px 24px; }
+  header h1 { margin: 0 0 6px; font-size: 1.35rem; }
+  header p { margin: 0; opacity: .9; font-size: .92rem; }
+  main { max-width: 1180px; margin: 20px auto; padding: 0 16px 60px; display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tab-btn { border: 1px solid var(--border); background: #fff; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn { border: 1px solid var(--border); background: #fff; color: var(--text); padding: 9px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: .9rem; }
+  .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn.danger { color: #b91c1c; border-color: #fecaca; }
+  input, select, textarea { border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; font-size: .9rem; width: 100%; background: #fff; }
+  label { font-size: .8rem; font-weight: 600; color: var(--muted); display: block; margin-bottom: 3px; }
+  .dropzone { border: 2px dashed var(--primary); background: var(--primary-soft); border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  th, td { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-size: .78rem; text-transform: uppercase; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 600; background: var(--primary-soft); color: var(--primary); }
+  .warn-box { background: var(--warn-bg); color: var(--warn); padding: 10px 12px; border-radius: 8px; font-size: .86rem; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PflegeExamen Studio – Externes Einspeise-Tool (100 % Offline &amp; Kostenlos)</h1>
+  <p>Quellen (PDF, DOCX, TXT, MD, Fotos), Themenliste Frühjahr 2027 (Tag 1–3), Parameter &amp; Landes-AG Operatoren am PC verwalten und direkt in die Android-App oder APK einspeisen.</p>
+</header>
+
+<main>
+  <section class="card">
+    <div class="grid-2" style="margin-bottom:12px;">
+      <div>
+        <label>Paket-Name</label>
+        <input id="bundleName" type="text">
+      </div>
+      <div>
+        <label>Paket-Version (Zahl hochzählen bei APK-Update)</label>
+        <input id="bundleVersion" type="number" min="1">
+      </div>
+      <div>
+        <label>Schicht-Tagesziel (Punkte)</label>
+        <input id="dailyGoalPoints" type="number" min="5" max="100">
+      </div>
+      <div>
+        <label>Ranking-Endpunkt-URL (optional, 0 € Cloudflare Worker)</label>
+        <input id="rankingEndpointUrl" type="url" placeholder="https://pflege-ranking.deinname.workers.dev">
+      </div>
+      <div>
+        <label>Import-Verhalten</label>
+        <div class="row" style="padding-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:500;"><input id="replacePreps" type="checkbox" style="width:auto;"> Themen ersetzen</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:500;"><input id="replaceOps" type="checkbox" style="width:auto;"> Operatoren ersetzen</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" onclick="exportBundleZip()">⬇ .pflegebundle.zip für Handy herunterladen</button>
+      <button class="btn" onclick="document.getElementById('zipInput').click()">📂 Bestehendes .pflegebundle.zip öffnen</button>
+      <button class="btn" onclick="exportManifestOnly()">📄 Nur manifest.json speichern</button>
+      <input id="zipInput" type="file" accept=".zip,.pflegebundle.zip" class="hidden" onchange="importExistingZip(this.files[0])">
+    </div>
+    <p style="font-size:.83rem;color:var(--muted);margin:10px 0 0;">
+      <strong>Weg A (ohne App-Neubau):</strong> <code>.pflegebundle.zip</code> aufs Handy kopieren &rarr; in der App unter <em>Einstellungen &rarr; .pflegebundle.zip laden</em> importieren.<br>
+      <strong>Weg B (fest in der APK eingebaut):</strong> Die heruntergeladene ZIP in <code>PflegeExamenApp/app/src/main/assets/seed_bundle/</code> entpacken (sodass dort <code>manifest.json</code> und <code>sources/...</code> liegen) und APK bauen – jede Neuinstallation enthält sofort alle deine Skripte, Themen &amp; Operatoren.
+    </p>
+  </section>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('sources', this)">1. Eigene Quellen (<span id="cntSources">0</span>)</button>
+    <button class="tab-btn" onclick="switchTab('preps', this)">2. Themenliste 2027 (<span id="cntPreps">0</span>)</button>
+    <button class="tab-btn" onclick="switchTab('ops', this)">3. Operatoren (<span id="cntOps">0</span>)</button>
+    <button class="tab-btn" onclick="switchTab('cats', this)">4. Kategorien (<span id="cntCats">0</span>)</button>
+  </div>
+
+  <!-- TAB 1: QUELLEN -->
+  <section id="tab-sources" class="card">
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('sourceFilesInput').click()">
+      <strong>Hier PDF, DOCX, TXT, MD oder Buchseiten-Fotos ablegen (oder klicken)</strong><br>
+      <span style="font-size:.84rem;color:var(--muted);">Dateien werden lokal im Browser eingelesen und direkt ins Paket eingebettet.</span>
+      <input id="sourceFilesInput" type="file" multiple accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp" class="hidden" onchange="handleSourceFiles(this.files)">
+    </div>
+
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer;font-weight:600;color:var(--primary);">+ Text/Skript-Ausschnitt direkt eintippen oder einfügen</summary>
+      <div class="grid-2" style="margin-top:8px;">
+        <div><label>Titel *</label><input id="inlineTitle" placeholder="z. B. Herzinsuffizienz Unterrichtsskript"></div>
+        <div><label>Kategorie-Kürzel</label><select id="inlineCat"></select></div>
+        <div><label>Schlagworte (kommagetrennt)</label><input id="inlineTags" placeholder="Anatomie, Physiologie, NYHA, Pflege"></div>
+      </div>
+      <div style="margin-top:8px;">
+        <label>Inhalt *</label>
+        <textarea id="inlineText" rows="5" placeholder="Unterrichtstext oder Zusammenfassung hier einfügen..."></textarea>
+      </div>
+      <button class="btn primary" style="margin-top:8px;" onclick="addInlineSource()">Text-Quelle hinzufügen</button>
+    </details>
+
+    <table style="margin-top:14px;">
+      <thead><tr><th>Titel &amp; Datei</th><th>Kategorie</th><th>Tags</th><th>Größe</th><th></th></tr></thead>
+      <tbody id="sourcesBody"></tbody>
+    </table>
+  </section>
+
+  <!-- TAB 2: THEMEN -->
+  <section id="tab-preps" class="card hidden">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px;">
+      <div class="row">
+        <select id="prepDayFilter" onchange="renderPreps()" style="width:auto;">
+          <option value="ALL">Alle Prüfungstage</option>
+          <option value="Tag 1">Tag 1</option>
+          <option value="Tag 2">Tag 2</option>
+          <option value="Tag 3">Tag 3</option>
+        </select>
+        <input id="prepSearch" placeholder="Thema / Kompetenz suchen..." oninput="renderPreps()" style="width:240px;">
+      </div>
+      <button class="btn primary" onclick="addNewPrep()">+ Neues Thema</button>
+    </div>
+    <table>
+      <thead><tr><th>Tag &amp; KS</th><th>Thema</th><th>Suchbegriffe &amp; Parameter (inkl. Anatomie/Phys.)</th><th>Tiefe / Karten</th><th></th></tr></thead>
+      <tbody id="prepsBody"></tbody>
+    </table>
+  </section>
+
+  <!-- TAB 3: OPERATOREN -->
+  <section id="tab-ops" class="card hidden">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px;">
+      <span style="font-size:.86rem;color:var(--muted);">Vorbefüllt mit allen 17 Operatoren (Landes-AG / Jann Wegner, Dez. 2025).</span>
+      <button class="btn primary" onclick="addNewOp()">+ Neuer Operator</button>
+    </div>
+    <table>
+      <thead><tr><th>Operator &amp; Taxonomie</th><th>Fallbezug &amp; Bepunktung</th><th>Erwartungshorizont &amp; Kommentar (K)</th><th></th></tr></thead>
+      <tbody id="opsBody"></tbody>
+    </table>
+  </section>
+
+  <!-- TAB 4: KATEGORIEN -->
+  <section id="tab-cats" class="card hidden">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px;">
+      <span style="font-size:.86rem;color:var(--muted);">Steuern Prüfungstage &amp; Themen-Filterung in der App.</span>
+      <button class="btn primary" onclick="addNewCat()">+ Neue Kategorie</button>
+    </div>
+    <table>
+      <thead><tr><th>Kürzel</th><th>Name</th><th>Beschreibung</th><th></th></tr></thead>
+      <tbody id="catsBody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const DEFAULT_SEED = {"bundleVersion": 1, "bundleName": "Vorbereitungsliste Frühjahr 2027 & Landes-AG Operatoren", "replaceExistingOperators": false, "replaceExistingPreparations": false, "dailyGoalPoints": 20, "categories": [{"name": "Prüfungstag 1 · I.1, I.5, I.6, II.1, IV", "shortCode": "Tag 1", "colorHex": 4279135086, "description": "Pflegeprozesse & Lebensgestaltung, Entwicklung, Kommunikation, Angehörige, SGB V/XI, Recht & Qualität"}, {"name": "Prüfungstag 2 · I.2, II.2, IV.1", "shortCode": "Tag 2", "colorHex": 4279592384, "description": "Gesundheitsförderung, Prävention, Beratung/Schulung, Expertenstandards, Pflegeforschung & Modelle"}, {"name": "Prüfungstag 3 · I.3, I.4, II.3, III.2", "shortCode": "Tag 3", "colorHex": 4285143962, "description": "Kritische & lebensbedrohliche Lebenssituationen, Notfall, Ethik & ärztliche Anordnungen"}, {"name": "Anatomie & Physiologie (Krankheitsbilder)", "shortCode": "Ana/Phys", "colorHex": 4292363029, "description": "Anatomische & physiologische Grundlagen zu allen prüfungsrelevanten Krankheitsbildern"}, {"name": "Übergreifend / Eigene Quellen", "shortCode": "Allgemein", "colorHex": 4282735204, "description": "Schulskripte, Gesetzestexte, übergreifende Standards & eigene Ergänzungen"}], "preparations": [{"title": "(Altersgerechte) Kommunikation", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Kommunikation, GesprÃ¤chsfÃ¼hrung, altersgerecht, Kinder, Ã¤ltere Menschen, Demenz, Rogers, Schulz von Thun, Validation", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Atopische Dermatitis (Neurodermitis)", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Atopische Dermatitis, Neurodermitis, Haut, Epidermis, Dermis, Subkutis, Anatomie, Physiologie, Juckreiz, Hautbarriere, Basispflege", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie der Haut unbedingt einbeziehen."}, {"title": "Entwicklung (nach Erikson)", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Erikson, Entwicklungsaufgaben, psychosoziale Entwicklung, Lebensspanne, Urvertrauen, Autonomie, IdentitÃ¤t, IntegritÃ¤t", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Herzinsuffizienz", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Herzinsuffizienz, Herz, Herzkreislauf, Anatomie, Physiologie, Linksherzinsuffizienz, Rechtsherzinsuffizienz, NYHA, Ãdeme, Dyspnoe, Bilanzierung", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie des Herz-Kreislauf-Systems unbedingt einbeziehen."}, {"title": "Konflikteskalation (Glasl)", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Konflikteskalation, Friedrich Glasl, 9 Stufen, Win-Win, Win-Lose, Lose-Lose, Deeskalation, KonfliktlÃ¶sung", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Laienpflege / Professionelle Pflege", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Laienpflege, professionelle Pflege, Pflegefachperson, AngehÃ¶rige, Abgrenzung, Zusammenarbeit, PflegeverstÃ¤ndnis", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Leben im (Familien-) Alltag", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Familienalltag, Lebensgestaltung, Alltagskompetenz, HÃ¤uslichkeit, Ressourcen, Teilhabe, Autonomie", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "NANDA Pflegediagnosen (allgemein)", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "NANDA, Pflegediagnosen, PESR, Problem, Etiology, Symptom, Ressource, Risikopflegediagnose, GesundheitsfÃ¶rderungsdiagnose", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "SGB V und SGB XI", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "SGB V, SGB XI, Krankenversicherung, Pflegeversicherung, Behandlungspflege, Grundpflege, Pflegegrade, Leistungen, NBA", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Soziale Rolle", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Soziale Rolle, Rollenwechsel, Rollenkonflikt, IdentitÃ¤t, Patientenrolle, AngehÃ¶rige, soziale Teilhabe", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "S3-Leitlinie", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "S3-Leitlinie, AWMF, Evidenzbasierung, Empfehlungsgrade, Leitlinienentwicklung, Abgrenzung Expertenstandard", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "PflegebedÃ¼rftigkeit", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "PflegebedÃ¼rftigkeit, Â§ 14 SGB XI, Pflegegrade 1-5, Begutachtungsinstrument, NBA, SelbststÃ¤ndigkeit, Module", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Pflegende AngehÃ¶rige / Belastung", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "Pflegende AngehÃ¶rige, Ãberlastung, Entlastung, Verhinderungspflege, Kurzzeitpflege, PflegestÃ¼tzpunkt, RollenÃ¼berlastung", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "QualitÃ¤tssicherung", "examDayTag": "Tag 1", "competenceFocusCodes": "I.1, I.5, I.6, II.1, IV", "categoryOrCompetenceArea": "Tag 1", "keywordsCsv": "QualitÃ¤tssicherung, StrukturqualitÃ¤t, ProzessqualitÃ¤t, ErgebnisqualitÃ¤t, Donabedian, PDCA, MD, Pflegevisite", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Beratung (auch kollegial)", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Beratung, kollegiale Beratung, Anleitung, Schulung, Information, Beratungskonzept, 6 Phasen", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Corbin-Strauss", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Corbin, Strauss, Verlaufskurvenmodell, Trajectory, chronische Krankheit, Krankheitsverlauf, Phasen", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "ErnÃ¤hrung Expertenstandard", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Expertenstandard ErnÃ¤hrungsmanagement, DNQP, MangelernÃ¤hrung, Screening, Assessment, PEMU, BMI, FlÃ¼ssigkeitsbedarf", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Expertenstandards allgemein", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Expertenstandard, DNQP, Strukturkriterien, Prozesskriterien, Ergebniskriterien, Implementierung, PflegequalitÃ¤t", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "GesundheitsfÃ¶rderung", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "GesundheitsfÃ¶rderung, Salutogenese, Antonovsky, KohÃ¤renzgefÃ¼hl, Ottawa-Charta, Empowerment, Ressourcen", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "LymphÃ¶dem", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "LymphÃ¶dem, Lymphsystem, LymphgefÃ¤Ãe, Lymphknoten, Anatomie, Physiologie, KPE, Kompression, Lymphdrainage, Stemmer-Zeichen", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie des Lymphsystems unbedingt einbeziehen."}, {"title": "Mamma CA", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Mamma CA, Mammakarzinom, Brustkrebs, BrustdrÃ¼se, Anatomie, Physiologie, Vorsorge, Mammographie, Operation, Nachsorge, KÃ¶rperbild", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie der BrustdrÃ¼se & Lymphabflusswege einbeziehen."}, {"title": "(Pflege bei) Chemotherapie", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Chemotherapie, Zytostatika, Zellzyklus, Knochenmark, Physiologie, Mukositis, Ãbelkeit, Infektionsrisiko, Paravasat, Alopezie", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild/Therapie: Physiologische Wirkung auf sich schnell teilende Zellen (Blutbildung, Schleimhaut) einbeziehen."}, {"title": "Pflegeforschung", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Pflegeforschung, Evidence-based Nursing, EBN, PICO, qualitative Forschung, quantitative Forschung, GÃ¼tekriterien, Forschungsprozess", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "PrÃ¤vention", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "PrÃ¤vention, PrimÃ¤rprÃ¤vention, SekundÃ¤rprÃ¤vention, TertiÃ¤rprÃ¤vention, QuartÃ¤rprÃ¤vention, VerhaltensprÃ¤vention, VerhÃ¤ltnisprÃ¤vention", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Rheumatoide Arthritis", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Rheumatoide Arthritis, Gelenke, Synovialmembran, Knorpel, Anatomie, Physiologie, Morgensteifigkeit, Schub, Gelenkschutz, Schmerz", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie des Gelenkaufbaus und der EntzÃ¼ndungskaskade einbeziehen."}, {"title": "Sturz (-prophylaxe)", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Sturzprophylaxe, Sturz, Expertenstandard, intrinsische Risikofaktoren, extrinsische Risikofaktoren, Hilfsmittel, Mobilisation, Umgebung", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Vorsorge", "examDayTag": "Tag 2", "competenceFocusCodes": "I.2, II.2, IV.1", "categoryOrCompetenceArea": "Tag 2", "keywordsCsv": "Vorsorge, FrÃ¼herkennung, Krebsvorsorge, Gesundheitsuntersuchung, Impfung, U-Untersuchungen, Screening", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Ethische Prinzipien / Dilemma", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Ethische Prinzipien, Beauchamp Childress, Autonomie, Nicht-Schaden, FÃ¼rsorge, Gerechtigkeit, ethisches Dilemma, Entscheidungsfindung", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Fallbesprechung", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Fallbesprechung, ethische Fallbesprechung, Nimwegener Modell, Verstehen, Interaktion, Moderation, multiprofessionell", "detailDepth": "STANDARD", "priority": "MEDIUM", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Hypoxischer Hirnschaden", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Hypoxischer Hirnschaden, Gehirn, Neuronen, Sauerstoffversorgung, Anatomie, Physiologie, Hypoxie, Wachkoma, Apallisches Syndrom, Basale Stimulation", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie des Gehirns sowie zerebraler Sauerstoffmangel einbeziehen."}, {"title": "Handeln im Notfall", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Notfall, Notfallmanagement, ABCDE-Schema, Vitalzeichen, Physiologie, Bewusstlosigkeit, Schock, Notruf, ErstmaÃnahmen", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Physiologie von Atmung, Kreislauf und Bewusstsein (ABCDE) einbeziehen."}, {"title": "Lungenembolie", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Lungenembolie, Lunge, Lungenkreislauf, Pulmonalarterie, Anatomie, Physiologie, Dyspnoe, Thoraxschmerz, Tachykardie, OberkÃ¶rperhochlagerung", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie von Lunge und kleinem Kreislauf unbedingt einbeziehen."}, {"title": "Nosokomiale Infektion", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Nosokomiale Infektion, Hygiene, KRINKO, HÃ¤ndedesinfektion, Immunsystem, Infektionskette, Physiologie, MRSA, Katheterinfektion, Isolierung", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Physiologie der Infektabwehr & Eintrittspforten einbeziehen."}, {"title": "Palliativpflege", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Palliativpflege, Palliative Care, Symptomkontrolle, Schmerz, Luftnot, Sterbephase, Mundpflege, AngehÃ¶rige, Hospiz", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "PatientenverfÃ¼gung", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "PatientenverfÃ¼gung, Vorsorgevollmacht, Betreuung, mutmaÃlicher Wille, BGB, Verbindlichkeit, Therapiebegrenzung", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Pflege bei Fieber", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Fieber, Thermoregulation, Hypothalamus, Physiologie, Fieberanstieg, FieberhÃ¶he, Fieberabfall, Wadenwickel, FlÃ¼ssigkeitszufuhr", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Physiologie der Thermoregulation und Fieberphasen unbedingt einbeziehen."}, {"title": "Pflegeethik", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Pflegeethik, ICN-Ethikkodex, MenschenwÃ¼rde, Ethikkomitee, Verantwortung, moralischer Stress, Schweigepflicht", "detailDepth": "STANDARD", "priority": "HIGH", "focusParametersCsv": "Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele, Beratung & Anleitung, Recht & Ethik, Merksätze & Cave", "targetFlashcardCount": 8, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": ""}, {"title": "Reanimation (auch Kinder)", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Reanimation, BLS, ERC-Leitlinien, Herzdruckmassage, Beatmung, Kinderreanimation, SÃ¤ugling, Anatomie, Physiologie, AED", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Anatomische/physiologische Unterschiede zwischen Erwachsenen und Kindern berÃ¼cksichtigen."}, {"title": "Schenkelhalsfraktur", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Schenkelhalsfraktur, Femur, HÃ¼ftgelenk, Knochen, Anatomie, Physiologie, AuÃenrotation, BeinverkÃ¼rzung, TEP, Mobilisation, Luxationsprophylaxe", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie und Physiologie von HÃ¼ftgelenk und Femur-Durchblutung einbeziehen."}, {"title": "Thrombose", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Thrombose, TVT, Venen, Venenklappen, Blutgerinnung, Virchow-Trias, Anatomie, Physiologie, Thromboseprophylaxe, MTS, Mobilisation", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Krankheitsbild: Anatomie der Venen/Venenklappen und Physiologie der Gerinnung (Virchow-Trias) einbeziehen."}, {"title": "Umgang mit Sondenkost", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Sondenkost, PEG, Magensonde, Verdauungstrakt, Anatomie, Physiologie, enterale ErnÃ¤hrung, Hygiene, Medikamentengabe, Aspiration", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Anatomie und Physiologie des oberen Gastrointestinaltrakts einbeziehen."}, {"title": "Wundmanagement", "examDayTag": "Tag 3", "competenceFocusCodes": "I.3, I.4, II.3, III.2", "categoryOrCompetenceArea": "Tag 3", "keywordsCsv": "Wundmanagement, Haut, Wundheilungsphasen, Anatomie, Physiologie, chronische Wunde, Expertenstandard, Asepsis, Verbandwechsel, Exsudat", "detailDepth": "EXAM_DEEP", "priority": "HIGH", "focusParametersCsv": "Anatomie & Physiologie, Definition & Grundbegriffe, Pathophysiologie & Ursachen, Symptome & Beobachtung, Pflegemaßnahmen, Begründungen & Ziele, Prophylaxen, Merksätze & Cave", "targetFlashcardCount": 12, "flashcardTypesCsv": "DEFINITION,CAUSAL,LIST,CLOZE,CAVE", "customPromptNote": "Klinisch: Anatomie der Haut und Physiologie der Wundheilungsphasen einbeziehen."}], "operators": [{"name": "Nennen", "requirementLevel": "Taxonomie WV", "description": "Fakten, Begriffe oder Merkmale gezielt und ohne weitere Ausformulierung aufzÃ¤hlen.", "exampleQuestion": "Nennen Sie 3 Zeichen einer Infektion.", "expectationHorizon": "Rubor, Dolor, Tumor (Stichpunkte genÃ¼gen; geforderte Anzahl exakt beachten).", "commentNotes": "K1: Es gibt mehr als 3 EntzÃ¼ndungszeichen. Sie mÃ¼ssen aber nur 3 nennen.\nK2: Sie kÃ¶nnen deutsche Begriffe verwenden oder griechische/lateinische.\nK3: Sind 3 Nennungen gefordert, aber 5 werden genannt, zÃ¤hlen nur die ersten 3 Nennungen.", "gradingRubric": "Pro richtige Nennung einen Punkt.", "caseRelationRule": "OPTIONAL_CASE_RELATION", "questionPattern": "Nennen Sie 3 {aspekt} zu {thema}.", "structureType": "FACTS_LIST", "defaultPoints": 3}, {"name": "Beschreiben (statisch)", "requirementLevel": "Taxonomie WV", "description": "Etwas Feststehendes (Statisches), z. B. ein Bild oder einen Befund, objektiv in ganzen SÃ¤tzen darstellen.", "exampleQuestion": "Beschreiben Sie die Wunde (auf dem Bild)!", "expectationHorizon": "Die Wunde am rechten Unterschenkel ist schÃ¤tzungsweise 10 cm lang und etwa 5 cm breit. Die Wundumgebung ist gerÃ¶tet und geschwollen. Der Wundrand ist wulstig. (Hinweis: Ab diesem Operator mÃ¼ssen ganze SÃ¤tze formuliert werden!)", "commentNotes": "K1: Sie beschreiben in einer Klausur nach einem Foto. Das ist kein Wundassessment, keine Analyse!\nHinweis: Ab diesem Operator mÃ¼ssen ganze SÃ¤tze formuliert werden!", "gradingRubric": "Pro Beschreibung 2 Punkte.", "caseRelationRule": "OPTIONAL_CASE_RELATION", "questionPattern": "Beschreiben Sie (in ganzen SÃ¤tzen) {aspekt} bei {thema}.", "structureType": "DEFINITION", "defaultPoints": 2}, {"name": "Beschreiben (dynamisch / Vorgang)", "requirementLevel": "Taxonomie WV", "description": "Etwas Dynamisches (Bewegliches) oder einen (wiederkehrenden) Vorgang in chronologisch richtiger Reihenfolge und ganzen SÃ¤tzen darstellen.", "exampleQuestion": "Beschreiben Sie den korrekten Ablauf einer Blutzuckermessung.", "expectationHorizon": "Vorbereitung (Utensilien, Patienteninformation, HÃ¤ndedesinfektion, unsterile Handschuhe) -> DurchfÃ¼hrung (Teststreifen, HÃ¤ndewaschen/Finger stechen, ggf. 2. Tropfen verwenden, Messung) -> Nachbereitung (Dokumentation der Werte).", "commentNotes": "K1: Der Ablauf folgt einer festen Grundstruktur.\nK2: Im Lehrbuch/Unterrichtsmaterial kann ein etwas anderer Ablauf stehen â orientieren Sie sich immer an Ihrem schulischen Material!", "gradingRubric": "Im Beispiel 6 Punkte: 2 Punkte Vorbereitung, 2 Punkte DurchfÃ¼hrung, 2 Punkte Nachbereitung (= pro Beschreibung 2 Punkte). VollstÃ¤ndige Punktzahl nur bei korrekter Reihenfolge.", "caseRelationRule": "OPTIONAL_CASE_RELATION", "questionPattern": "Beschreiben Sie den korrekten Ablauf bei {thema} in richtiger Reihenfolge.", "structureType": "PROCESS_PLANNING", "defaultPoints": 6}, {"name": "Definieren", "requirementLevel": "Taxonomie WV", "description": "Einen Fachbegriff oder ein Krankheitsbild allgemeingÃ¼ltig, prÃ¤zise und ohne Fallbezug bestimmen.", "exampleQuestion": "Definieren Sie Diabetes mellitus.", "expectationHorizon": "Diabetes mellitus (Zuckerkrankheit) ist ein Ãberbegriff fÃ¼r verschiedene Erkrankungen des Stoffwechsels. Allen gemeinsam (Typ 1 und Typ 2) ist, dass sie zu erhÃ¶hten Blutzuckerwerten fÃ¼hren, weil ein Insulinmangel und/oder eine verminderte Insulinwirkung vorliegt.", "commentNotes": "K1: Bei dieser Frage kann niemals ein Fallbezug hergestellt werden, denn eine Definition ist immer allgemeingÃ¼ltig!", "gradingRubric": "Pro Definition 2 Punkte.", "caseRelationRule": "NO_CASE_RELATION", "questionPattern": "Definieren Sie {thema} allgemeingÃ¼ltig.", "structureType": "DEFINITION", "defaultPoints": 2}, {"name": "ErklÃ¤ren", "requirementLevel": "Taxonomie WV", "description": "WirkungszusammenhÃ¤nge, physiologische AblÃ¤ufe oder GesetzmÃ¤Ãigkeiten verstÃ¤ndlich und allgemeingÃ¼ltig (ohne Fallbezug) darlegen.", "exampleQuestion": "ErklÃ¤ren Sie den Einfluss der Einnahme eines oralen Glukokortikoids auf den Blutzuckerwert.", "expectationHorizon": "Oral verabreichte Glukokortikoide erhÃ¶hen den Blutzucker, weil sie die Insulinsekretion der BauchspeicheldrÃ¼se bremsen und die Glukoseaufnahme in die Skelettmuskulatur verringern.", "commentNotes": "K1: Gut erklÃ¤rt ist, was andere Menschen gut verstehen kÃ¶nnen.\nK2: Bei dieser Frage kann niemals ein Fallbezug hergestellt werden.", "gradingRubric": "Pro ErklÃ¤rung 2 Punkte.", "caseRelationRule": "NO_CASE_RELATION", "questionPattern": "ErklÃ¤ren Sie die ZusammenhÃ¤nge bei {thema} ({aspekt}).", "structureType": "CAUSAL_REASONING", "defaultPoints": 2}, {"name": "BegrÃ¼nden", "requirementLevel": "Taxonomie WV", "description": "Eine Aussage oder Regel allgemeingÃ¼ltig (ohne Fallbezug) mithilfe fachlicher Ursache-Wirkungs-ZusammenhÃ¤nge stÃ¼tzen.", "exampleQuestion": "BegrÃ¼nden Sie, warum verschiedene orale Medikamente nicht alle auf einmal verabreicht werden sollen.", "expectationHorizon": "Verschiedene orale Medikamente mÃ¼ssen getrennt voneinander verabreicht werden (z. B. vor oder nach dem Essen), da sonst Gefahr von Interaktionen besteht und die Wirksamkeit verÃ¤ndert wird.", "commentNotes": "K1: Bei dieser Frage kann niemals ein Fallbezug hergestellt werden.", "gradingRubric": "Pro BegrÃ¼ndung 2 Punkte.", "caseRelationRule": "NO_CASE_RELATION", "questionPattern": "BegrÃ¼nden Sie fachlich die Bedeutung oder Regel zu {aspekt} bei {thema}.", "structureType": "CAUSAL_REASONING", "defaultPoints": 2}, {"name": "ErlÃ¤utern", "requirementLevel": "Taxonomie WV", "description": "Einen allgemeingÃ¼ltigen Sachverhalt erklÃ¤ren/begrÃ¼nden und zusÃ¤tzlich durch ein Beispiel oder weiterfÃ¼hrende Informationen aufwerten.", "exampleQuestion": "ErlÃ¤utern Sie die Bedeutung der Wundversorgung nach Expertenstandard fÃ¼r Patienten mit chronischen Wunden.", "expectationHorizon": "Fachliche ErklÃ¤rung/BegrÃ¼ndung (warum es bedeutsam ist) + konkretes veranschaulichendes Beispiel (ohne zwingenden Fallbezug).", "commentNotes": "K1: Die ErlÃ¤uterung beinhaltet hÃ¤ufig auch eine ErklÃ¤rung oder BegrÃ¼ndung. Sie wird aber mit einem Beispiel oder zusÃ¤tzlichen Informationen aufgewertet.\nK2: Bei dieser Frage muss kein Fallbezug hergestellt werden, sie ist allgemein gehalten.", "gradingRubric": "Pro ErlÃ¤uterung 3 Punkte (2 Punkte fÃ¼r die ErklÃ¤rung und ein Punkt fÃ¼r das Beispiel).", "caseRelationRule": "NO_CASE_RELATION", "questionPattern": "ErlÃ¤utern Sie die Bedeutung von {aspekt} bei {thema} anhand eines Beispiels.", "structureType": "CAUSAL_REASONING", "defaultPoints": 3}, {"name": "Beschriften Sie", "requirementLevel": "Taxonomie WV", "description": "Anatomische Darstellungen oder Zeichnungen korrekt mit Fach- oder deutschen Bezeichnungen beschriften.", "exampleQuestion": "Beschriften Sie die anatomische Darstellung/die Zeichnung.", "expectationHorizon": "Anatomische Struktur (z. B. Verdauungstrakt, Herz, Haut, Gelenk) anhand der Platzhalter korrekt mit deutschen oder griechisch/lateinischen Bezeichnungen zuordnen.", "commentNotes": "K1: Die Auszubildenden kÃ¶nnen auf Deutsch oder Griechisch/Latein beschriften. Es sei denn, die Aufgabe fordert explizit die griechischen/lateinischen Namen.", "gradingRubric": "Pro Beschriftung einen Punkt.", "caseRelationRule": "NO_CASE_RELATION", "questionPattern": "Beschriften/Benennen Sie die zentralen anatomischen Strukturen zu {thema}.", "structureType": "FACTS_LIST", "defaultPoints": 4}, {"name": "ErlÃ¤utern (mit Fallbezug)", "requirementLevel": "Taxonomie ASB", "description": "Einen Zusammenhang, Vergleich oder eine Notwendigkeit konkret auf die vorliegende Fallsituation bezogen schlÃ¼ssig und vollstÃ¤ndig erlÃ¤utern.", "exampleQuestion": "ErlÃ¤utern Sie die Notwendigkeit sturzprophylaktischer MaÃnahmen bei Frau Treig.", "expectationHorizon": "Fallbezogene ErlÃ¤uterung: Warum sind bestimmte MaÃnahmen/ZusammenhÃ¤nge genau bei dieser Person notwendig? (Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur).", "commentNotes": "K1: Ein Fallbezug ist generell mÃ¶glich, dann Taxonomie ASB.\nK2: ASB wenn ZusammenhÃ¤nge hergestellt, verglichen oder bewertet werden mÃ¼ssen.", "gradingRubric": "Pro ErlÃ¤uterung mit Fallbezug 4 Punkte (da ASB -> Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur).", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "ErlÃ¤utern Sie mit Bezug auf den Fall die Notwendigkeit von {aspekt} bei {thema}.", "structureType": "CAUSAL_REASONING", "defaultPoints": 4}, {"name": "Analysieren", "requirementLevel": "Taxonomie ASB", "description": "Bestimmte Faktoren (z. B. Risikofaktoren) gezielt aus der Fallsituation identifizieren und tabellarisch/strukturiert mit Textbeleg darstellen.", "exampleQuestion": "Analysieren Sie 2 Sturzrisikofaktoren fÃ¼r Herrn Hallmackenreuter (aus der Fallsituation).", "expectationHorizon": "Konkrete benannte Befunde direkt aus der Fallsituation mit Zeilen-/Quellenbezug (im Layout kenntlich gemacht, z. B. tabellarisch).", "commentNotes": "K1: Die Risikofaktoren werden direkt in der Fallsituation identifiziert.\nK2: Wird im Layout kenntlich gemacht durch eine Tabelle.", "gradingRubric": "Pro Analyse 2 Punkte (z. B. fÃ¼r 2 Faktoren 4 Punkte).", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Analysieren Sie 2 zentrale Risikofaktoren/Aspekte fÃ¼r die Person im Fall zu {thema}.", "structureType": "FACTS_LIST", "defaultPoints": 4}, {"name": "Analysieren (im FlieÃtext)", "requirementLevel": "Taxonomie ASB", "description": "Den Gesamtzustand oder eine komplexe Lage im FlieÃtext (Einleitungssatz, Hauptteil strikt aus Beobachtung/Fall, Schlusssatz) analysieren.", "exampleQuestion": "Analysieren Sie den Gesundheitszustand von Herrn Friedrich.", "expectationHorizon": "Einleitungssatz (âIm Folgenden analysiere ich...â) -> Hauptteil im FlieÃtext mit konkreten Fallangaben/Messwerten (kein bloÃes NacherzÃ¤hlen!) -> Schlusssatz (âDer Gesundheitszustand ist aktuell reduziert/stabil...â).", "commentNotes": "K1: Analyse mithilfe der Fallsituation.\nK2: Die Antwort wird im FlieÃtext geschrieben.\nK3: Sie schreiben nur auf, was Sie gelesen/gesehen/gehÃ¶rt/gemessen und eingeschÃ¤tzt haben. Das ist mehr als eine Beschreibung!", "gradingRubric": "Insgesamt 6 Punkte (1 Punkt Einleitung, 4 Punkte [da ASB -> Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur] Analyse, 1 Punkt Schluss).", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Analysieren Sie im FlieÃtext die aktuelle Situation/Gesundheitslage im Fall zu {thema}.", "structureType": "EVALUATION", "defaultPoints": 6}, {"name": "Stellung nehmen", "requirementLevel": "Taxonomie ASB", "description": "Zu einer Aussage oder Quelle in Einleitung, fachlich begrÃ¼ndetem Hauptteil und Schlusssatz mit eigener, fachlich begrÃ¼ndeter Meinung Position beziehen.", "exampleQuestion": "Nehmen Sie Stellung zur Aussage von Dr. Bissig (âIrgendwann werden alle alten Leute dement!â).", "expectationHorizon": "Einleitungssatz (âIm Folgenden nehme ich Stellung zu...â) -> Hauptteil mit fachlicher Einordnung/Evidenz -> Schlusssatz inklusive begrÃ¼ndeter eigener Meinung (z. B. ânicht / nur zum Teil richtigâ).", "commentNotes": "K1: Ein Fallbezug kann hergestellt werden (ergibt sich aus der Fragestellung).\nK2: Antworten im Erwartungshorizont sind beispielhaft.\nK3: Hier schreiben Auszubildende ihre eigene Meinung und begrÃ¼nden diese fachlich.", "gradingRubric": "Insgesamt 6 Punkte (1 Punkt Einleitung, 4 Punkte [da ASB -> Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur] Analyse, 1 Punkt Schluss inklusive eigene Meinung).", "caseRelationRule": "OPTIONAL_CASE_RELATION", "questionPattern": "Nehmen Sie fachlich begrÃ¼ndet Stellung zu folgender Aussage rund um {thema}.", "structureType": "EVALUATION", "defaultPoints": 6}, {"name": "Diskutieren (ErÃ¶rtern)", "requirementLevel": "Taxonomie ASB", "description": "Eine Fragestellung strukturiert abwÃ¤gen: Einleitungssatz, mindestens je ein Pro- und ein Kontra-Argument sowie ein begrÃ¼ndetes Fazit.", "exampleQuestion": "Diskutieren Sie, ob eine Impfpflicht gegen das Coronavirus fÃ¼r Pflegepersonal eingefÃ¼hrt werden soll.", "expectationHorizon": "Einleitungssatz -> Einerseits Pro-Argument(e) -> Andererseits Kontra-Argument(e) -> Schlusssatz mit Fazit/Schlussfolgerung (auch begrÃ¼ndete Enthaltung mÃ¶glich).", "commentNotes": "K1: Mindestens ein Pro-Argument und ein Kontra-Argument darlegen.\nK2: Schlussfolgerung darf auch sein, sich keiner Position anzuschlieÃen, falls noch zu wenig Wissen vorliegt.\nK3: Fallbezug ist je nach Frage mÃ¶glich, aber nicht immer zwingend.", "gradingRubric": "Insgesamt 6 Punkte (1 Punkt Einleitung, 2 Punkte Pro-Argument, 2 Punkte Kontra-Argument [da ASB -> Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur], 1 Punkt Schluss mit Fazit).", "caseRelationRule": "OPTIONAL_CASE_RELATION", "questionPattern": "Diskutieren Sie Chancen und Grenzen/Risiken bei {thema}.", "structureType": "COMPARISON", "defaultPoints": 6}, {"name": "Entwickeln Sie (z. B. Hypothese)", "requirementLevel": "Taxonomie ASB", "description": "Aus der Fallsituation heraus plausible Hypothesen (mit mÃ¶glichem Grund, ohne ausfÃ¼hrliche BegrÃ¼ndung) oder Konzepte ableiten.", "exampleQuestion": "Entwickeln Sie 2 Hypothesen, warum Herr Demel gestÃ¼rzt ist.", "expectationHorizon": "Konkrete fallbezogene Hypothesen mit wahrscheinlichem AuslÃ¶ser aus dem Fall (z. B. â...wahrscheinlich gestÃ¼rzt, weil laut Einfuhrprotokoll wenig getrunkenâ; â...vermutlich Kreislaufprobleme/Schwindelâ).", "commentNotes": "K1: Hier muss ein Fallbezug hergestellt werden!\nK2: Hypothesen mÃ¼ssen einen Grund enthalten (z. B. zu wenig getrunken), aber nicht begrÃ¼ndet sein.", "gradingRubric": "Pro Hypothese 2 Punkte (im Beispiel 4 Punkte).", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Entwickeln Sie 2 fallbezogene Hypothesen zu {aspekt} bei {thema}.", "structureType": "CAUSAL_REASONING", "defaultPoints": 4}, {"name": "Formulieren Sie (Pflegeplan / Ablaufplan)", "requirementLevel": "Taxonomie ASB", "description": "Eine vollstÃ¤ndige Pflegeplanung nach dem Pflegeprozessmodell (PESR-Pflegeproblem, SMART-Ziel, detaillierte W-Fragen-MaÃnahmen) fÃ¼r den Fall formulieren.", "exampleQuestion": "Formulieren Sie eine Pflegeplanung nach dem Pflegeprozessmodell fÃ¼r Frau Renger.", "expectationHorizon": "Problem/Ressource (P-E-S-R) | Ziel (SMART: Spezifisch, Messbar, Attraktiv/Akzeptiert, Realistisch, Terminiert) | MaÃnahmen/Interventionen (Wer macht was, wann, wie oft, womit, wo...).", "commentNotes": "K1: Hier muss ein Fallbezug hergestellt werden.", "gradingRubric": "Probleme: Risikopflegediagnosen 2 P., vorgegebenes âPâ 3 P., Komplettformulierung 4 P. | Ziele: 2 P. pro SMART-Ziel | MaÃnahmen: 2 P. pro MaÃnahme.", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Formulieren Sie eine fallbezogene Pflegeplanung (PESR, SMART, MaÃnahmen) zu {thema}.", "structureType": "PROCESS_PLANNING", "defaultPoints": 8}, {"name": "Formulieren Sie (eine PflegemaÃnahme)", "requirementLevel": "Taxonomie ASB", "description": "Eine konkrete, fallbezogene PflegemaÃnahme prÃ¤zise formulieren und zwingend fachlich begrÃ¼nden.", "exampleQuestion": "Formulieren Sie eine sturzprophylaktische PflegemaÃnahme fÃ¼r Frau Renge.", "expectationHorizon": "Konkrete Handlung der Pflegefachperson fÃ¼r die genannte Person + direkt angeschlossene BegrÃ¼ndung (â..., um ... zu erreichen/verhindernâ).", "commentNotes": "K1: Hier muss ein Fallbezug hergestellt werden.\nK2: Die Formulierung einer einzelnen PflegemaÃnahme erfordert immer eine BegrÃ¼ndung.", "gradingRubric": "Pro formulierter PflegemaÃnahme 2 Punkte. Wenn BegrÃ¼ndung fehlt: Ein Punkt.", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Formulieren Sie eine konkrete PflegemaÃnahme inkl. BegrÃ¼ndung fÃ¼r die Fallperson zu {thema}.", "structureType": "PROCESS_PLANNING", "defaultPoints": 2}, {"name": "Beurteilen Sie...", "requirementLevel": "Taxonomie ASB", "description": "Eine Situation, Handlung oder Aussage im Fall anhand eines fachlichen oder rechtlichen Bewertungskriteriums (z. B. Gesetz, Leitlinie, Expertenstandard) beurteilen.", "exampleQuestion": "Beurteilen Sie die Aussage von Pflegefachmann Heinz DÃ¶rr (âMÃ¶rsere alle Tabletten gemeinsam...â).", "expectationHorizon": "Einleitungssatz (fachlich richtig/falsch) -> Hauptteil mit konkretem Bewertungskriterium/Richtlinie/Gesetz (hier ist KEINE eigene Meinung gefragt!) -> Schlusssatz mit begrÃ¼ndetem fachlichem Urteil.", "commentNotes": "K1: Bei Urteilsfragen muss immer ein Fallbezug hergestellt werden.\nK2: Eine Beurteilung benÃ¶tigt ein Bewertungskriterium/Richtlinie etc., hier ist keine eigene Meinung gefragt.", "gradingRubric": "Insgesamt 6 Punkte (1 Punkt Einleitung, 4 Punkte [da ASB -> Richtigkeit, VollstÃ¤ndigkeit, SchlÃ¼ssigkeit und Aufbau/Struktur] Analyse, 1 Punkt Schluss inklusive begrÃ¼ndetem Urteil).", "caseRelationRule": "REQUIRED_CASE_RELATION", "questionPattern": "Beurteilen Sie anhand fachlicher/rechtlicher Kriterien eine Handlung oder Aussage im Fall zu {thema}.", "structureType": "EVALUATION", "defaultPoints": 6}], "sources": []};
+let state = JSON.parse(JSON.stringify(DEFAULT_SEED));
+// Map filename -> Uint8Array for binary attachments
+let sourceBlobs = new Map();
+
+function init() {
+  document.getElementById('bundleName').value = state.bundleName;
+  document.getElementById('bundleVersion').value = state.bundleVersion;
+  document.getElementById('dailyGoalPoints').value = state.dailyGoalPoints ?? 20;
+  document.getElementById('rankingEndpointUrl').value = state.rankingEndpointUrl || '';
+  document.getElementById('replacePreps').checked = !!state.replaceExistingPreparations;
+  document.getElementById('replaceOps').checked = !!state.replaceExistingOperators;
+
+  const dz = document.getElementById('dropzone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.opacity = '0.8'; });
+  dz.addEventListener('dragleave', () => { dz.style.opacity = '1'; });
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.style.opacity = '1';
+    if (e.dataTransfer.files.length) handleSourceFiles(e.dataTransfer.files);
+  });
+  renderAll();
+}
+
+function switchTab(id, btn) {
+  ['sources', 'preps', 'ops', 'cats'].forEach(t => document.getElementById('tab-' + t).classList.add('hidden'));
+  document.getElementById('tab-' + id).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function renderAll() {
+  document.getElementById('cntSources').textContent = state.sources.length;
+  document.getElementById('cntPreps').textContent = state.preparations.length;
+  document.getElementById('cntOps').textContent = state.operators.length;
+  document.getElementById('cntCats').textContent = state.categories.length;
+
+  const inlineCat = document.getElementById('inlineCat');
+  inlineCat.innerHTML = state.categories.map(c => `<option value="${esc(c.shortCode)}">${esc(c.shortCode)} · ${esc(c.name)}</option>`).join('');
+
+  renderSources();
+  renderPreps();
+  renderOps();
+  renderCats();
+}
+
+async function handleSourceFiles(fileList) {
+  for (const file of fileList) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const safeRel = 'sources/' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    sourceBlobs.set(safeRel, buf);
+    const title = file.name.replace(/\.[^.]+$/, '');
+    const guessCat = guessCategoryForName(title);
+    state.sources.push({
+      fileName: safeRel,
+      title: title,
+      categoryShortCode: guessCat,
+      tags: '',
+      inlineText: ''
+    });
+  }
+  renderAll();
+}
+
+function guessCategoryForName(title) {
+  const low = title.toLowerCase();
+  if (low.includes('anatomie') || low.includes('physiologie')) return 'Ana/Phys';
+  for (const p of state.preparations) {
+    if (p.title && low.includes(p.title.split(' ')[0].toLowerCase().replace(/[()]/g, ''))) {
+      return p.examDayTag || p.categoryOrCompetenceArea || 'Allgemein';
+    }
+  }
+  return state.categories[0]?.shortCode || 'Allgemein';
+}
+
+function addInlineSource() {
+  const title = document.getElementById('inlineTitle').value.trim();
+  const text = document.getElementById('inlineText').value.trim();
+  if (!title || !text) { alert('Bitte Titel und Inhalt ausfüllen.'); return; }
+  state.sources.push({
+    fileName: '',
+    title,
+    categoryShortCode: document.getElementById('inlineCat').value,
+    tags: document.getElementById('inlineTags').value.trim(),
+    inlineText: text
+  });
+  document.getElementById('inlineTitle').value = '';
+  document.getElementById('inlineTags').value = '';
+  document.getElementById('inlineText').value = '';
+  renderAll();
+}
+
+function renderSources() {
+  const body = document.getElementById('sourcesBody');
+  if (!state.sources.length) {
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">Noch keine Quellen hinzugefügt – ziehe oben deine PDFs/DOCX/Texte hinein.</td></tr>';
+    return;
+  }
+  const catOptions = state.categories.map(c => c.shortCode);
+  body.innerHTML = state.sources.map((s, idx) => {
+    const blob = s.fileName ? sourceBlobs.get(s.fileName) : null;
+    const sizeText = blob ? (blob.length / 1024).toFixed(1) + ' KB' : (s.inlineText.length + ' Zeichen');
+    return `<tr>
+      <td>
+        <input value="${esc(s.title)}" onchange="state.sources[${idx}].title=this.value">
+        <div style="font-size:.76rem;color:var(--muted);margin-top:3px;">${esc(s.fileName || 'Direkttext')}</div>
+      </td>
+      <td>
+        <select onchange="state.sources[${idx}].categoryShortCode=this.value">
+          ${catOptions.map(c => `<option value="${esc(c)}" ${c===s.categoryShortCode?'selected':''}>${esc(c)}</option>`).join('')}
+        </select>
+      </td>
+      <td><input value="${esc(s.tags)}" placeholder="z. B. Herz, Anatomie" onchange="state.sources[${idx}].tags=this.value"></td>
+      <td>${sizeText}</td>
+      <td><button class="btn danger" onclick="state.sources.splice(${idx},1);renderAll()">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPreps() {
+  const dayF = document.getElementById('prepDayFilter').value;
+  const q = document.getElementById('prepSearch').value.trim().toLowerCase();
+  const body = document.getElementById('prepsBody');
+  const rows = state.preparations.map((p, idx) => ({p, idx})).filter(({p}) => {
+    const dOk = dayF === 'ALL' || p.examDayTag === dayF;
+    const qOk = !q || p.title.toLowerCase().includes(q) || (p.keywordsCsv||'').toLowerCase().includes(q) || (p.competenceFocusCodes||'').toLowerCase().includes(q);
+    return dOk && qOk;
+  });
+  body.innerHTML = rows.map(({p, idx}) => `<tr>
+    <td style="width:125px;">
+      <select onchange="state.preparations[${idx}].examDayTag=this.value">
+        ${['Tag 1','Tag 2','Tag 3',''].map(d => `<option value="${d}" ${p.examDayTag===d?'selected':''}>${d||'Ohne Tag'}</option>`).join('')}
+      </select>
+      <input style="margin-top:4px;" value="${esc(p.competenceFocusCodes)}" placeholder="KS" onchange="state.preparations[${idx}].competenceFocusCodes=this.value">
+    </td>
+    <td>
+      <input value="${esc(p.title)}" onchange="state.preparations[${idx}].title=this.value">
+      <input style="margin-top:4px;font-size:.8rem;" value="${esc(p.customPromptNote||'')}" placeholder="Hinweis (z. B. Anatomie/Physiologie)" onchange="state.preparations[${idx}].customPromptNote=this.value">
+    </td>
+    <td>
+      <input value="${esc(p.keywordsCsv)}" placeholder="Suchbegriffe" onchange="state.preparations[${idx}].keywordsCsv=this.value">
+      <input style="margin-top:4px;font-size:.8rem;" value="${esc(p.focusParametersCsv)}" placeholder="Fokus-Parameter" onchange="state.preparations[${idx}].focusParametersCsv=this.value">
+    </td>
+    <td style="width:130px;">
+      <select onchange="state.preparations[${idx}].detailDepth=this.value">
+        ${['COMPACT','STANDARD','EXAM_DEEP'].map(d => `<option value="${d}" ${p.detailDepth===d?'selected':''}>${d}</option>`).join('')}
+      </select>
+      <input style="margin-top:4px;" type="number" min="1" max="40" value="${p.targetFlashcardCount}" onchange="state.preparations[${idx}].targetFlashcardCount=parseInt(this.value)||10">
+    </td>
+    <td><button class="btn danger" onclick="state.preparations.splice(${idx},1);renderAll()">✕</button></td>
+  </tr>`).join('');
+}
+
+function addNewPrep() {
+  state.preparations.unshift({
+    title: 'Neues Prüfungsthema',
+    examDayTag: 'Tag 1',
+    competenceFocusCodes: 'I.1',
+    categoryOrCompetenceArea: 'Tag 1',
+    keywordsCsv: 'Anatomie, Physiologie, Pflege',
+    detailDepth: 'STANDARD',
+    priority: 'HIGH',
+    focusParametersCsv: 'Anatomie & Physiologie, Definition & Grundbegriffe, Pflegemaßnahmen, Begründungen & Ziele',
+    targetFlashcardCount: 10,
+    flashcardTypesCsv: 'DEFINITION,CAUSAL,LIST,CLOZE,CAVE',
+    customPromptNote: ''
+  });
+  renderAll();
+}
+
+function renderOps() {
+  const body = document.getElementById('opsBody');
+  body.innerHTML = state.operators.map((op, idx) => `<tr>
+    <td style="width:210px;">
+      <input value="${esc(op.name)}" onchange="state.operators[${idx}].name=this.value">
+      <input style="margin-top:4px;" value="${esc(op.requirementLevel)}" onchange="state.operators[${idx}].requirementLevel=this.value">
+    </td>
+    <td style="width:230px;">
+      <select onchange="state.operators[${idx}].caseRelationRule=this.value">
+        <option value="NO_CASE_RELATION" ${op.caseRelationRule==='NO_CASE_RELATION'?'selected':''}>Kein Fallbezug (allgemein)</option>
+        <option value="OPTIONAL_CASE_RELATION" ${op.caseRelationRule==='OPTIONAL_CASE_RELATION'?'selected':''}>Fallbezug möglich</option>
+        <option value="REQUIRED_CASE_RELATION" ${op.caseRelationRule==='REQUIRED_CASE_RELATION'?'selected':''}>Fallbezug Pflicht</option>
+      </select>
+      <input style="margin-top:4px;" value="${esc(op.gradingRubric)}" placeholder="Bepunktung" onchange="state.operators[${idx}].gradingRubric=this.value">
+    </td>
+    <td>
+      <textarea rows="2" placeholder="Erwartungshorizont" onchange="state.operators[${idx}].expectationHorizon=this.value">${esc(op.expectationHorizon)}</textarea>
+      <textarea rows="2" style="margin-top:4px;" placeholder="Kommentar (K)" onchange="state.operators[${idx}].commentNotes=this.value">${esc(op.commentNotes)}</textarea>
+    </td>
+    <td><button class="btn danger" onclick="state.operators.splice(${idx},1);renderAll()">✕</button></td>
+  </tr>`).join('');
+}
+
+function addNewOp() {
+  state.operators.push({
+    name: 'Neuer Operator',
+    requirementLevel: 'Taxonomie ASB',
+    description: '',
+    exampleQuestion: '',
+    expectationHorizon: '',
+    commentNotes: '',
+    gradingRubric: '4 Punkte',
+    caseRelationRule: 'REQUIRED_CASE_RELATION',
+    questionPattern: '',
+    structureType: 'CAUSAL_REASONING',
+    defaultPoints: 4
+  });
+  renderAll();
+}
+
+function renderCats() {
+  const body = document.getElementById('catsBody');
+  body.innerHTML = state.categories.map((c, idx) => `<tr>
+    <td><input value="${esc(c.shortCode)}" onchange="state.categories[${idx}].shortCode=this.value"></td>
+    <td><input value="${esc(c.name)}" onchange="state.categories[${idx}].name=this.value"></td>
+    <td><input value="${esc(c.description)}" onchange="state.categories[${idx}].description=this.value"></td>
+    <td><button class="btn danger" onclick="state.categories.splice(${idx},1);renderAll()">✕</button></td>
+  </tr>`).join('');
+}
+
+function addNewCat() {
+  state.categories.push({ name: 'Eigener Bereich', shortCode: 'Eigen', colorHex: 4282735204, description: '' });
+  renderAll();
+}
+
+function syncHeaderFields() {
+  state.bundleName = document.getElementById('bundleName').value.trim() || 'PflegeExamen Paket';
+  state.bundleVersion = parseInt(document.getElementById('bundleVersion').value) || 1;
+  state.dailyGoalPoints = parseInt(document.getElementById('dailyGoalPoints').value) || 20;
+  const rankUrl = document.getElementById('rankingEndpointUrl').value.trim();
+  state.rankingEndpointUrl = rankUrl ? rankUrl : null;
+  state.replaceExistingPreparations = document.getElementById('replacePreps').checked;
+  state.replaceExistingOperators = document.getElementById('replaceOps').checked;
+}
+
+function exportManifestOnly() {
+  syncHeaderFields();
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'manifest.json');
+}
+
+// Minimaler, standardkonformer Pure-JS Stored-ZIP Writer (ohne externe Bibliotheken!)
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function buildZip(entries) {
+  const enc = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const { name, data } of entries) {
+    const nameBytes = enc.encode(name);
+    const crc = crc32(data);
+    const lh = new ArrayBuffer(30);
+    const lv = new DataView(lh);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true); // UTF-8
+    lv.setUint16(8, 0, true); // STORE
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, data.length, true);
+    lv.setUint32(22, data.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    localParts.push(new Uint8Array(lh), nameBytes, data);
+
+    const ch = new ArrayBuffer(46);
+    const cv = new DataView(ch);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    centralParts.push(new Uint8Array(ch), nameBytes);
+
+    offset += 30 + nameBytes.length + data.length;
+  }
+
+  const centralSize = centralParts.reduce((s, a) => s + a.length, 0);
+  const eocd = new ArrayBuffer(22);
+  const ev = new DataView(eocd);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+
+  return new Blob([...localParts, ...centralParts, new Uint8Array(eocd)], { type: 'application/zip' });
+}
+
+function exportBundleZip() {
+  syncHeaderFields();
+  const enc = new TextEncoder();
+  const entries = [
+    { name: 'manifest.json', data: enc.encode(JSON.stringify(state, null, 2)) }
+  ];
+  for (const s of state.sources) {
+    if (s.fileName && sourceBlobs.has(s.fileName)) {
+      entries.push({ name: s.fileName, data: sourceBlobs.get(s.fileName) });
+    }
+  }
+  const zipBlob = buildZip(entries);
+  const fname = (state.bundleName || 'PflegeExamen').replace(/[^a-zA-Z0-9_-]/g, '_') + '.pflegebundle.zip';
+  downloadBlob(zipBlob, fname);
+}
+
+async function importExistingZip(file) {
+  if (!file) return;
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const dv = new DataView(buf.buffer);
+    let pos = 0;
+    const dec = new TextDecoder('utf-8');
+    let parsedManifest = null;
+    const blobs = new Map();
+    while (pos + 30 < buf.length && dv.getUint32(pos, true) === 0x04034b50) {
+      const method = dv.getUint16(pos + 8, true);
+      const compSize = dv.getUint32(pos + 18, true);
+      const nameLen = dv.getUint16(pos + 26, true);
+      const extraLen = dv.getUint16(pos + 28, true);
+      const nameStart = pos + 30;
+      const dataStart = nameStart + nameLen + extraLen;
+      const name = dec.decode(buf.subarray(nameStart, nameStart + nameLen));
+      const payload = buf.slice(dataStart, dataStart + compSize);
+      let finalPayload = payload;
+      if (method === 8) {
+        const ds = new DecompressionStream('deflate-raw');
+        const writer = ds.writable.getWriter();
+        writer.write(payload);
+        writer.close();
+        finalPayload = new Uint8Array(await new Response(ds.readable).arrayBuffer());
+      } else if (method !== 0) {
+        alert('Nicht unterstützte ZIP-Kompression (Methode ' + method + ').');
+        return;
+      }
+      if (name === 'manifest.json' || name.endsWith('/manifest.json')) {
+        parsedManifest = JSON.parse(dec.decode(finalPayload));
+      } else if (!name.endsWith('/')) {
+        blobs.set(name, finalPayload);
+      }
+      pos = dataStart + compSize;
+    }
+    if (!parsedManifest) { alert('Keine manifest.json im Archiv gefunden.'); return; }
+    state = parsedManifest;
+    sourceBlobs = blobs;
+    init();
+  } catch (e) {
+    alert('Fehler beim Lesen: ' + e.message);
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>
