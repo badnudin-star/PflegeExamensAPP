@@ -20,6 +20,8 @@ class DocumentChunkerAndRetrieverTest {
         assertTrue(second.all { it.sectionHeading == "Herzinsuffizienz" })
         assertEquals(first.size, second.first().chunkIndex)
         assertEquals(10_000, second.sumOf { it.content.length })
+        val awkwardLength = DocumentChunker.chunkPages(listOf(RawPage(1, "A".repeat(1_561))))
+        assertEquals(1_561, awkwardLength.sumOf { it.content.length })
     }
 
     @Test

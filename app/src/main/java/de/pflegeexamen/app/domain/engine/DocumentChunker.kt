@@ -127,8 +127,11 @@ object DocumentChunker {
         val cur = StringBuilder()
         for (sentence in sentences) {
             // OCR, tables or malformed files may contain a single multi-megabyte sentence.
-            val parts = if (sentence.length > HARD_MAX_CHUNK_CHARS)
-                sentence.chunked(TARGET_MAX_CHUNK_CHARS) else listOf(sentence)
+            val parts = if (sentence.length > HARD_MAX_CHUNK_CHARS) {
+                val count = (sentence.length + TARGET_MAX_CHUNK_CHARS - 1) / TARGET_MAX_CHUNK_CHARS
+                // Balance lengths so the final piece is never a tiny discarded remainder.
+                sentence.chunked((sentence.length + count - 1) / count)
+            } else listOf(sentence)
             for (s in parts) {
             if (cur.isNotEmpty() && cur.length + s.length + 1 > TARGET_MAX_CHUNK_CHARS) {
                 out.add(cur.toString().trim())

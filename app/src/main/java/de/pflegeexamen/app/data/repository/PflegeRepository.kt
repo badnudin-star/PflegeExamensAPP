@@ -339,21 +339,19 @@ class PflegeRepository(
                 var entryCount = 0
                 while (entry != null) {
                     if (++entryCount > ImportLimits.MAX_BUNDLE_ENTRIES) ImportLimits.tooLarge("Das Lernpaket")
+                    val safeName = entry.name.replace('\\', '/').trimStart('/')
+                    if (safeName.contains("..")) throw IllegalArgumentException("Ungültiger Dateiname im Lernpaket.")
+                    val bytes = ImportLimits.readBounded(zis, ImportLimits.MAX_BUNDLE_BYTES - totalUncompressed, "Das Lernpaket")
+                    totalUncompressed += bytes.size
                     if (!entry.isDirectory) {
-                        val safeName = entry.name.replace('\\', '/').trimStart('/')
-                        if (safeName.contains("..")) throw IllegalArgumentException("Ungültiger Dateiname im Lernpaket.")
-                        if (true) {
-                            val bytes = ImportLimits.readBounded(zis, ImportLimits.MAX_BUNDLE_BYTES - totalUncompressed, "Das Lernpaket")
-                            totalUncompressed += bytes.size
-                            if (safeName.equals("manifest.json", ignoreCase = true) ||
-                                safeName.endsWith("/manifest.json", ignoreCase = true)
-                            ) {
-                                manifestRaw = bytes.toString(StandardCharsets.UTF_8)
-                            } else {
-                                fileEntries[safeName.lowercase()] = bytes
-                                val baseName = safeName.substringAfterLast('/').lowercase()
-                                fileEntries.putIfAbsent(baseName, bytes)
-                            }
+                        if (safeName.equals("manifest.json", ignoreCase = true) ||
+                            safeName.endsWith("/manifest.json", ignoreCase = true)
+                        ) {
+                            manifestRaw = bytes.toString(StandardCharsets.UTF_8)
+                        } else {
+                            fileEntries[safeName.lowercase()] = bytes
+                            val baseName = safeName.substringAfterLast('/').lowercase()
+                            fileEntries.putIfAbsent(baseName, bytes)
                         }
                     }
                     zis.closeEntry()
