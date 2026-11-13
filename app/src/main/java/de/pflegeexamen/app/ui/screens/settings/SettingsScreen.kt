@@ -378,7 +378,7 @@ fun SettingsScreen(
                             )
                         }
                         Text(
-                            text = "Alle KI-Optionen sind kostenlos nutzbar. Es werden immer nur die passenden Textabschnitte aus deinen eigenen Quellen übermittelt. Bei Offline/Fehler übernimmt automatisch die lokale Engine.",
+                            text = "Smartphone-KI verarbeitet Inhalte auf dem Gerät. Auf nicht unterstützten Geräten sind passende Inhalte aus einem Lernpaket für die Offline-Engine erforderlich. KI-Ergebnisse fachlich überprüfen.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -419,6 +419,13 @@ fun SettingsScreen(
                         }
 
                         when (draftSettings.mode) {
+                            AiProviderMode.ON_DEVICE -> {
+                                Text("Gemini Nano benötigt ein unterstütztes Smartphone mit AICore. Der erste Modelldownload benötigt Internet und Speicherplatz; die Generierung erfolgt auf dem Gerät. KI-Inhalte fachlich überprüfen.")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { scope.launch { snackbarHostState.showSnackbar("Smartphone-KI: ${repository.smartphoneAiStatus()}") } }) { Text("Status prüfen") }
+                                    OutlinedButton(onClick = { repository.downloadSmartphoneAi(); scope.launch { snackbarHostState.showSnackbar("Modelldownload angefragt. Verfügbarkeit über Status prüfen.") } }) { Text("Modell laden") }
+                                }
+                            }
                             AiProviderMode.OFFLINE_ONLY -> {
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))

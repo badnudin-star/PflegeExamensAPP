@@ -4,6 +4,8 @@ import android.net.Uri
 import de.pflegeexamen.app.data.ai.AiCallResult
 import de.pflegeexamen.app.data.ai.AiPreferencesStore
 import de.pflegeexamen.app.data.ai.HttpAiTextClient
+import de.pflegeexamen.app.data.ai.OnDeviceAiClient
+import de.pflegeexamen.app.data.ai.OnDeviceAiStatus
 import de.pflegeexamen.app.data.bundle.BundleCategoryItem
 import de.pflegeexamen.app.data.bundle.BundleImportReport
 import de.pflegeexamen.app.data.bundle.BundleManifest
@@ -136,6 +138,7 @@ class PflegeRepository(
     val ingestionService: DocumentIngestionService,
     private val aiPreferencesStore: AiPreferencesStore,
     private val aiClient: HttpAiTextClient,
+    private val onDeviceAiClient: OnDeviceAiClient,
     private val rankingPreferencesStore: RankingPreferencesStore,
     private val rankingClient: HttpRankingClient
 ) {
@@ -662,7 +665,10 @@ class PflegeRepository(
     }
 
     suspend fun testAiConnection(settings: AiSettings): AiCallResult =
-        aiClient.testConnection(settings)
+        if (settings.isOnDevice()) onDeviceAiClient.testConnection() else aiClient.testConnection(settings)
+
+    suspend fun smartphoneAiStatus(): OnDeviceAiStatus = onDeviceAiClient.checkStatus()
+    fun downloadSmartphoneAi() = onDeviceAiClient.startBackgroundDownload()
 
     suspend fun saveUsernameAndSync(rawUsername: String): RankingSyncResult {
         val clean = RankingEngine.sanitizeUsername(rawUsername)
@@ -941,7 +947,7 @@ class PflegeRepository(
         val config = item.toGenerationConfig()
 
         when (
-            val outcome = SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieve(
                 allChunks = chunkInputs,
                 titleQuery = config.title,
                 keywords = config.keywords,
@@ -949,7 +955,7 @@ class PflegeRepository(
                 customPromptNote = config.customPromptNote,
                 selectedSourceIds = config.selectedSourceIds,
                 detailDepth = config.detailDepth
-            )
+            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
             is RetrievalOutcome.NoSources -> GenerationReport.NoEvidenceFound(
                 "Es sind aktuell keine eigenen Quellen hinterlegt (oder die ausgewählten Quellen existieren nicht mehr). Bitte fügen Sie zuerst eigene Quellen hinzu."
@@ -967,25 +973,28 @@ class PflegeRepository(
                 var note: de.pflegeexamen.app.domain.engine.GeneratedStudyNote? = null
                 var cards: List<de.pflegeexamen.app.domain.engine.GeneratedFlashcard> = emptyList()
 
-                if (activeAi.isReadyForRemoteCall()) {
-                    val prompt = AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
-                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
+                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceStudyPrompt(config, outcome.passages) else AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
+                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, outcome.passages)
+                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, if (activeAi.isOnDevice()) emptyList() else outcome.passages)
                             if (parsed != null) {
                                 note = parsed.studyNote
                                 cards = parsed.flashcards
                                 usedLabel = res.providerLabel
                             } else {
-                                fallbackHint = "Hinweis: KI-Antwort war unvollständig – Offline-Engine hat zuverlässig übernommen."
+                                fallbackHint = "Hinweis: KI-Antwort war unvollständig."
                             }
                         }
                         is AiCallResult.Failure -> {
-                            fallbackHint = "Hinweis: ${res.reason} – Offline-Engine hat automatisch übernommen."
+                            fallbackHint = "Hinweis: ${res.reason}"
                         }
                     }
                 }
 
+                if (note == null && cards.isEmpty() && outcome.passages.isEmpty()) {
+                    return@withContext GenerationReport.NoEvidenceFound(fallbackHint ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
+                }
                 if (note == null && cards.isEmpty()) {
                     note = StudyNoteGenerator.generate(config, outcome.passages)
                     cards = FlashcardGenerator.generate(config, outcome.passages)
@@ -1078,14 +1087,14 @@ class PflegeRepository(
         }
         val chunkInputs = loadChunkInputs()
         when (
-            val outcome = SourceRetriever.retrieve(
+            val outcome: RetrievalOutcome = (SourceRetriever.retrieve(
                 allChunks = chunkInputs,
                 titleQuery = topicTitle,
                 keywords = keywords,
                 focusParameters = listOf("Anatomie & Physiologie", "Definition", "Symptome", "Ursachen", "Pflegemaßnahmen", "Begründungen", "Cave"),
                 selectedSourceIds = selectedSourceIds,
                 detailDepth = detailDepth
-            )
+            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
             is RetrievalOutcome.NoSources -> CaseGenerationReport.NoEvidenceFound(
                 "Es liegen noch keine eigenen Quellen vor. Bitte fügen Sie zuerst Skripte, PDFs, Word-Dateien, Texte oder Foto-Scans hinzu."
@@ -1117,24 +1126,27 @@ class PflegeRepository(
                 var fallbackNote: String? = null
                 var generated: de.pflegeexamen.app.domain.engine.GeneratedCaseStudy? = null
 
-                if (activeAi.isReadyForRemoteCall()) {
-                    val prompt = AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
-                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
+                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceCasePrompt(topicTitle, specs) else AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
+                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, outcome.passages, specs)
+                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, if (activeAi.isOnDevice()) emptyList() else outcome.passages, specs)
                             if (parsed != null) {
                                 generated = parsed
                                 usedLabel = res.providerLabel
                             } else {
-                                fallbackNote = "KI-Antwort war nicht strukturiert genug – Offline-Generator hat übernommen."
+                                fallbackNote = "KI-Antwort war nicht strukturiert genug."
                             }
                         }
                         is AiCallResult.Failure -> {
-                            fallbackNote = "${res.reason} – Offline-Generator hat übernommen."
+                            fallbackNote = "${res.reason}"
                         }
                     }
                 }
 
+                if (generated == null && outcome.passages.isEmpty()) {
+                    return@withContext CaseGenerationReport.NoEvidenceFound(fallbackNote ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
+                }
                 if (generated == null) {
                     generated = CaseStudyGenerator.generate(
                         topicTitle = topicTitle,
@@ -1216,7 +1228,7 @@ class PflegeRepository(
 
         var aiFeedback = ""
         val activeAi = aiPreferencesStore.current()
-        if (activeAi.isReadyForRemoteCall() && !answeredOnPaper && effectiveAnswer.isNotBlank()) {
+        if ((activeAi.isOnDevice() || activeAi.isReadyForRemoteCall()) && !answeredOnPaper && effectiveAnswer.isNotBlank()) {
             val prompt = AiPromptBuilder.buildAnswerFeedbackPrompt(
                 questionText = current.questionText,
                 operatorName = current.operatorName,
@@ -1225,7 +1237,7 @@ class PflegeRepository(
                 gradingRubric = current.operatorGradingRubric,
                 commentNotes = current.operatorCommentNotes
             )
-            val res = aiClient.complete(activeAi, prompt, expectJson = false)
+            val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(AiPromptBuilder.buildOnDeviceFeedbackPrompt(current.questionText, current.operatorName, current.modelAnswerText, effectiveAnswer)) else aiClient.complete(activeAi, prompt, expectJson = false)
             if (res is AiCallResult.Success) {
                 aiFeedback = res.text.trim()
             }

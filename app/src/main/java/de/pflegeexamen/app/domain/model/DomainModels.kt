@@ -87,6 +87,12 @@ enum class AiProviderMode(
     val description: String,
     val defaultModel: String
 ) {
+    ON_DEVICE(
+        displayLabel = "Smartphone-KI (Gemini Nano, auf dem Gerät)",
+        badgeLabel = "Smartphone-KI",
+        description = "Nutzt die eingebaute KI deines Smartphones (Android AICore / Gemini Nano) – komplett offline, ohne API-Key und ohne Internet. Lernzettel, Karteikarten, Fallbeispiele und Fragen werden direkt auf dem Handy erzeugt.",
+        defaultModel = "gemini-nano-on-device"
+    ),
     OFFLINE_ONLY(
         displayLabel = "100 % Offline (ohne KI)",
         badgeLabel = "Offline",
@@ -114,7 +120,7 @@ enum class AiProviderMode(
 }
 
 data class AiSettings(
-    val mode: AiProviderMode = AiProviderMode.OFFLINE_ONLY,
+    val mode: AiProviderMode = AiProviderMode.ON_DEVICE,
     val groqApiKey: String = "",
     val groqModel: String = AiProviderMode.GROQ_FREE.defaultModel,
     val geminiApiKey: String = "",
@@ -122,7 +128,10 @@ data class AiSettings(
     val ollamaBaseUrl: String = "http://192.168.178.20:11434",
     val ollamaModel: String = AiProviderMode.OLLAMA_LOCAL.defaultModel
 ) {
+    fun isOnDevice(): Boolean = mode == AiProviderMode.ON_DEVICE
+
     fun isReadyForRemoteCall(): Boolean = when (mode) {
+        AiProviderMode.ON_DEVICE -> false
         AiProviderMode.OFFLINE_ONLY -> false
         AiProviderMode.GROQ_FREE -> groqApiKey.isNotBlank()
         AiProviderMode.GEMINI_FREE -> geminiApiKey.isNotBlank()
@@ -130,6 +139,7 @@ data class AiSettings(
     }
 
     fun activeModelName(): String = when (mode) {
+        AiProviderMode.ON_DEVICE -> "Smartphone-KI (Gemini Nano)"
         AiProviderMode.OFFLINE_ONLY -> "Lokale Engine"
         AiProviderMode.GROQ_FREE -> groqModel.ifBlank { mode.defaultModel }
         AiProviderMode.GEMINI_FREE -> geminiModel.ifBlank { mode.defaultModel }

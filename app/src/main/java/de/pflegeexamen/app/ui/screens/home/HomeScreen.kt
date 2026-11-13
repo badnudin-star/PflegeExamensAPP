@@ -76,10 +76,8 @@ private data class HomeGamificationUi(
 @Composable
 fun HomeScreen(
     repository: PflegeRepository,
-    onNavigateToSources: () -> Unit,
     onNavigateToPreparation: () -> Unit,
     onNavigateToFlashcards: () -> Unit,
-    onNavigateToOperators: () -> Unit,
     onNavigateToCaseStudies: () -> Unit,
     onNavigateToRanking: () -> Unit,
     onNavigateToSettings: () -> Unit
@@ -443,26 +441,13 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 StatCard(
-                    title = "Quellen",
-                    value = sources.size.toString(),
-                    icon = Icons.Outlined.FolderCopy,
-                    onClick = onNavigateToSources,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
                     title = "Themenliste",
                     value = prepItems.size.toString(),
                     icon = Icons.AutoMirrored.Outlined.ListAlt,
                     onClick = onNavigateToPreparation,
                     modifier = Modifier.weight(1f)
                 )
-                StatCard(
-                    title = "Operatoren",
-                    value = operators.size.toString(),
-                    icon = Icons.Outlined.Quiz,
-                    onClick = onNavigateToOperators,
-                    modifier = Modifier.weight(1f)
-                )
+
             }
         }
 
@@ -516,19 +501,10 @@ fun HomeScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Dein Arbeitsablauf (Eigene Datenbasis)",
+                            text = "Dein Lernplan",
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
-
-                    WorkflowStepRow(
-                        stepNumber = 1,
-                        title = "Eigene Quellen importieren",
-                        subtitle = "PDF, Word (.docx), Text/Markdown oder Buchseiten per Foto-OCR",
-                        done = sources.isNotEmpty(),
-                        actionLabel = if (sources.isEmpty()) "Hinzufügen" else "Verwalten",
-                        onClick = onNavigateToSources
-                    )
 
                     WorkflowStepRow(
                         stepNumber = 2,
@@ -540,18 +516,9 @@ fun HomeScreen(
                     )
 
                     WorkflowStepRow(
-                        stepNumber = 3,
-                        title = "Operatoren (Landes-AG / Dez. 2025)",
-                        subtitle = "17 Examens-Operatoren (WV & ASB) inkl. Erwartungshorizont & Bepunktung",
-                        done = operators.isNotEmpty(),
-                        actionLabel = "Öffnen",
-                        onClick = onNavigateToOperators
-                    )
-
-                    WorkflowStepRow(
                         stepNumber = 4,
                         title = "Lernzettel, Karteikarten & Fallbeispiele",
-                        subtitle = "Offline oder per Gratis-KI aus deinen Quellen; Antwort nach Bestätigung",
+                        subtitle = "Lerne mit Smartphone-KI oder deinem Lernpaket; überprüfe KI-Ergebnisse fachlich",
                         done = studyNotes.isNotEmpty() || caseStudies.isNotEmpty(),
                         actionLabel = "Fallbeispiele",
                         onClick = onNavigateToCaseStudies
@@ -560,7 +527,7 @@ fun HomeScreen(
             }
         }
 
-        if (dueCount > 0 || (sources.isNotEmpty() && operators.isNotEmpty())) {
+        if (dueCount > 0) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),

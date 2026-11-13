@@ -249,28 +249,10 @@ private fun PreparationListTab(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "Alle 42 Prüfungsthemen sind nach den 3 schriftlichen Prüfungstagen und Kompetenzschwerpunkten (inkl. Anatomie & Physiologie bei Krankheitsbildern) voreingestellt – frei bearbeitbar und bereit für deine Quellen.",
+                        text = "Alle 42 Prüfungsthemen sind nach den 3 schriftlichen Prüfungstagen und Kompetenzschwerpunkten (inkl. Anatomie & Physiologie bei Krankheitsbildern) voreingestellt – wähle ein Thema und starte mit dem Lernen.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
-                    if (sources.isEmpty()) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.14f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Outlined.Info, contentDescription = null, tint = WarningOrange, modifier = Modifier.size(18.dp))
-                                Text(
-                                    text = "Noch keine eigenen Quellen verknüpft: Füge im Tab „Quellen“ deine PDFs, Skripte, Word-Dateien oder Buchfotos (oder über Einstellungen ein .pflegebundle.zip) hinzu.",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        }
-                    }
 
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -331,7 +313,7 @@ private fun PreparationListTab(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Text(
-                                "Durchsuche eigene Quellen und erstelle Lernzettel & Karteikarten...",
+                                "Erstelle Lernzettel und Karteikarten...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -581,9 +563,9 @@ private fun PreparationItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (hasAnySources) "Ziel: ${item.targetFlashcardCount} Karten" else "Wartet auf eigene Quellen",
+                    text = "Ziel: ${item.targetFlashcardCount} Karten",
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (hasAnySources) MaterialTheme.colorScheme.primary else WarningOrange,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
                 FilledTonalButton(
@@ -796,27 +778,6 @@ private fun PreparationItemEditorDialog(
                             },
                             label = { Text(type.displayLabel, style = MaterialTheme.typography.labelMedium) }
                         )
-                    }
-                }
-
-                if (availableSources.isNotEmpty()) {
-                    Text(
-                        "Quellen einschränken (leer = alle ${availableSources.size} Quellen)",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    availableSources.forEach { src ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Checkbox(
-                                checked = src.id in selectedSourceIds,
-                                onCheckedChange = { checked ->
-                                    if (checked) selectedSourceIds.add(src.id) else selectedSourceIds.remove(src.id)
-                                }
-                            )
-                            Text(src.title, style = MaterialTheme.typography.bodyMedium)
-                        }
                     }
                 }
 

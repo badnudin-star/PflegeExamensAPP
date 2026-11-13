@@ -46,11 +46,10 @@ import de.pflegeexamen.app.domain.engine.RankingEngine
 import de.pflegeexamen.app.ui.screens.casestudies.CaseStudiesScreen
 import de.pflegeexamen.app.ui.screens.casestudies.CaseStudyPracticeScreen
 import de.pflegeexamen.app.ui.screens.home.HomeScreen
-import de.pflegeexamen.app.ui.screens.operators.OperatorsScreen
+import de.pflegeexamen.app.ui.screens.preparation.FlashcardsTab
 import de.pflegeexamen.app.ui.screens.preparation.PreparationScreen
 import de.pflegeexamen.app.ui.screens.ranking.RankingScreen
 import de.pflegeexamen.app.ui.screens.settings.SettingsScreen
-import de.pflegeexamen.app.ui.screens.sources.SourcesScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,11 +58,10 @@ private enum class TopDestination(
     val label: String,
     val icon: ImageVector
 ) {
-    HOME("home", "Start", Icons.Outlined.Home),
-    SOURCES("sources", "Quellen", Icons.Outlined.FolderCopy),
-    PREPARATION("preparation", "Lernen", Icons.AutoMirrored.Outlined.ListAlt),
-    OPERATORS("operators", "Operatoren", Icons.Outlined.Quiz),
-    CASE_STUDIES("case_studies", "Fälle", Icons.AutoMirrored.Outlined.Assignment)
+    HOME("home", "Heute", Icons.Outlined.Home),
+    PREPARATION("preparation", "Themen", Icons.AutoMirrored.Outlined.ListAlt),
+    CARDS("cards", "Karten", Icons.Outlined.Quiz),
+    CASE_STUDIES("case_studies", "Falltraining", Icons.AutoMirrored.Outlined.Assignment)
 }
 
 @Composable
@@ -124,26 +122,16 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
             composable(TopDestination.HOME.route) {
                 HomeScreen(
                     repository = repository,
-                    onNavigateToSources = { navigateTopLevel(TopDestination.SOURCES) },
                     onNavigateToPreparation = {
                         prepSubTab = 0
                         navigateTopLevel(TopDestination.PREPARATION)
                     },
                     onNavigateToFlashcards = {
-                        prepSubTab = 2
-                        navigateTopLevel(TopDestination.PREPARATION)
+                        navigateTopLevel(TopDestination.CARDS)
                     },
-                    onNavigateToOperators = { navigateTopLevel(TopDestination.OPERATORS) },
                     onNavigateToCaseStudies = { navigateTopLevel(TopDestination.CASE_STUDIES) },
                     onNavigateToRanking = { navController.navigate("ranking") },
                     onNavigateToSettings = { navController.navigate("settings") }
-                )
-            }
-
-            composable(TopDestination.SOURCES.route) {
-                SourcesScreen(
-                    repository = repository,
-                    snackbarHostState = snackbarHostState
                 )
             }
 
@@ -155,11 +143,8 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
                 )
             }
 
-            composable(TopDestination.OPERATORS.route) {
-                OperatorsScreen(
-                    repository = repository,
-                    snackbarHostState = snackbarHostState
-                )
+            composable(TopDestination.CARDS.route) {
+                FlashcardsTab(repository = repository, snackbarHostState = snackbarHostState)
             }
 
             composable(TopDestination.CASE_STUDIES.route) {
@@ -168,9 +153,7 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
                     snackbarHostState = snackbarHostState,
                     onOpenCaseStudy = { caseId ->
                         navController.navigate("case_study/$caseId")
-                    },
-                    onNavigateToSources = { navigateTopLevel(TopDestination.SOURCES) },
-                    onNavigateToOperators = { navigateTopLevel(TopDestination.OPERATORS) }
+                    }
                 )
             }
 
@@ -206,7 +189,7 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
         }
     }
 
-    if (!rankingSettings.hasUsername()) {
+    if (false && !rankingSettings.hasUsername()) {
         UsernameOnboardingDialog(
             onConfirm = { cleanName ->
                 scope.launch {
