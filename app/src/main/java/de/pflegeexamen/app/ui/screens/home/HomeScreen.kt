@@ -35,7 +35,8 @@ fun HomeScreen(
     onNavigateToFlashcards: () -> Unit,
     onNavigateToCaseStudies: () -> Unit,
     onNavigateToRanking: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSources: () -> Unit
 ) {
     val aiSettings by repository.aiSettings.collectAsStateWithLifecycle()
     val topics by repository.preparationItems.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -86,6 +87,15 @@ fun HomeScreen(
                     Text("${cases.size} gespeicherte Fallbeispiele")
                     Text("Trainiere Prüfungsfragen und vergleiche deine Antwort mit der Musterlösung.")
                     OutlinedButton(onClick = onNavigateToCaseStudies) { Text("Falltraining öffnen") }
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Eigene Quellen", style = MaterialTheme.typography.titleLarge)
+                    Text("Importiere Skripte oder Fotos. Passende Textstellen werden automatisch für deine Themen gefunden; die Originaldateien bleiben unverändert.")
+                    OutlinedButton(onClick = onNavigateToSources) { Text("Quellen hinzufügen") }
                 }
             }
         }
