@@ -50,6 +50,7 @@ import de.pflegeexamen.app.ui.screens.preparation.FlashcardsTab
 import de.pflegeexamen.app.ui.screens.preparation.PreparationScreen
 import de.pflegeexamen.app.ui.screens.ranking.RankingScreen
 import de.pflegeexamen.app.ui.screens.settings.SettingsScreen
+import de.pflegeexamen.app.ui.screens.sources.SourcesScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -61,6 +62,7 @@ private enum class TopDestination(
     HOME("home", "Heute", Icons.Outlined.Home),
     PREPARATION("preparation", "Themen", Icons.AutoMirrored.Outlined.ListAlt),
     CARDS("cards", "Karten", Icons.Outlined.Quiz),
+    SOURCES("sources", "Quellen", Icons.Outlined.FolderCopy),
     CASE_STUDIES("case_studies", "Falltraining", Icons.AutoMirrored.Outlined.Assignment)
 }
 
@@ -131,7 +133,8 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
                     },
                     onNavigateToCaseStudies = { navigateTopLevel(TopDestination.CASE_STUDIES) },
                     onNavigateToRanking = { navController.navigate("ranking") },
-                    onNavigateToSettings = { navController.navigate("settings") }
+                    onNavigateToSettings = { navController.navigate("settings") },
+                    onNavigateToSources = { navigateTopLevel(TopDestination.SOURCES) }
                 )
             }
 
@@ -145,6 +148,10 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
 
             composable(TopDestination.CARDS.route) {
                 FlashcardsTab(repository = repository, snackbarHostState = snackbarHostState)
+            }
+
+            composable(TopDestination.SOURCES.route) {
+                SourcesScreen(repository = repository, snackbarHostState = snackbarHostState)
             }
 
             composable(TopDestination.CASE_STUDIES.route) {

@@ -39,7 +39,7 @@ import de.pflegeexamen.app.domain.engine.DocumentChunker
 import de.pflegeexamen.app.domain.engine.FlashcardGenerator
 import de.pflegeexamen.app.domain.engine.GamificationEngine
 import de.pflegeexamen.app.domain.engine.RankingEngine
-import de.pflegeexamen.app.domain.engine.SourceRetriever
+import de.pflegeexamen.app.domain.engine.TopicSourceMatcher
 import de.pflegeexamen.app.domain.engine.SpacedRepetition
 import de.pflegeexamen.app.domain.engine.StudyNoteGenerator
 import de.pflegeexamen.app.domain.engine.StudyProfileState
@@ -980,16 +980,14 @@ class PflegeRepository(
         replacePreviousCardsForTopic: Boolean = false
     ): GenerationReport = withContext(Dispatchers.Default) {
         val config = item.toGenerationConfig()
-        val chunkInputs = loadChunksForTopic(config.selectedSourceIds)
+        val chunkInputs = loadChunkInputs()
 
         when (
-            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
-                allChunks = chunkInputs,
-                titleQuery = config.title,
+            val outcome: RetrievalOutcome = (TopicSourceMatcher.match(
+                chunks = chunkInputs,
+                title = config.title,
                 keywords = config.keywords,
                 focusParameters = config.focusParameters,
-                customPromptNote = config.customPromptNote,
-                selectedSourceIds = config.selectedSourceIds,
                 detailDepth = config.detailDepth
             ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
@@ -1121,15 +1119,13 @@ class PflegeRepository(
                 "Bitte wählen Sie mindestens einen Operator aus Ihrer Operatorenliste aus."
             )
         }
-        val topicSourceIds = prepItemId?.let { preparationDao.getById(it)?.toGenerationConfig()?.selectedSourceIds }.orEmpty()
-        val chunkInputs = loadChunksForTopic(topicSourceIds)
+        val chunkInputs = loadChunkInputs()
         when (
-            val outcome: RetrievalOutcome = (SourceRetriever.retrieveAssigned(
-                allChunks = chunkInputs,
-                titleQuery = topicTitle,
+            val outcome: RetrievalOutcome = (TopicSourceMatcher.match(
+                chunks = chunkInputs,
+                title = topicTitle,
                 keywords = keywords,
                 focusParameters = listOf("Anatomie & Physiologie", "Definition", "Symptome", "Ursachen", "Pflegemaßnahmen", "Begründungen", "Cave"),
-                selectedSourceIds = topicSourceIds.ifEmpty { selectedSourceIds },
                 detailDepth = detailDepth
             ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
         ) {
@@ -1379,16 +1375,13 @@ class PflegeRepository(
         )
     }
 
-    private suspend fun loadChunksForTopic(assignedIds: Set<Long>): List<ChunkInput> {
-        val chunks = loadChunkInputs()
-        if (assignedIds.isNotEmpty()) return chunks.filter { it.sourceId in assignedIds }
-        // Alt-Pakete ohne explizite Zuordnung bleiben durchsuchbar, aber Quellen,
-        // die anderen Themen zugeordnet wurden, werden nicht versehentlich verwendet.
-        val assignedElsewhere = preparationDao.getAll().flatMap {
-            it.selectedSourceIdsCsv.split(",").mapNotNull { value -> value.trim().toLongOrNull() }
-        }.toSet()
-        return chunks.filterNot { it.sourceId in assignedElsewhere }
-    }
+    /** Vorschläge werden bei jedem Aufruf aus allen aktuellen Quellen neu berechnet. */
+    suspend fun findTopicPassages(item: PreparationItemEntity): List<de.pflegeexamen.app.domain.model.RetrievedPassage> =
+        withContext(Dispatchers.Default) {
+            val config = item.toGenerationConfig()
+            (TopicSourceMatcher.match(loadChunkInputs(), config.title, config.keywords,
+                config.focusParameters, config.detailDepth) as? RetrievalOutcome.Found)?.passages.orEmpty()
+        }
 
     private suspend fun loadChunkInputs(): List<ChunkInput> {
         return sourceDao.getAllChunksWithSource().map { row ->

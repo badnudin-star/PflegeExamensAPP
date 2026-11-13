@@ -152,6 +152,7 @@ private fun PreparationListTab(
     var searchQuery by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var generationSummaryDialog by remember { mutableStateOf<String?>(null) }
+    var inspectingTopic by remember { mutableStateOf<PreparationItemEntity?>(null) }
 
     val filteredItems = remember(prepItems, selectedCategoryFilter, selectedExamDayFilter, searchQuery) {
         prepItems.filter { item ->
@@ -315,6 +316,7 @@ private fun PreparationListTab(
                     hasAnySources = sources.isNotEmpty(),
                     isGenerating = isGenerating,
                     onGenerate = { runGenerationFor(listOf(item)) },
+                    onShowSources = { inspectingTopic = item },
                     onToggleComplete = { checked ->
                         scope.launch {
                             repository.savePreparationItem(item.copy(isCompleted = checked))
@@ -323,6 +325,15 @@ private fun PreparationListTab(
                 )
             }
         }
+    }
+
+    inspectingTopic?.let { topic ->
+        TopicPassagesDialog(
+            item = topic,
+            repository = repository,
+            sourceVersion = sources,
+            onDismiss = { inspectingTopic = null }
+        )
     }
 
     generationSummaryDialog?.let { summary ->
@@ -363,6 +374,7 @@ private fun PreparationItemCard(
     hasAnySources: Boolean,
     isGenerating: Boolean,
     onGenerate: () -> Unit,
+    onShowSources: () -> Unit,
     onToggleComplete: (Boolean) -> Unit
 ) {
     val params = remember(item.focusParametersCsv) {
@@ -450,6 +462,10 @@ private fun PreparationItemCard(
                 )
             }
 
+            OutlinedButton(onClick = onShowSources) {
+                Text("Passende Textstellen ansehen")
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -472,4 +488,53 @@ private fun PreparationItemCard(
             }
         }
     }
+}
+
+@Composable
+private fun TopicPassagesDialog(
+    item: PreparationItemEntity,
+    repository: PflegeRepository,
+    sourceVersion: List<SourceDocumentEntity>,
+    onDismiss: () -> Unit
+) {
+    var passages by remember(item.id) { mutableStateOf<List<de.pflegeexamen.app.domain.model.RetrievedPassage>?>(null) }
+    var loadError by remember(item.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(item.id, sourceVersion) {
+        passages = null
+        loadError = null
+        try {
+            passages = repository.findTopicPassages(item)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            loadError = e.message ?: "Die Textstellen konnten nicht geladen werden."
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Textstellen: ${item.title}") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Die besten automatisch gefundenen Textstellen aus deinen Quellen. Bitte Relevanz und OCR-Erkennung prüfen; die Originaldateien werden nicht verändert.", style = MaterialTheme.typography.bodySmall)
+                when {
+                    loadError != null -> Text(loadError!!)
+                    passages == null -> CircularProgressIndicator()
+                    passages!!.isEmpty() -> Text("Keine passende Textstelle gefunden. Importiere weitere Quellen oder prüfe, ob die Quelle lesbaren Text enthält.")
+                    else -> passages!!.forEach { passage ->
+                        val chunk = passage.chunk
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(listOf(chunk.sourceTitle, chunk.pageLabel(), chunk.sectionHeading).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelLarge)
+                                Text(chunk.content, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Schließen") } }
+    )
 }

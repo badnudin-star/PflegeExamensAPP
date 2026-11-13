@@ -230,7 +230,7 @@ fun SourcesScreen(
                 )
                 OfflineSourceBanner(
                     aiSettings = aiSettings,
-                    text = "Füge ausschließlich deine eigenen Lehrbuchauszüge, Skripte, PDFs, Word-Dateien oder Buchseiten-Fotos hinzu."
+                    text = "Originaldateien bleiben unverändert. Die App speichert extrahierten Text und schlägt passende Stellen für Themen vor. OCR und Zuordnung bitte prüfen. Bei Nutzung externer KI-Anbieter können Textstellen übertragen werden."
                 )
             }
         }
@@ -371,7 +371,7 @@ fun SourcesScreen(
                         )
                         pendingFileImport = null
                         val extra = if (parsed.usedOcrFallbackForPdf) " (inkl. automatischer OCR)" else ""
-                        snackbarHostState.showSnackbar("Quelle „$title“ gespeichert$extra (+15 XP).")
+                        snackbarHostState.showSnackbar("Quelle „$title“ gespeichert$extra. Passende Textstellen werden automatisch bei den Themen gesucht.")
                     } catch (e: Exception) {
                         snackbarHostState.showSnackbar(e.message ?: "Speichern fehlgeschlagen.")
                     }
@@ -431,7 +431,7 @@ fun SourcesScreen(
                             categoryLabel = cat?.shortCode ?: cat?.name ?: ""
                         )
                         showManualNoteDialog = false
-                        snackbarHostState.showSnackbar("Eigene Notiz „$title“ indexiert (+15 XP).")
+                        snackbarHostState.showSnackbar("Eigene Notiz „$title“ indexiert. Passende Textstellen werden automatisch bei den Themen gesucht.")
                     } catch (e: Exception) {
                         snackbarHostState.showSnackbar(e.message ?: "Text zu kurz oder ungültig.")
                     }
@@ -473,7 +473,7 @@ fun SourcesScreen(
             onDismissRequest = { deletingSource = null },
             title = { Text("Quelle löschen?") },
             text = {
-                Text("Soll „${source.title}“ inklusive aller indexierten Textabschnitte entfernt werden? Bereits erstellte Lernzettel bleiben erhalten.")
+                Text("Soll „${source.title}“ aus der App inklusive aller gespeicherten Textabschnitte entfernt werden? Die ursprüngliche Datei bleibt unverändert; bereits erstellte Lernzettel bleiben erhalten.")
             },
             confirmButton = {
                 Button(

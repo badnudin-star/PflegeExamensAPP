@@ -5,7 +5,8 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 ## Lernen und Smartphone-KI
 
 - Die Navigation konzentriert sich auf **Heute**, **Themen**, **Karten** und **Falltraining**. Die Prüfungsthemen sind fest vorgegeben und können nicht erstellt, gelöscht oder durch Paketimporte ersetzt werden. Bestehende Lernstände und ältere eigene Themen bleiben gespeichert.
-- Quellen und Operatoren werden ausschließlich mit `tools/PflegeBundleStudio.html` bearbeitet und als `.pflegebundle.zip` in den App-Einstellungen importiert. Jede Quelle lässt sich im Studio einem oder mehreren vorhandenen Themen zuordnen (Mehrfachauswahl mit Strg/Cmd). Beim Lernen werden die zugeordneten Quellen verwendet; ältere Pakete ohne Zuordnung bleiben durchsuchbar.
+- Quellen können direkt in der App über **Quellen** importiert oder weiterhin mit `tools/PflegeBundleStudio.html` als Paket eingespielt werden. Die App sucht beim Öffnen eines Themas und beim Erstellen von Lernmaterial passende Textabschnitte in allen importierten Quellen. Die Zuordnung ist ein automatischer Vorschlag und sollte geprüft werden; die Themen bleiben fest vorgegeben. Operatoren werden weiterhin über das HTML-Studio verwaltet.
+- Die App liest Originaldateien nur und speichert extrahierten Text in ihrer eigenen Datenbank. Auch beim Löschen des App-Eintrags bleibt die Ursprungsdatei erhalten. Ein Bundle-Backup enthält extrahierten Text, keine originalgetreue Kopie der PDF-/DOCX-Dateien. OCR oder PDF-Extraktion können vom Original abweichen.
 - Anatomie und Physiologie sind kein eigener Themenbereich: Sie sind Teil der passenden Krankheitsbilder. Entsprechende Skripte können diesen Themen zugeordnet werden.
 - Auf kompatiblen Android-Geräten nutzt die App standardmäßig **Gemini Nano über Android AICore / ML Kit GenAI**. Die Generierung erfolgt auf dem Gerät ohne API-Schlüssel; der erste Modelldownload benötigt Internet und genügend Speicherplatz. Verfügbarkeit und Download können in den Einstellungen geprüft werden.
 - Nicht jedes Smartphone unterstützt Gemini Nano. Wenn es nicht verfügbar ist oder die KI-Antwort fehlschlägt, kann die Offline-Engine nur dann Material erstellen, wenn passende Texte über ein Lernpaket importiert wurden. Ohne Modell und ohne passende Texte gibt die App einen Hinweis aus; sie kann kein Fachwissen aus dem Nichts erzeugen.
@@ -16,7 +17,7 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 
 ## Funktionsumfang
 
-1. **Eigene Quellen (ausschließlich über das HTML-Studio)**
+1. **Eigene Quellen (direkt in der App oder über das HTML-Studio)**
    - **PDF-Import:** Seitenweise Textextraktion via `pdfbox-android` (inkl. automatischem Fallback auf Android `PdfRenderer` + Offline-OCR bei eingescannten PDFs).
    - **Word-Import (`.docx`):** Lokaler Parser für Absätze, Überschriften, Aufzählungen und Tabellen.
    - **Text & Markdown (`.txt`, `.md`) & Direkteingabe:** Schneller Import eigener Mitschriften.
