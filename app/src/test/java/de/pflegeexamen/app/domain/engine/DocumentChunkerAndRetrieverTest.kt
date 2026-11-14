@@ -11,6 +11,20 @@ import org.junit.Test
 
 class DocumentChunkerAndRetrieverTest {
     @Test
+    fun `incremental chunking keeps heading and handles long unbroken text`() {
+        val session = DocumentChunker.Session()
+        val first = session.chunkPage(RawPage(1, "# Herzinsuffizienz\n\nDie Herzinsuffizienz ist eine Erkrankung."))
+        val second = session.chunkPage(RawPage(2, "K".repeat(10_000)))
+        assertTrue(second.size > 1)
+        assertTrue(second.all { it.content.length <= 1050 })
+        assertTrue(second.all { it.sectionHeading == "Herzinsuffizienz" })
+        assertEquals(first.size, second.first().chunkIndex)
+        assertEquals(10_000, second.sumOf { it.content.length })
+        val awkwardLength = DocumentChunker.chunkPages(listOf(RawPage(1, "A".repeat(1_561))))
+        assertEquals(1_561, awkwardLength.sumOf { it.content.length })
+    }
+
+    @Test
     fun `explicit topic links include physiology without disease terms and exclude other topics`() {
         val chunks = listOf(
             ChunkInput(1, 10, "Herz", SourceType.TXT, 1, "Kreislauf", "Das Herz pumpt Blut durch den Kreislauf."),

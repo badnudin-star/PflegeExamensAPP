@@ -1,168 +1,139 @@
 package de.pflegeexamen.app.data.ingestion
 
 import de.pflegeexamen.app.domain.model.RawPage
-import org.w3c.dom.Element
-import org.w3c.dom.Node
-import java.io.ByteArrayInputStream
+import org.xml.sax.Attributes
+import org.xml.sax.InputSource
+import org.xml.sax.SAXException
+import org.xml.sax.helpers.DefaultHandler
 import java.io.InputStream
 import java.util.zip.ZipInputStream
-import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.SAXParserFactory
 
-/**
- * Reiner Kotlin/JDK-Parser für Word-Dateien (.docx) ohne schwere Drittanbieter-Bibliotheken.
- * Extrahiert Absätze, Überschriften, Listenpunkte und Tabellenzeilen aus word/document.xml.
- */
+/** Streaming Word parser: no unbounded decompressed XML buffer or in-memory DOM. */
 object DocxParser {
+    private const val WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
     fun parseToPages(inputStream: InputStream): List<RawPage> {
-        var documentXmlBytes: ByteArray? = null
         ZipInputStream(inputStream).use { zip ->
             var entry = zip.nextEntry
+            var entries = 0
+            var totalOtherBytes = 0L
             while (entry != null) {
+                if (++entries > ImportLimits.MAX_BUNDLE_ENTRIES) ImportLimits.tooLarge("Das Word-Dokument")
                 if (entry.name == "word/document.xml") {
-                    documentXmlBytes = zip.readBytes()
-                    break
+                    val handler = DocumentHandler()
+                    val factory = SAXParserFactory.newInstance().apply {
+                        isNamespaceAware = true
+                        try { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (_: Exception) { }
+                        try { setFeature("http://xml.org/sax/features/external-general-entities", false) } catch (_: Exception) { }
+                        try { setFeature("http://xml.org/sax/features/external-parameter-entities", false) } catch (_: Exception) { }
+                    }
+                    val reader = factory.newSAXParser().xmlReader
+                    reader.contentHandler = handler
+                    reader.entityResolver = org.xml.sax.EntityResolver { _, _ ->
+                        throw SAXException("Externe XML-Entitäten sind nicht erlaubt.")
+                    }
+                    reader.parse(InputSource(ImportLimits.bounded(zip, ImportLimits.MAX_XML_BYTES, "Das entpackte Word-Dokument")))
+                    return handler.finish()
+                }
+                val bounded = ImportLimits.bounded(zip, ImportLimits.MAX_XML_BYTES - totalOtherBytes, "Das Word-Dokument")
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val n = bounded.read(buffer)
+                    if (n < 0) break
+                    totalOtherBytes += n
                 }
                 zip.closeEntry()
                 entry = zip.nextEntry
             }
         }
-
-        val xmlBytes = documentXmlBytes
-            ?: throw IllegalArgumentException("Keine gültige Word-Datei (.docx): word/document.xml fehlt.")
-
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            try {
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            } catch (_: Exception) {
-                // Nicht auf jeder Android-XML-Implementierung unterstützt
-            }
-        }
-        val doc = factory.newDocumentBuilder().parse(ByteArrayInputStream(xmlBytes))
-        val bodyList = doc.getElementsByTagNameNS("*", "body")
-        if (bodyList.length == 0) return emptyList()
-
-        val body = bodyList.item(0)
-        val lines = mutableListOf<String>()
-
-        val children = body.childNodes
-        for (i in 0 until children.length) {
-            val node = children.item(i)
-            if (node.nodeType != Node.ELEMENT_NODE) continue
-            val elem = node as Element
-            when (elem.localName) {
-                "p" -> extractParagraph(elem)?.let { lines.add(it) }
-                "tbl" -> extractTable(elem, lines)
-            }
-        }
-
-        val fullText = lines.joinToString("\n\n").trim()
-        if (fullText.isBlank()) return emptyList()
-
-        // Teile sehr lange DOCX-Dokumente in logische Abschnitte (~3500 Zeichen pro virtuellem Abschnitt)
-        val pages = mutableListOf<RawPage>()
-        val buffer = StringBuilder()
-        var sectionNumber = 1
-        for (block in lines) {
-            if (buffer.isNotEmpty() && buffer.length + block.length > 3500) {
-                pages.add(RawPage(pageNumber = sectionNumber++, text = buffer.toString().trim()))
-                buffer.clear()
-            }
-            if (buffer.isNotEmpty()) buffer.append("\n\n")
-            buffer.append(block)
-        }
-        if (buffer.isNotEmpty()) {
-            pages.add(RawPage(pageNumber = sectionNumber, text = buffer.toString().trim()))
-        }
-        return pages
+        throw IllegalArgumentException("Keine gültige Word-Datei (.docx): word/document.xml fehlt.")
     }
 
-    private fun extractParagraph(p: Element): String? {
-        val textSb = StringBuilder()
-        var isHeading = false
-        var isBullet = false
+    private class DocumentHandler : DefaultHandler() {
+        private val pages = mutableListOf<RawPage>()
+        private val page = StringBuilder()
+        private val paragraph = StringBuilder()
+        private val cells = mutableListOf<String>()
+        private val cell = StringBuilder()
+        private var inText = false
+        private var inParagraph = false
+        private var inCell = false
+        private var inRow = false
+        private var heading = false
+        private var bullet = false
+        private var totalChars = 0
 
-        val pChildren = p.childNodes
-        for (i in 0 until pChildren.length) {
-            val child = pChildren.item(i)
-            if (child.nodeType != Node.ELEMENT_NODE) continue
-            val childElem = child as Element
-            when (childElem.localName) {
-                "pPr" -> {
-                    val pStyles = childElem.getElementsByTagNameNS("*", "pStyle")
-                    if (pStyles.length > 0) {
-                        val styleElem = pStyles.item(0) as Element
-                        val styleVal = styleElem
-                            .getAttributeNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val")
-                            .ifBlank { styleElem.getAttribute("w:val") }
-                            .ifBlank { styleElem.getAttribute("val") }
-                        if (styleVal.contains("Heading", ignoreCase = true) ||
-                            styleVal.contains("berschrift", ignoreCase = true) ||
-                            styleVal.contains("Title", ignoreCase = true)
-                        ) {
-                            isHeading = true
+        override fun startElement(uri: String?, localName: String?, qName: String?, attrs: Attributes) {
+            when (localName) {
+                "tr" -> { inRow = true; cells.clear() }
+                "tc" -> if (inRow) { inCell = true; cell.clear() }
+                "p" -> { inParagraph = true; paragraph.clear(); heading = false; bullet = false }
+                "pStyle" -> if (inParagraph) {
+                    val value = attrs.getValue(WORD_NS, "val") ?: attrs.getValue("w:val") ?: ""
+                    heading = value.contains("Heading", true) || value.contains("berschrift", true) || value.contains("Title", true)
+                }
+                "numPr" -> if (inParagraph) bullet = true
+                "t" -> if (inParagraph) inText = true
+                "tab" -> if (inParagraph) paragraph.append(' ')
+                "br", "cr" -> if (inParagraph) paragraph.append('\n')
+            }
+        }
+
+        override fun characters(ch: CharArray, start: Int, length: Int) {
+            if (inText && inParagraph) {
+                totalChars += length
+                if (totalChars > ImportLimits.MAX_TEXT_CHARS || paragraph.length + length > ImportLimits.MAX_PAGE_CHARS) {
+                    ImportLimits.tooLarge("Der Word-Text")
+                }
+                paragraph.append(ch, start, length)
+            }
+        }
+
+        override fun endElement(uri: String?, localName: String?, qName: String?) {
+            when (localName) {
+                "t" -> inText = false
+                "p" -> {
+                    inParagraph = false
+                    val text = paragraph.toString().trim()
+                    if (text.isNotBlank()) {
+                        if (inCell) {
+                            if (cell.isNotEmpty()) cell.append("; ")
+                            cell.append(text)
+                        } else {
+                            appendBlock(when {
+                                heading -> "# $text"
+                                bullet && !text.startsWith("•") && !text.startsWith("-") -> "• $text"
+                                else -> text
+                            })
                         }
                     }
-                    if (childElem.getElementsByTagNameNS("*", "numPr").length > 0) {
-                        isBullet = true
-                    }
                 }
-                "r" -> collectRunText(childElem, textSb)
-                "hyperlink" -> {
-                    val runs = childElem.getElementsByTagNameNS("*", "r")
-                    for (rIdx in 0 until runs.length) {
-                        collectRunText(runs.item(rIdx) as Element, textSb)
-                    }
-                }
+                "tc" -> { if (inCell && cell.isNotBlank()) cells.add(cell.toString()); inCell = false }
+                "tr" -> { if (inRow && cells.isNotEmpty()) appendBlock("• ${cells.joinToString(": ")}"); inRow = false }
             }
         }
 
-        val raw = textSb.toString().trim()
-        if (raw.isBlank()) return null
-        return when {
-            isHeading -> "# $raw"
-            isBullet && !raw.startsWith("•") && !raw.startsWith("-") -> "• $raw"
-            else -> raw
-        }
-    }
-
-    private fun collectRunText(run: Element, out: StringBuilder) {
-        val children = run.childNodes
-        for (i in 0 until children.length) {
-            val node = children.item(i)
-            if (node.nodeType != Node.ELEMENT_NODE) continue
-            val el = node as Element
-            when (el.localName) {
-                "t" -> out.append(el.textContent)
-                "tab" -> out.append(' ')
-                "br", "cr" -> out.append('\n')
-            }
-        }
-    }
-
-    private fun extractTable(tbl: Element, outLines: MutableList<String>) {
-        val rows = tbl.getElementsByTagNameNS("*", "tr")
-        for (r in 0 until rows.length) {
-            val row = rows.item(r) as Element
-            val cellTexts = mutableListOf<String>()
-            val cells = row.childNodes
-            for (c in 0 until cells.length) {
-                val cellNode = cells.item(c)
-                if (cellNode.nodeType != Node.ELEMENT_NODE) continue
-                val cellElem = cellNode as Element
-                if (cellElem.localName != "tc") continue
-                val paras = cellElem.getElementsByTagNameNS("*", "p")
-                val parts = mutableListOf<String>()
-                for (p in 0 until paras.length) {
-                    extractParagraph(paras.item(p) as Element)?.let { parts.add(it.removePrefix("# ").trim()) }
+        private fun appendBlock(block: String) {
+            // A paragraph can itself be very long; split it without dropping content.
+            var offset = 0
+            while (offset < block.length) {
+                if (page.isNotEmpty()) {
+                    if (page.length + 2 >= 3500) flush() else page.append("\n\n")
                 }
-                val joined = parts.joinToString("; ").trim()
-                if (joined.isNotBlank()) cellTexts.add(joined)
-            }
-            if (cellTexts.isNotEmpty()) {
-                outLines.add("• ${cellTexts.joinToString(": ")}")
+                val end = (offset + (3500 - page.length)).coerceAtMost(block.length)
+                page.append(block, offset, end)
+                offset = end
+                if (offset < block.length) flush()
             }
         }
+
+        private fun flush() {
+            val text = page.toString().trim()
+            if (text.isNotBlank()) pages.add(RawPage(pageNumber = pages.size + 1, text = text))
+            page.clear()
+        }
+
+        fun finish(): List<RawPage> { flush(); return pages }
     }
 }

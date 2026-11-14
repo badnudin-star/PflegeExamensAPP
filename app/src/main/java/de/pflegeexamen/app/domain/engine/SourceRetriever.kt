@@ -83,26 +83,30 @@ object SourceRetriever {
 
         val desiredRoles = mapParametersToRoles(focusParameters)
 
-        // Precompute document token sets & document frequencies for IDF weighting
-        val chunkIndex = scopedChunks.map { chunk ->
+        // Two passes avoid retaining a token set and normalized copy for every source
+        // passage. This matters for large textbooks and keeps ranking deterministic.
+        fun indexChunk(chunk: ChunkInput): IndexedChunk {
             val headingNorm = GermanTextAnalyzer.normalizeForMatching(chunk.sectionHeading)
             val contentNorm = GermanTextAnalyzer.normalizeForMatching("${chunk.sectionHeading}\n${chunk.content}")
             val tokenSet = GermanTextAnalyzer.tokenizeKeywords("${chunk.sectionHeading} ${chunk.content}").toSet()
-            IndexedChunk(chunk, headingNorm, contentNorm, tokenSet)
+            return IndexedChunk(chunk, headingNorm, contentNorm, tokenSet)
         }
-
-        val totalDocs = chunkIndex.size.toDouble()
-        val docFreq = mutableMapOf<String, Int>()
-        for (term in effectiveTerms) {
-            val count = chunkIndex.count { ic ->
-                GermanTextAnalyzer.matchesTerm(term, ic.tokens, ic.normalizedFullText)
+        val totalDocs = scopedChunks.size.toDouble()
+        val docFreq = effectiveTerms.associateWith { 0 }.toMutableMap()
+        for (chunk in scopedChunks) {
+            val indexed = indexChunk(chunk)
+            for (term in effectiveTerms) {
+                if (GermanTextAnalyzer.matchesTerm(term, indexed.tokens, indexed.normalizedFullText)) {
+                    docFreq[term] = docFreq.getValue(term) + 1
+                }
             }
-            docFreq[term] = count
         }
 
         val scored = mutableListOf<RetrievedPassage>()
-
-        for (ic in chunkIndex) {
+        val ranking = compareByDescending<RetrievedPassage> { it.score }
+            .thenBy { it.chunk.sourceId }.thenBy { it.chunk.chunkId }
+        for (chunk in scopedChunks) {
+            val ic = indexChunk(chunk)
             var score = 0.0
             val matchedTerms = LinkedHashSet<String>()
             var primaryMatches = 0
@@ -159,6 +163,11 @@ object SourceRetriever {
                         classifiedSentences = classified
                     )
                 )
+                // Keep only the same top results that would otherwise be selected at the end.
+                if (scored.size > detailDepth.maxTotalPassages) {
+                    scored.sortWith(ranking)
+                    scored.removeAt(scored.lastIndex)
+                }
             }
         }
 

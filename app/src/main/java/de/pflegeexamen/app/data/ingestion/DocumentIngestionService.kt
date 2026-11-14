@@ -8,14 +8,20 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
+import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import de.pflegeexamen.app.domain.model.RawPage
 import de.pflegeexamen.app.domain.model.SourceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.Writer
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
@@ -92,6 +98,7 @@ class DocumentIngestionService(
         fileName: String,
         bytes: ByteArray
     ): ParsedImportResult = withContext(Dispatchers.IO) {
+        if (bytes.size.toLong() > ImportLimits.MAX_DOCUMENT_BYTES) ImportLimits.tooLarge("Die Datei")
         val cleanName = fileName.substringAfterLast('/').ifBlank { "Quelle.txt" }
         val lowerName = cleanName.lowercase()
 
@@ -115,6 +122,7 @@ class DocumentIngestionService(
                 )
             }
             lowerName.endsWith(".md") -> {
+                if (bytes.size.toLong() > ImportLimits.MAX_TEXT_BYTES) ImportLimits.tooLarge("Die Textdatei")
                 val raw = decodeSmartBytes(bytes)
                 ParsedImportResult(
                     suggestedTitle = cleanName.substringBeforeLast('.'),
@@ -140,6 +148,7 @@ class DocumentIngestionService(
                 }
             }
             else -> {
+                if (bytes.size.toLong() > ImportLimits.MAX_TEXT_BYTES) ImportLimits.tooLarge("Die Textdatei")
                 val raw = decodeSmartBytes(bytes)
                 ParsedImportResult(
                     suggestedTitle = cleanName.substringBeforeLast('.'),
@@ -151,97 +160,86 @@ class DocumentIngestionService(
         }
     }
 
+    /** PDFBox uses a disk-backed scratch file rather than buffering the complete PDF in RAM. */
     private suspend fun importPdfFromFile(file: File, fileName: String): ParsedImportResult {
-        val pages = mutableListOf<RawPage>()
-        var totalChars = 0
-        var pageCount = 0
-
-        file.inputStream().use { stream ->
-            PDDocument.load(stream).use { document ->
-                pageCount = document.numberOfPages
-                val stripper = PDFTextStripper().apply { sortByPosition = true }
-                for (page in 1..pageCount) {
-                    stripper.startPage = page
-                    stripper.endPage = page
-                    val text = stripper.getText(document).trim()
-                    totalChars += text.length
-                    if (text.isNotBlank()) {
-                        pages.add(RawPage(pageNumber = page, text = text))
-                    }
-                }
-            }
+        if (file.length() > ImportLimits.MAX_DOCUMENT_BYTES) ImportLimits.tooLarge("Das PDF")
+        return extractPdf(fileName, { settings -> PDDocument.load(file, settings) }) {
+            runPdfRendererOcrFromPfd(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
         }
-
-        val avgChars = if (pageCount > 0) totalChars / pageCount else 0
-        if (pageCount > 0 && avgChars < 35) {
-            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val ocrPages = runPdfRendererOcrFromPfd(pfd)
-            if (ocrPages.sumOf { it.text.length } > totalChars) {
-                return ParsedImportResult(
-                    suggestedTitle = fileName.substringBeforeLast('.'),
-                    originalFileName = fileName,
-                    sourceType = SourceType.PDF,
-                    pages = ocrPages,
-                    usedOcrFallbackForPdf = true
-                )
-            }
-        }
-
-        return ParsedImportResult(
-            suggestedTitle = fileName.substringBeforeLast('.'),
-            originalFileName = fileName,
-            sourceType = SourceType.PDF,
-            pages = pages,
-            usedOcrFallbackForPdf = false
-        )
     }
 
     private suspend fun importPdf(uri: Uri, fileName: String): ParsedImportResult {
+        // Read the provider through a bounded stream. Scratch storage is private to the app;
+        // the original URI is never opened for writing.
+        return extractPdf(fileName, { settings ->
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalArgumentException("PDF-Datei konnte nicht geöffnet werden.")
+            input.use { PDDocument.load(ImportLimits.bounded(it, ImportLimits.MAX_DOCUMENT_BYTES, "Das PDF"), settings) }
+        }) { runPdfRendererOcrFallback(uri) }
+    }
+
+    private suspend fun extractPdf(
+        fileName: String,
+        load: (MemoryUsageSetting) -> PDDocument,
+        ocr: suspend () -> List<RawPage>
+    ): ParsedImportResult {
         val pages = mutableListOf<RawPage>()
         var totalChars = 0
-        var pageCount = 0
-
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            PDDocument.load(stream).use { document ->
-                pageCount = document.numberOfPages
-                val stripper = PDFTextStripper().apply {
-                    sortByPosition = true
+        val context = currentCoroutineContext()
+        val pageWriter = object : Writer() {
+            val buffer = StringBuilder()
+            override fun write(chars: CharArray, offset: Int, length: Int) {
+                context.ensureActive()
+                if (buffer.length + length > ImportLimits.MAX_PAGE_CHARS || totalChars.toLong() + length > ImportLimits.MAX_TEXT_CHARS) {
+                    ImportLimits.tooLarge("Der extrahierte PDF-Text")
                 }
-                for (page in 1..pageCount) {
-                    stripper.startPage = page
-                    stripper.endPage = page
-                    val text = stripper.getText(document).trim()
-                    totalChars += text.length
-                    if (text.isNotBlank()) {
-                        pages.add(RawPage(pageNumber = page, text = text))
-                    }
-                }
+                buffer.append(chars, offset, length)
+                totalChars += length
             }
-        } ?: throw IllegalArgumentException("PDF-Datei konnte nicht geöffnet werden.")
-
-        // Falls das PDF gescannte Seiten ohne eingebettete Text-Ebene enthält -> automatisch Offline-OCR nutzen!
+            fun finishPage(number: Int) {
+                val text = buffer.toString().trim()
+                if (text.isNotEmpty()) pages.add(RawPage(pageNumber = number, text = text))
+                buffer.clear()
+            }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val settings = MemoryUsageSetting.setupTempFileOnly().setTempDir(contextCacheDir())
+        val pageCount = load(settings).use { document ->
+            val stripper = object : PDFTextStripper() {
+                var pageGlyphs = 0
+                override fun startPage(page: PDPage) {
+                    context.ensureActive()
+                    pageGlyphs = 0
+                }
+                override fun processTextPosition(text: TextPosition) {
+                    if (++pageGlyphs > 150_000) ImportLimits.tooLarge("Eine PDF-Seite")
+                    if (pageGlyphs % 512 == 0) context.ensureActive()
+                    super.processTextPosition(text)
+                }
+                override fun endPage(page: PDPage) {
+                    pageWriter.finishPage(getCurrentPageNo())
+                }
+            }.apply { sortByPosition = true }
+            // One traversal, rather than re-walking the complete page tree for each page.
+            stripper.writeText(document, pageWriter)
+            document.numberOfPages
+        }
         val avgChars = if (pageCount > 0) totalChars / pageCount else 0
         if (pageCount > 0 && avgChars < 35) {
-            val ocrPages = runPdfRendererOcrFallback(uri)
+            // Do not silently import only the first 40 scanned pages.
+            if (pageCount > ImportLimits.MAX_OCR_PAGES) {
+                throw IllegalArgumentException("Dieses gescannte PDF hat $pageCount Seiten. Bitte für die Texterkennung in Dateien mit höchstens ${ImportLimits.MAX_OCR_PAGES} Seiten aufteilen; die Originaldatei bleibt unverändert.")
+            }
+            val ocrPages = ocr()
             if (ocrPages.sumOf { it.text.length } > totalChars) {
-                return ParsedImportResult(
-                    suggestedTitle = fileName.substringBeforeLast('.'),
-                    originalFileName = fileName,
-                    sourceType = SourceType.PDF,
-                    pages = ocrPages,
-                    usedOcrFallbackForPdf = true
-                )
+                return ParsedImportResult(fileName.substringBeforeLast('.'), fileName, SourceType.PDF, ocrPages, true)
             }
         }
-
-        return ParsedImportResult(
-            suggestedTitle = fileName.substringBeforeLast('.'),
-            originalFileName = fileName,
-            sourceType = SourceType.PDF,
-            pages = pages,
-            usedOcrFallbackForPdf = false
-        )
+        return ParsedImportResult(fileName.substringBeforeLast('.'), fileName, SourceType.PDF, pages)
     }
+
+    private fun contextCacheDir(): File = context.cacheDir
 
     private suspend fun runPdfRendererOcrFallback(uri: Uri): List<RawPage> {
         val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return emptyList()
@@ -252,12 +250,14 @@ class DocumentIngestionService(
         val ocrPages = mutableListOf<RawPage>()
         pfd.use { descriptor ->
             PdfRenderer(descriptor).use { renderer ->
-                val maxPages = renderer.pageCount.coerceAtMost(40)
+                val maxPages = renderer.pageCount
+                if (maxPages > ImportLimits.MAX_OCR_PAGES) ImportLimits.tooLarge("Das gescannte PDF")
                 for (index in 0 until maxPages) {
+                    currentCoroutineContext().ensureActive()
                     renderer.openPage(index).use { page ->
                         val scale = 2
-                        val width = (page.width * scale).coerceIn(600, 2200)
-                        val height = (page.height * scale).coerceIn(800, 3000)
+                        val width = (page.width * scale).coerceIn(600, 1800)
+                        val height = (page.height * scale).coerceIn(800, 2400)
                         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         try {
                             Canvas(bitmap).drawColor(Color.WHITE)
@@ -277,7 +277,7 @@ class DocumentIngestionService(
     }
 
     private fun readTextSmart(uri: Uri): String {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        val bytes = context.contentResolver.openInputStream(uri)?.use { ImportLimits.readBounded(it, ImportLimits.MAX_TEXT_BYTES, "Die Textdatei") }
             ?: throw IllegalArgumentException("Textdatei konnte nicht gelesen werden.")
         return decodeSmartBytes(bytes)
     }
@@ -292,6 +292,7 @@ class DocumentIngestionService(
     }
 
     fun splitPlainTextToLogicalSections(raw: String): List<RawPage> {
+        if (raw.length > ImportLimits.MAX_TEXT_CHARS) ImportLimits.tooLarge("Der Text")
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return emptyList()
         if (trimmed.length <= 3600) return listOf(RawPage(pageNumber = 1, text = trimmed))
@@ -299,18 +300,23 @@ class DocumentIngestionService(
         val pages = mutableListOf<RawPage>()
         val paragraphs = trimmed.split(Regex("""\n\s*\n+"""))
         val buffer = StringBuilder()
-        var sectionNum = 1
-        for (p in paragraphs) {
-            if (buffer.isNotEmpty() && buffer.length + p.length > 3500) {
-                pages.add(RawPage(pageNumber = sectionNum++, text = buffer.toString().trim()))
-                buffer.clear()
-            }
+        fun flush() {
+            val text = buffer.toString().trim()
+            if (text.isNotEmpty()) pages.add(RawPage(pageNumber = pages.size + 1, text = text))
+            buffer.clear()
+        }
+        for (paragraph in paragraphs) {
+            var offset = 0
+            if (buffer.isNotEmpty() && buffer.length + paragraph.length + 2 > 3500) flush()
             if (buffer.isNotEmpty()) buffer.append("\n\n")
-            buffer.append(p)
+            while (offset < paragraph.length) {
+                val end = minOf(offset + (3500 - buffer.length), paragraph.length)
+                buffer.append(paragraph, offset, end)
+                offset = end
+                if (offset < paragraph.length) flush()
+            }
         }
-        if (buffer.isNotEmpty()) {
-            pages.add(RawPage(pageNumber = sectionNum, text = buffer.toString().trim()))
-        }
+        flush()
         return pages
     }
 
@@ -335,6 +341,6 @@ class DocumentIngestionService(
     fun openUriOutputStream(uri: Uri) = context.contentResolver.openOutputStream(uri)
 
     fun readAssetBytesOrNull(assetPath: String): ByteArray? = runCatching {
-        context.assets.open(assetPath).use { it.readBytes() }
+        context.assets.open(assetPath).use { ImportLimits.readBounded(it, ImportLimits.MAX_BUNDLE_BYTES, "Die Asset-Datei") }
     }.getOrNull()
 }
