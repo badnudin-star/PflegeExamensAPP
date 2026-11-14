@@ -34,6 +34,7 @@ import de.pflegeexamen.app.data.ranking.RankingPreferencesStore
 import de.pflegeexamen.app.data.ranking.RankingSyncResult
 import de.pflegeexamen.app.domain.ai.AiJsonResponseParser
 import de.pflegeexamen.app.domain.ai.AiPromptBuilder
+import de.pflegeexamen.app.domain.ai.SourceEvidenceSelector
 import de.pflegeexamen.app.domain.engine.AnswerEvaluator
 import de.pflegeexamen.app.domain.engine.CaseStudyGenerator
 import de.pflegeexamen.app.domain.engine.DocumentChunker
@@ -60,6 +61,7 @@ import de.pflegeexamen.app.domain.model.PriorityLevel
 import de.pflegeexamen.app.domain.model.RankingSettings
 import de.pflegeexamen.app.domain.model.RawPage
 import de.pflegeexamen.app.domain.model.RetrievalOutcome
+import de.pflegeexamen.app.domain.model.RetrievedPassage
 import de.pflegeexamen.app.domain.model.ScoreSubmissionPayload
 import de.pflegeexamen.app.domain.model.SelfEvaluation
 import de.pflegeexamen.app.domain.model.SourceCitation
@@ -983,6 +985,47 @@ class PflegeRepository(
         count
     }
 
+    private sealed interface EvidenceResult {
+        data class Success(val passages: List<RetrievedPassage>, val hint: String) : EvidenceResult
+        data class Failure(val message: String) : EvidenceResult
+    }
+
+    private suspend fun selectOnDeviceEvidence(
+        topic: String, focus: List<String>, passages: List<RetrievedPassage>
+    ): EvidenceResult {
+        val plan = SourceEvidenceSelector.plan(passages)
+        if (plan is SourceEvidenceSelector.Plan.TooLarge) return EvidenceResult.Failure(plan.reason)
+        plan as SourceEvidenceSelector.Plan.Ready
+        if (plan.batches.isEmpty()) return EvidenceResult.Failure(
+            "Die gefundenen Abschnitte enthalten keine eindeutig zuordenbaren Textstellen. Bitte Quelle oder Texterkennung prüfen."
+        )
+        val selected = mutableListOf<RetrievedPassage>()
+        for ((index, batch) in plan.batches.withIndex()) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val prompt = SourceEvidenceSelector.prompt(topic, focus, batch)
+            when (val response = onDeviceAiClient.complete(prompt, maxOutputTokens = 256)) {
+                is AiCallResult.Failure -> return EvidenceResult.Failure(
+                    "Quellenauswertung bei Abschnitt ${index + 1}/${plan.batches.size} abgebrochen: ${response.reason} Es wurde nichts gespeichert."
+                )
+                is AiCallResult.Success -> {
+                    val accepted = SourceEvidenceSelector.select(response.text, batch)
+                        ?: return EvidenceResult.Failure(
+                            "Die Smartphone-KI lieferte bei Abschnitt ${index + 1}/${plan.batches.size} ungültige Belegnummern. Es wurde nichts gespeichert; bitte erneut versuchen."
+                        )
+                    selected.addAll(accepted)
+                }
+            }
+        }
+        if (selected.isEmpty()) return EvidenceResult.Failure(
+            "Die Smartphone-KI hat in den gefundenen Abschnitten keine geeigneten Aussagen ausgewählt. Bitte Quellen und Themenbegriffe prüfen."
+        )
+        val skipped = if (plan.skippedSentences > 0) " ${plan.skippedSentences} Textstellen waren nicht eindeutig zuordenbar oder zu lang und wurden ausgelassen." else ""
+        return EvidenceResult.Success(selected,
+            "Die KI hat ${passages.size} gefundene Abschnitte in ${plan.batches.size} Schritten gesichtet. " +
+                "Nur eine begrenzte Auswahl der Suchtreffer wird verarbeitet; wichtige Stellen können fehlen.$skipped " +
+                "Bitte Inhalte, Zusammenhang und Aktualität anhand der Originalquellen fachlich prüfen.")
+    }
+
     suspend fun generateFromPreparationItem(
         item: PreparationItemEntity,
         replacePreviousCardsForTopic: Boolean = false
@@ -991,13 +1034,13 @@ class PflegeRepository(
         val chunkInputs = loadChunkInputs()
 
         when (
-            val outcome: RetrievalOutcome = (TopicSourceMatcher.match(
+            val outcome: RetrievalOutcome = TopicSourceMatcher.match(
                 chunks = chunkInputs,
                 title = config.title,
                 keywords = config.keywords,
                 focusParameters = config.focusParameters,
                 detailDepth = config.detailDepth
-            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
+            )
         ) {
             is RetrievalOutcome.NoSources -> GenerationReport.NoEvidenceFound(
                 "Es sind aktuell keine eigenen Quellen hinterlegt (oder die ausgewählten Quellen existieren nicht mehr). Bitte fügen Sie zuerst eigene Quellen hinzu."
@@ -1005,7 +1048,7 @@ class PflegeRepository(
             is RetrievalOutcome.NoMatches -> GenerationReport.NoEvidenceFound(
                 "In ${outcome.searchedSourceCount} geprüften Quelle(n) wurden keine ausreichenden Belegstellen für „${item.title}“ " +
                     "(Suchbegriffe: ${outcome.searchedQueryTerms.joinToString(", ").ifBlank { "–" }}) gefunden. " +
-                    "Die App erfindet keine Fakten – bitte prüfen Sie Ihre Keywords oder ergänzen Sie eine passende Quelle."
+                    "Bitte prüfen Sie Ihre Keywords oder ergänzen Sie eine passende Quelle."
             )
             is RetrievalOutcome.Found -> {
                 val activeAi = aiPreferencesStore.current()
@@ -1015,29 +1058,39 @@ class PflegeRepository(
                 var note: de.pflegeexamen.app.domain.engine.GeneratedStudyNote? = null
                 var cards: List<de.pflegeexamen.app.domain.engine.GeneratedFlashcard> = emptyList()
 
-                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
-                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceStudyPrompt(config, outcome.passages) else AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
-                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice()) {
+                    when (val evidence = selectOnDeviceEvidence(config.title, config.focusParameters, outcome.passages)) {
+                        is EvidenceResult.Failure -> return@withContext GenerationReport.NoEvidenceFound(evidence.message)
+                        is EvidenceResult.Success -> {
+                            note = StudyNoteGenerator.generate(config, evidence.passages)?.let { generated ->
+                                generated.copy(summaryMarkdown = generated.summaryMarkdown + "\n\n**Hinweis:** Auswahl und Kontext fachlich mit der Originalquelle prüfen.")
+                            }
+                            cards = FlashcardGenerator.generate(config, evidence.passages).map { card ->
+                                card.copy(backText = card.backText + "\n\nHinweis: Aussage und Kontext anhand der Originalquelle prüfen.")
+                            }
+                            usedLabel = "Smartphone-KI (Quellenauswahl) + lokale Erstellung"
+                            fallbackHint = evidence.hint
+                        }
+                    }
+                } else if (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty()) {
+                    val prompt = AiPromptBuilder.buildStudyAndFlashcardPrompt(config, outcome.passages)
+                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, if (activeAi.isOnDevice()) emptyList() else outcome.passages)
+                            val parsed = AiJsonResponseParser.parseStudyAndCards(res.text, config, outcome.passages)
                             if (parsed != null) {
                                 note = parsed.studyNote
                                 cards = parsed.flashcards
                                 usedLabel = res.providerLabel
-                            } else {
-                                fallbackHint = "Hinweis: KI-Antwort war unvollständig."
-                            }
+                            } else fallbackHint = "Hinweis: KI-Antwort war unvollständig."
                         }
-                        is AiCallResult.Failure -> {
-                            fallbackHint = "Hinweis: ${res.reason}"
-                        }
+                        is AiCallResult.Failure -> fallbackHint = "Hinweis: ${res.reason}"
                     }
                 }
 
                 if (note == null && cards.isEmpty() && outcome.passages.isEmpty()) {
                     return@withContext GenerationReport.NoEvidenceFound(fallbackHint ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
                 }
-                if (note == null && cards.isEmpty()) {
+                if (note == null && cards.isEmpty() && !activeAi.isOnDevice()) {
                     note = StudyNoteGenerator.generate(config, outcome.passages)
                     cards = FlashcardGenerator.generate(config, outcome.passages)
                 }
@@ -1066,7 +1119,7 @@ class PflegeRepository(
                     )
                 }
 
-                if (replacePreviousCardsForTopic) {
+                if (replacePreviousCardsForTopic && cards.isNotEmpty()) {
                     flashcardDao.deleteByPrepItem(item.id)
                 }
 
@@ -1129,13 +1182,13 @@ class PflegeRepository(
         }
         val chunkInputs = loadChunkInputs()
         when (
-            val outcome: RetrievalOutcome = (TopicSourceMatcher.match(
+            val outcome: RetrievalOutcome = TopicSourceMatcher.match(
                 chunks = chunkInputs,
                 title = topicTitle,
                 keywords = keywords,
                 focusParameters = listOf("Anatomie & Physiologie", "Definition", "Symptome", "Ursachen", "Pflegemaßnahmen", "Begründungen", "Cave"),
                 detailDepth = detailDepth
-            ) as? RetrievalOutcome.Found) ?: RetrievalOutcome.Found(emptyList())
+            )
         ) {
             is RetrievalOutcome.NoSources -> CaseGenerationReport.NoEvidenceFound(
                 "Es liegen noch keine eigenen Quellen vor. Bitte fügen Sie zuerst Skripte, PDFs, Word-Dateien, Texte oder Foto-Scans hinzu."
@@ -1167,28 +1220,37 @@ class PflegeRepository(
                 var fallbackNote: String? = null
                 var generated: de.pflegeexamen.app.domain.engine.GeneratedCaseStudy? = null
 
-                if (activeAi.isOnDevice() || (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty())) {
-                    val prompt = if (activeAi.isOnDevice()) AiPromptBuilder.buildOnDeviceCasePrompt(topicTitle, specs, outcome.passages) else AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
-                    when (val res = if (activeAi.isOnDevice()) onDeviceAiClient.complete(prompt) else aiClient.complete(activeAi, prompt, expectJson = true)) {
+                if (activeAi.isOnDevice()) {
+                    when (val evidence = selectOnDeviceEvidence(
+                        topicTitle, listOf("Anatomie & Physiologie", "Symptome", "Pflegemaßnahmen", "Cave"), outcome.passages
+                    )) {
+                        is EvidenceResult.Failure -> return@withContext CaseGenerationReport.NoEvidenceFound(evidence.message)
+                        is EvidenceResult.Success -> {
+                            generated = CaseStudyGenerator.generate(topicTitle, evidence.passages, specs)?.let { case ->
+                                case.copy(vignetteText = "Lernübung aus ausgewählten Quellenaussagen. Aufgaben, Zusammenhang und Musterlösungen fachlich mit den Originalquellen prüfen.\n\n" + case.vignetteText)
+                            }
+                            usedLabel = "Smartphone-KI (Quellenauswahl) + lokale Erstellung"
+                            fallbackNote = evidence.hint
+                        }
+                    }
+                } else if (activeAi.isReadyForRemoteCall() && outcome.passages.isNotEmpty()) {
+                    val prompt = AiPromptBuilder.buildCaseStudyPrompt(topicTitle, outcome.passages, specs)
+                    when (val res = aiClient.complete(activeAi, prompt, expectJson = true)) {
                         is AiCallResult.Success -> {
-                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, if (activeAi.isOnDevice()) emptyList() else outcome.passages, specs)
+                            val parsed = AiJsonResponseParser.parseCaseStudy(res.text, topicTitle, outcome.passages, specs)
                             if (parsed != null) {
                                 generated = parsed
                                 usedLabel = res.providerLabel
-                            } else {
-                                fallbackNote = "KI-Antwort war nicht strukturiert genug."
-                            }
+                            } else fallbackNote = "KI-Antwort war nicht strukturiert genug."
                         }
-                        is AiCallResult.Failure -> {
-                            fallbackNote = "${res.reason}"
-                        }
+                        is AiCallResult.Failure -> fallbackNote = res.reason
                     }
                 }
 
                 if (generated == null && outcome.passages.isEmpty()) {
                     return@withContext CaseGenerationReport.NoEvidenceFound(fallbackNote ?: "Keine Smartphone-KI verfügbar und keine passenden Inhalte im Lernpaket. Bitte KI aktivieren oder ein Lernpaket importieren.")
                 }
-                if (generated == null) {
+                if (generated == null && !activeAi.isOnDevice()) {
                     generated = CaseStudyGenerator.generate(
                         topicTitle = topicTitle,
                         passages = outcome.passages,

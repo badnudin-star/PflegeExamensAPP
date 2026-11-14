@@ -378,7 +378,7 @@ fun SettingsScreen(
                             )
                         }
                         Text(
-                            text = "Smartphone-KI verarbeitet Inhalte auf dem Gerät. Auf nicht unterstützten Geräten sind passende Inhalte aus einem Lernpaket für die Offline-Engine erforderlich. KI-Ergebnisse fachlich überprüfen.",
+                            text = "Smartphone-KI wählt passende Aussagen aus eigenen Quellen auf dem Gerät. Die App erstellt daraus Lernmaterial mit Vorlagen. Inhalte und Quellenzusammenhang fachlich überprüfen.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
