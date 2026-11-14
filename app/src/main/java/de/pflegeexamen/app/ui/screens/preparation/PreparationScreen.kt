@@ -241,7 +241,7 @@ private fun PreparationListTab(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Text(
-                                "Erstelle Lernzettel und Karteikarten...",
+                                "Quellen werden abschnittsweise geprüft und Lernmaterial erstellt. Dies kann einige Minuten dauern …",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )

@@ -168,8 +168,10 @@ class OnDeviceAiClient {
         }
 
         // System- und Nutzer-Prompt in EINEN TextPart packen (bewährt für Gemini Nano).
-        val fullPrompt = (prompt.systemPrompt + "\n\n" + prompt.userPrompt)
-            .take(MAX_PROMPT_CHARS)
+        val fullPrompt = prompt.systemPrompt + "\n\n" + prompt.userPrompt
+        if (fullPrompt.length > MAX_PROMPT_CHARS) {
+            return@withContext AiCallResult.Failure("Die Anfrage ist für die Smartphone-KI zu groß. Bitte ein kleineres Thema wählen.")
+        }
 
         try {
             val request = generateContentRequest(TextPart(fullPrompt)) {
