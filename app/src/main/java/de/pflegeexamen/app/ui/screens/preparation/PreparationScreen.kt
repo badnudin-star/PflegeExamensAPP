@@ -71,6 +71,7 @@ import de.pflegeexamen.app.data.local.PreparationItemEntity
 import de.pflegeexamen.app.data.local.SourceDocumentEntity
 import de.pflegeexamen.app.data.repository.GenerationReport
 import de.pflegeexamen.app.data.repository.PflegeRepository
+import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.model.DetailDepth
 import de.pflegeexamen.app.domain.model.FlashcardType
 import de.pflegeexamen.app.domain.model.ParameterSuggestions
@@ -377,11 +378,31 @@ private fun PreparationItemCard(
     onShowSources: () -> Unit,
     onToggleComplete: (Boolean) -> Unit
 ) {
+    var showCompetences by remember(item.id) { mutableStateOf(false) }
+    val competences = remember(item.competenceFocusCodes) {
+        DefaultCatalogs.descriptionsForCompetences(item.competenceFocusCodes)
+    }
     val params = remember(item.focusParametersCsv) {
         item.focusParametersCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
     }
     val includesAnatomy = remember(item.focusParametersCsv) {
         item.focusParametersCsv.contains("Anatomie", ignoreCase = true)
+    }
+
+    if (showCompetences) {
+        AlertDialog(
+            onDismissRequest = { showCompetences = false },
+            title = { Text("Kompetenzschwerpunkte") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Vorbereitungsliste Frühjahr 2027: Die Beschreibungen gelten für das gesamte jeweilige Themenfeld.", style = MaterialTheme.typography.bodySmall)
+                    competences.forEach { (code, description) ->
+                        Text("$code · $description", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showCompetences = false }) { Text("Schließen") } }
+        )
     }
 
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -413,7 +434,7 @@ private fun PreparationItemCard(
                         }
                         if (item.competenceFocusCodes.isNotBlank()) {
                             AssistChip(
-                                onClick = {},
+                                onClick = { showCompetences = true },
                                 label = { Text("KS: ${item.competenceFocusCodes}", style = MaterialTheme.typography.labelSmall) }
                             )
                         }

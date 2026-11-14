@@ -17,6 +17,12 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 
 ---
 
+## Vorgaben aus QuellenExamen
+
+Die Prüfungsthemen und Kompetenzbeschreibungen orientieren sich an der bereitgestellten Vorbereitungsliste Frühjahr 2027 (Seiten 1–2). Die Beschreibungen stehen in der Themenansicht hinter den Kompetenzkürzeln; die Liste ordnet die Kompetenzen jeweils einem ganzen Themenblock zu. Krankheitsbilder enthalten Anatomie und Physiologie als Schwerpunkt. Die 17 Operatorenvarianten entsprechen den bereitgestellten Fotos der Operatorenliste. Andere Operatoren bleiben in bestehenden Daten erhalten, werden für neue Fallaufgaben aber nicht angeboten; zulässige Operatoren lassen sich weiterhin über das HTML-Studio bearbeiten.
+
+**Quellenbasis noch nicht vollständig:** Die beiden bereitgestellten iCare-PDFs waren für die verwendete Drive-Schnittstelle zu groß und konnten nicht ausgewertet werden. Es wurden keine vollständigen Lehrbücher oder fachlichen Quellen in diese öffentliche Codebasis kopiert; importiere berechtigte Quellen direkt auf dem Gerät. Für die vollständige Auswertung werden kleinere Teil-PDFs mit nachvollziehbaren Seitenangaben benötigt. Es kann daher noch keine vollständige Themenabdeckung zugesichert werden.
+
 ## Große Dateien
 
 PDFs werden mit temporärem Speicher verarbeitet und seitenweise ausgelesen; Word-Dateien werden stromweise gelesen. Sehr große oder beschädigte Dateien werden mit einem Hinweis abgelehnt, statt unvollständig gespeichert zu werden: maximal 256 MiB für ein PDF, 12 MiB für Textdateien und 8 Millionen Zeichen extrahierten Text. Gescanntes PDF: maximal 40 Seiten pro Datei für die OCR; größere Scans bitte vor dem Import aufteilen. Lernpakete sind auf 64 MiB entpackten Inhalt begrenzt. Das Original wird nicht verändert. Die tatsächliche Grenze kann je nach Gerätespeicher niedriger sein.
