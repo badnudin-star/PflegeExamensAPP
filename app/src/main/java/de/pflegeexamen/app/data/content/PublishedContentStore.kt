@@ -21,8 +21,13 @@ class PublishedContentStore(private val context: Context) {
     private val lock = Mutex()
     private val bundled = runCatching { context.assets.open("learning_content.json").bufferedReader().use { it.readText() } }.getOrDefault("")
     private val bundledCatalog = LearningCatalogCodec.parse(bundled) ?: LearningCatalog()
+    // Optional private build-time bundle, kept out of Git. Invalid/missing bundles are ignored.
+    private val privateBundle = runCatching {
+        context.assets.open("private/learning_content.json").bufferedReader().use { it.readText() }
+    }.getOrNull()?.let(LearningCatalogCodec::parse)
+    private val packagedCatalog = privateBundle?.takeIf { it.revision >= bundledCatalog.revision } ?: bundledCatalog
     private val initial = runCatching { file.openRead().bufferedReader().use { it.readText() } }.getOrNull()
-        ?.let(LearningCatalogCodec::parse)?.takeIf { it.revision >= bundledCatalog.revision } ?: bundledCatalog
+        ?.let(LearningCatalogCodec::parse)?.takeIf { it.revision >= packagedCatalog.revision } ?: packagedCatalog
     private val _catalog = MutableStateFlow(initial)
     val catalog: StateFlow<LearningCatalog> = _catalog.asStateFlow()
 
