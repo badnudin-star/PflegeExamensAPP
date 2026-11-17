@@ -1,3 +1,5 @@
+> **Umbau auf Version 3 (Arbeitsstand):** Die App zeigt eine neue schreibgeschützte Lernoberfläche. Der mitgelieferte Katalog ist derzeit leer; Lernzettel, Karten, Fälle und MC-Fragen müssen noch aus den freigegebenen Quellen erstellt und geprüft werden. Automatische Updates, tägliche Erzeugung und Quiz-Rangliste sind noch nicht produktiv eingerichtet. Alte Lernpunkte werden nicht hochgeladen. Planung und Veröffentlichungsdienst: [cloudflare-content/README.md](cloudflare-content/README.md). Die nachfolgende Dokumentation beschreibt den älteren Stand und nicht die aktuell erreichbare Oberfläche.
+
 # PflegeExamen Lokal (Android · Kotlin / Jetpack Compose)
 
 Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen Pflegeausbildung.
