@@ -99,7 +99,7 @@ private fun NewHome(catalog: LearningCatalog, navigate: (String) -> Unit, settin
         item { HomeCard("Fallbeispiele", "${catalog.cases.size} veröffentlichte Fallbeispiele mit Fragen und Antworten", "Fälle ansehen") { navigate("cases") } }
         item { HomeCard("Multiple-Choice-Quiz", "${catalog.quizzes.size} veröffentlichte Fragen · vier Antworten pro Frage", "Quiz öffnen") { navigate("quiz") } }
         item { OutlinedButton(onClick = { navigate("ranking") }) { Text("Quiz-Rangliste") } }
-        item { Text("Die Inhalte werden redaktionell bereitgestellt. Quellen und Aktualität bitte vor der praktischen Anwendung prüfen.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Lernzettel aus bereitgestellten PDFs. Inhalte, Quellen und Aktualität bitte vor der praktischen Anwendung prüfen.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 

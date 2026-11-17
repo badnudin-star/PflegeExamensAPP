@@ -2,7 +2,7 @@
 
 Das Werkzeug übernimmt genau die 126 einzelnen PDFs aus dem freigegebenen Drive-Ordner `QuellenExamen/Lernzettel`: 42 fest zugeordnete Themen × Kurz, Ausgeglichen (in der App „Ausgewogen“) und Ausführlich. Es extrahiert Text einschließlich Quellen-/Seitenhinweisen; die PDFs im Drive bleiben unverändert. Zwei Gesamtbände werden ignoriert. Es findet **keine** KI-Generierung und keine fachliche Prüfung statt. Vor Nutzung insbesondere medizinische Aktualität und Quellen prüfen.
 
-**Wichtig:** Bislang ist noch kein vollständiger Import mit echten PDFs erfolgt. Dieses Skript verwendet nicht die Arena-Drive-Verbindung: Der automatisierte Lauf braucht gesonderte Google-Application-Default-Credentials mit Leserecht für den Ordner. Nutzungs-/Veröffentlichungsrechte müssen vor Weitergabe von APK oder Inhalten geklärt sein. Eine öffentliche Worker-URL macht die Inhalte öffentlich lesbar; das öffentliche Git-Repository ebenfalls. Keine Zugangsdaten oder PDFs in Git oder im Chat ablegen.
+**Wichtig:** Der mitgelieferte Katalog enthält einen einmaligen Import der 126 Einzel-PDFs. Dieses Skript für spätere Importe verwendet nicht die Arena-Drive-Verbindung: Der automatisierte Lauf braucht gesonderte Google-Application-Default-Credentials mit Leserecht für den Ordner. Nutzungs-/Veröffentlichungsrechte müssen vor Weitergabe von APK oder Inhalten geklärt sein. Eine öffentliche Worker-URL macht die Inhalte öffentlich lesbar; das öffentliche Git-Repository ebenfalls. Keine Zugangsdaten oder PDFs in Git oder im Chat ablegen.
 
 ## Privater lokaler APK-Build
 
