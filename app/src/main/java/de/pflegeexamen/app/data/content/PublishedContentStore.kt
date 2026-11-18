@@ -2,6 +2,7 @@ package de.pflegeexamen.app.data.content
 
 import android.content.Context
 import android.util.AtomicFile
+import de.pflegeexamen.app.BuildConfig
 import de.pflegeexamen.app.domain.content.LearningCatalog
 import de.pflegeexamen.app.domain.content.LearningCatalogCodec
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +71,7 @@ class PublishedContentStore(private val context: Context) {
     companion object {
         // Set the public HTTPS endpoint at build/deployment time after the Worker exists.
         // Privileged API tokens must stay on the server and never be bundled into the APK.
-        const val CONTENT_URL = ""
+        val CONTENT_URL: String = BuildConfig.CONTENT_URL
         private const val MAX_CONTENT_BYTES = 8 * 1024 * 1024
     }
 }

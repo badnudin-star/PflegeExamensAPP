@@ -134,6 +134,20 @@ def save_atomic(path, data):
             os.unlink(tmp)
 
 
+def download_text(session, f):
+    response = session.get('https://www.googleapis.com/drive/v3/files/' + quote(f['id'], safe=''),
+                           params={'alt': 'media', 'supportsAllDrives': 'true'}, timeout=60, stream=True)
+    response.raise_for_status()
+    content = bytearray()
+    for chunk in response.iter_content(65536):
+        content.extend(chunk)
+        if len(content) > MAX_PDF:
+            raise ValueError('PDF überschreitet das Größenlimit')
+    if len(content) != int(f['size']) or not f.get('md5Checksum') or hashlib.md5(content).hexdigest() != f['md5Checksum']:
+        raise ValueError(f"Dateiinhalt während des Imports geändert: {f['name']}")
+    return extract_pdf(bytes(content))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--folder', required=True, help='ID des freigegebenen Lernzettel-Ordners')
@@ -149,19 +163,7 @@ def main():
     credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/drive.readonly'])
     session = AuthorizedSession(credentials)
     before = list_folder(session, args.folder)
-    def extract(f):
-        response = session.get('https://www.googleapis.com/drive/v3/files/' + quote(f['id'], safe=''),
-                               params={'alt': 'media', 'supportsAllDrives': 'true'}, timeout=60, stream=True)
-        response.raise_for_status()
-        content = bytearray()
-        for chunk in response.iter_content(65536):
-            content.extend(chunk)
-            if len(content) > MAX_PDF:
-                raise ValueError('PDF überschreitet das Größenlimit')
-        if len(content) != int(f['size']) or not f.get('md5Checksum') or hashlib.md5(content).hexdigest() != f['md5Checksum']:
-            raise ValueError(f"Dateiinhalt während des Imports geändert: {f['name']}")
-        return extract_pdf(bytes(content))
-    data = assemble(json.loads(args.base.read_text(encoding='utf-8')), before, extract)
+    data = assemble(json.loads(args.base.read_text(encoding='utf-8')), before, lambda f: download_text(session, f))
     if before != list_folder(session, args.folder):
         raise ValueError('Drive-Ordner während des Imports geändert; kein Katalog geschrieben')
     save_atomic(args.output, data)
