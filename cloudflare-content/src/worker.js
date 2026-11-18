@@ -59,13 +59,20 @@ export default {
       const expected = env.PUBLISH_TOKEN || '';
       const actual = request.headers.get('Authorization')?.replace(/^Bearer /, '') || '';
       if (expected.length < 32 || !await sameSecret(expected, actual)) return json({ error: 'Nicht autorisiert.' }, 401);
+      // The publisher must name the exact revision it read (0 means empty DB).
+      // A single conditional D1 statement prevents overwriting concurrent updates.
+      const match = request.headers.get('If-Match');
+      if (!match || !/^(0|[1-9][0-9]*)$/.test(match) || !Number.isSafeInteger(Number(match)))
+        return json({ error: 'If-Match mit gelesener Revision erforderlich.' }, 428);
+      const expectedRevision = Number(match);
       let raw, data;
       try { raw = await readLimited(request); data = JSON.parse(raw); } catch { return json({ error: 'Ungültiges oder zu großes JSON.' }, 400); }
-      if (!validateCatalog(data)) return json({ error: 'Ungültige Veröffentlichung.' }, 400);
-      const result = await env.DB.prepare(`INSERT INTO content_snapshot (id, revision, payload) VALUES (1, ?, ?)
+      if (!validateCatalog(data) || data.revision <= expectedRevision) return json({ error: 'Ungültige Veröffentlichung.' }, 400);
+      const result = await env.DB.prepare(`INSERT INTO content_snapshot (id, revision, payload)
+        SELECT 1, ?, ? WHERE ? = 0 OR EXISTS (SELECT 1 FROM content_snapshot WHERE id = 1 AND revision = ?)
         ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, payload=excluded.payload
-        WHERE excluded.revision > content_snapshot.revision`).bind(data.revision, raw).run();
-      if (!result.meta?.changes) return json({ error: 'Revision muss neuer sein.' }, 409);
+        WHERE content_snapshot.revision = ?`).bind(data.revision, raw, expectedRevision, expectedRevision, expectedRevision).run();
+      if (!result.meta?.changes) return json({ error: 'Veröffentlichungsstand hat sich geändert; erneut laden.' }, 409);
       return json({ ok: true, revision: data.revision });
     }
     return json({ error: 'Nicht gefunden.' }, 404);

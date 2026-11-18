@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -12,10 +13,17 @@ android {
     namespace = "de.pflegeexamen.app"
     compileSdk = 36
 
+    val contentUrl = providers.gradleProperty("contentUrl").orElse("").get()
+    require(contentUrl.isEmpty() || runCatching {
+        val uri = URI(contentUrl)
+        uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.path == "/content"
+    }.getOrDefault(false)) { "contentUrl muss eine öffentliche HTTPS-URL mit Pfad /content sein." }
+
     defaultConfig {
         applicationId = "de.pflegeexamen.app"
         minSdk = 26
         targetSdk = 35
+        buildConfigField("String", "CONTENT_URL", "\"$contentUrl\"")
         versionCode = 12
         versionName = "3.0.1"
 
@@ -39,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

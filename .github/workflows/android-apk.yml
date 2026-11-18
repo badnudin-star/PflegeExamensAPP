@@ -17,9 +17,22 @@ permissions:
   contents: write
 
 jobs:
+  content-tests:
+    name: Inhalts-Synchronisation testen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Import und Konflikte testen
+        run: python -m unittest discover -s tools/learning_import -v
+      - name: Worker testen
+        run: npm test --prefix cloudflare-content
+
   build-and-test:
     name: Test & APK erstellen
     runs-on: ubuntu-latest
+    env:
+      # Public endpoint only; never put tokens or credentials into the APK.
+      ORG_GRADLE_PROJECT_contentUrl: ${{ vars.CONTENT_URL }}
 
     steps:
       - name: Repository auschecken
