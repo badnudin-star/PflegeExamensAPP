@@ -265,35 +265,77 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, back: () ->
 
 @Composable
 private fun CasePicker(catalog: LearningCatalog, open: (String) -> Unit) {
-    val cases = remember(catalog.cases) { catalog.cases.sortedByDescending { it.published } }
+    val cases = remember(catalog.cases) { catalog.cases.sortedBy { it.id } }
+    val collapsed = remember { mutableStateMapOf<Int, Boolean>() }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fallbeispiele", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Text("Wähle einen Prüfungstag. Die Musterlösungen findest du direkt unter den Aufgaben.") }
         if (cases.isEmpty()) item { Text("Noch keine Fallbeispiele veröffentlicht.") }
-        items(cases, key = { it.id }) { case ->
-            ElevatedCard(onClick = { open(case.id) }, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) {
-                Text(case.diseases.joinToString(" · "), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(case.published, style = MaterialTheme.typography.bodySmall)
-            } }
+        listOf(1, 2, 3, 0).forEach { day ->
+            val group = cases.filter { if (day == 0) it.examDay == null || it.examDay !in 1..3 else it.examDay == day }
+            if (group.isNotEmpty()) {
+                item(key = "case-day-$day") {
+                    Surface(onClick = { collapsed[day] = !(collapsed[day] ?: false) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (day == 0) "Weitere Fälle" else "Prüfungstag $day", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text("${group.size} Fälle")
+                            Icon(if (collapsed[day] == true) Icons.Default.ExpandMore else Icons.Default.ExpandLess, "Ein- oder ausklappen")
+                        }
+                    }
+                }
+                if (collapsed[day] != true) items(group, key = { it.id }) { case ->
+                    ElevatedCard(onClick = { open(case.id) }, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(case.title.ifBlank { case.diseases.joinToString(" · ") }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${case.questions.size} Aufgaben", style = MaterialTheme.typography.bodySmall)
+                    } }
+                }
+            }
         }
     }
 }
 
+/** Preserve paragraph and list boundaries while removing hard PDF line wraps. */
+private fun readableCaseText(text: String): String = text.trim().lines().fold(mutableListOf<String>()) { result, raw ->
+    val line = raw.trim()
+    when {
+        line.isEmpty() -> if (result.isNotEmpty() && result.last().isNotEmpty()) result.add("")
+        result.isEmpty() || result.last().isEmpty() || line.matches(Regex("^(?:[•●▪]|[0-9]+[.)])\\s.*")) || line == "FALLSITUATION" -> result.add(line)
+        result.last() == "FALLSITUATION" -> result.add(line)
+        else -> result[result.lastIndex] += " " + line
+    }
+    result
+}.joinToString("\n").trim()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(case.diseases.joinToString(" · ")) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
+    val title = case.title.ifBlank { case.diseases.joinToString(" · ") }
+    Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { Text("Fallbeispiel", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
-            item { Text(case.text, style = MaterialTheme.typography.bodyLarge) }
-            item { Text("Quelle: ${case.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall) }
-            item { Text("Fragen", style = MaterialTheme.typography.titleLarge) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(case.examDay?.let { "FALLBEISPIEL · PRÜFUNGSTAG $it" } ?: "FALLBEISPIEL", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+            item { ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) { Text(readableCaseText(case.text), Modifier.padding(18.dp), fontSize = 17.sp, lineHeight = 27.sp) } }
+            item { Text("Aufgaben", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            if (case.instructions.isNotBlank()) item { Text(readableCaseText(case.instructions), style = MaterialTheme.typography.bodyMedium) }
+            if (case.answerNote.isNotBlank()) item { Text(readableCaseText(case.answerNote), style = MaterialTheme.typography.bodySmall) }
             items(case.questions.size) { i ->
                 val question = case.questions[i]
                 var expanded by remember(case.id, i) { mutableStateOf(false) }
-                ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${i + 1}. ${question.question}", fontWeight = FontWeight.SemiBold)
-                    TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Antwort verbergen" else "Antwort anzeigen") }
-                    if (expanded) { Text(question.answer); Text("Quelle: ${question.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall) }
+                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) { Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Aufgabe ${i + 1}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(readableCaseText(question.question), fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) "Musterlösung verbergen" else "Musterlösung anzeigen")
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                    }
+                    if (expanded) {
+                        HorizontalDivider()
+                        Text(readableCaseText(question.answer), fontSize = 17.sp, lineHeight = 27.sp)
+                    }
                 } }
             }
         }
@@ -302,13 +344,24 @@ private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
 
 @Composable
 private fun QuizScreen(catalog: LearningCatalog) {
-    val quiz = remember(catalog.quizzes) { catalog.quizzes.sortedBy { it.published } }
+    val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
+    var selectedDate by remember(dates) { mutableStateOf(dates.firstOrNull()) }
+    val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
     var index by remember(quiz) { mutableIntStateOf(0) }
     var choice by remember(quiz, index) { mutableIntStateOf(-1) }
     var correct by remember(quiz) { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Multiple-Choice-Quiz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Vier Antwortmöglichkeiten · eine Antwort ist richtig", style = MaterialTheme.typography.bodyMedium)
+        if (dates.isNotEmpty()) {
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { menuOpen = true }) { Text("Quiz: $selectedDate · ${quiz.size} Fragen"); Icon(Icons.Default.ExpandMore, null) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    dates.forEach { date -> DropdownMenuItem(text = { Text("$date · ${catalog.quizzes.count { it.published == date }} Fragen") }, onClick = { selectedDate = date; menuOpen = false }) }
+                }
+            }
+        }
         if (quiz.isEmpty()) Text("Noch keine Quizfragen veröffentlicht.")
         else if (index >= quiz.size) { Text("Übung beendet: $correct von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge); Text("Eine Ranglistenwertung ist noch nicht eingerichtet."); OutlinedButton(onClick = { index = 0; correct = 0 }) { Text("Erneut üben") } }
         else {

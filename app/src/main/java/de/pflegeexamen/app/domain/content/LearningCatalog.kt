@@ -21,7 +21,7 @@ data class PublishedCard(val id: String, val topic: String, val front: String, v
 @Serializable
 data class PublishedCaseQuestion(val question: String, val answer: String, val sources: List<String>)
 @Serializable
-data class PublishedCase(val id: String, val published: String, val diseases: List<String>, val text: String, val sources: List<String>, val questions: List<PublishedCaseQuestion>)
+data class PublishedCase(val id: String, val published: String, val diseases: List<String>, val text: String, val sources: List<String>, val questions: List<PublishedCaseQuestion>, val examDay: Int? = null, val title: String = "", val instructions: String = "", val answerNote: String = "")
 @Serializable
 data class PublishedQuiz(val id: String, val published: String, val topic: String, val question: String, val options: List<String>, val correctIndex: Int, val explanation: String, val sources: List<String>)
 
