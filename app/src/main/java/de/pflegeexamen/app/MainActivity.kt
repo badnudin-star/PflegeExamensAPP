@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import de.pflegeexamen.app.ui.navigation.PflegeExamenNavHost
+import de.pflegeexamen.app.ui.navigation.LearningApp
 import de.pflegeexamen.app.ui.theme.PflegeExamenTheme
 
 class MainActivity : ComponentActivity() {
@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         val app = application as PflegeExamenApp
         setContent {
             PflegeExamenTheme {
-                PflegeExamenNavHost(repository = app.repository)
+                LearningApp(store = app.contentStore)
             }
         }
     }

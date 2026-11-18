@@ -176,7 +176,9 @@ class PflegeRepository(
         val titles = DefaultCatalogs.defaultPreparations.map { it.title.lowercase() }.toSet()
         items.filter { it.title.trim().lowercase() in titles }
     }
-    val operators: Flow<List<OperatorItemEntity>> = operatorDao.observeAll()
+    val operators: Flow<List<OperatorItemEntity>> = operatorDao.observeAll().map { list ->
+        list.filter { DefaultCatalogs.isAllowedOperator(it.name) }
+    }
     val studyNotes: Flow<List<StudyNoteEntity>> = studyNoteDao.observeAll()
     val flashcards: Flow<List<FlashcardEntity>> = flashcardDao.observeAll()
     val caseStudies: Flow<List<CaseStudyWithQuestions>> = caseStudyDao.observeAllWithQuestions()
@@ -235,6 +237,15 @@ class PflegeRepository(
                         defaultPoints = t.defaultPoints
                     )
                 )
+                addedOrUpgraded++
+            } else if (match.caseRelationRule == CaseRelationRule.NO_CASE_RELATION && match.description == when (t.name) {
+                    "Erklären" -> "Wirkungszusammenhänge, physiologische Abläufe oder Gesetzmäßigkeiten verständlich und allgemeingültig (ohne Fallbezug) darlegen."
+                    "Begründen" -> "Eine Aussage oder Regel allgemeingültig (ohne Fallbezug) mithilfe fachlicher Ursache-Wirkungs-Zusammenhänge stützen."
+                    "Erläutern" -> "Einen allgemeingültigen Sachverhalt erklären/begründen und zusätzlich durch ein Beispiel oder weiterführende Informationen aufwerten."
+                    else -> null
+                }) {
+                // Nur die alten Standardwerte korrigieren; selbst bearbeitete Angaben bleiben erhalten.
+                operatorDao.update(match.copy(description = t.description, caseRelationRule = t.caseRelationRule))
                 addedOrUpgraded++
             } else if (match.expectationHorizon.isBlank() && match.gradingRubric.isBlank()) {
                 // Upgrade v2.0-Basisoperatoren automatisch um Landes-AG Metadaten
@@ -425,12 +436,13 @@ class PflegeRepository(
 
         // 2. Operatoren importieren / aktualisieren
         var opCount = 0
-        if (manifest.replaceExistingOperators) {
+        // Do not erase existing operators when a malformed or unrelated bundle is supplied.
+        if (manifest.replaceExistingOperators && manifest.operators.any { DefaultCatalogs.isAllowedOperator(it.name) }) {
             operatorDao.deleteAll()
         }
         val currentOps = operatorDao.getAll().associateBy { it.name.trim().lowercase() }.toMutableMap()
         for (op in manifest.operators) {
-            if (op.name.isBlank()) continue
+            if (!DefaultCatalogs.isAllowedOperator(op.name)) continue
             val st = runCatching { OperatorStructureType.valueOf(op.structureType.trim()) }
                 .getOrDefault(OperatorStructureType.CAUSAL_REASONING)
             val rule = runCatching { CaseRelationRule.valueOf(op.caseRelationRule.trim()) }
@@ -938,7 +950,7 @@ class PflegeRepository(
     }
 
     suspend fun exportOperatorsJson(): String = withContext(Dispatchers.IO) {
-        val list = operatorDao.getAll().map {
+        val list = operatorDao.getAll().filter { DefaultCatalogs.isAllowedOperator(it.name) }.map {
             OperatorExportItem(
                 name = it.name,
                 requirementLevel = it.requirementLevel,
@@ -960,7 +972,7 @@ class PflegeRepository(
         val parsed = json.decodeFromString<List<OperatorExportItem>>(rawJson)
         var count = 0
         for (dto in parsed) {
-            if (dto.name.isBlank()) continue
+            if (!DefaultCatalogs.isAllowedOperator(dto.name)) continue
             val st = runCatching { OperatorStructureType.valueOf(dto.structureType) }
                 .getOrDefault(OperatorStructureType.CAUSAL_REASONING)
             val rule = runCatching { CaseRelationRule.valueOf(dto.caseRelationRule) }
@@ -1175,9 +1187,11 @@ class PflegeRepository(
         selectedOperators: List<OperatorItemEntity>,
         detailDepth: DetailDepth = DetailDepth.EXAM_DEEP
     ): CaseGenerationReport = withContext(Dispatchers.Default) {
-        if (selectedOperators.isEmpty()) {
+        val allowedById = operatorDao.getAll().filter { DefaultCatalogs.isAllowedOperator(it.name) }.associateBy { it.id }
+        val allowedOperators = selectedOperators.mapNotNull { allowedById[it.id] }.distinctBy { it.id }
+        if (allowedOperators.isEmpty() || allowedOperators.size != selectedOperators.size) {
             return@withContext CaseGenerationReport.NoEvidenceFound(
-                "Bitte wählen Sie mindestens einen Operator aus Ihrer Operatorenliste aus."
+                "Bitte wählen Sie nur Operatoren aus der vorgegebenen Operatorenliste aus."
             )
         }
         val chunkInputs = loadChunkInputs()
@@ -1198,7 +1212,7 @@ class PflegeRepository(
                     "Ohne Quellenbeleg wird kein Fallbeispiel erzeugt."
             )
             is RetrievalOutcome.Found -> {
-                val specs = selectedOperators.map { op ->
+                val specs = allowedOperators.map { op ->
                     OperatorPromptSpec(
                         operatorId = op.id,
                         name = op.name,
@@ -1480,6 +1494,6 @@ class PflegeRepository(
     }
 
     companion object {
-        const val CURRENT_CATALOG_SEED_VERSION = 4
+        const val CURRENT_CATALOG_SEED_VERSION = 5
     }
 }

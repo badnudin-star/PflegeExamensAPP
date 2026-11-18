@@ -1,3 +1,5 @@
+> **Version 3 (Arbeitsstand):** Für alle 42 festen Themen sind Lernzettel in drei Längen aus den bereitgestellten PDFs im Offline-Katalog enthalten. Der Text wurde aus PDFs extrahiert und nicht vollständig fachlich oder auf Übertragungsfehler geprüft. Karteikarten, Fallbeispiele und MC-Fragen sind noch nicht mitgeliefert. Automatische Updates, tägliche Erzeugung und Quiz-Rangliste sind noch nicht produktiv eingerichtet. Alte Lernpunkte werden nicht hochgeladen. Planung: [cloudflare-content/README.md](cloudflare-content/README.md). Die nachfolgende Dokumentation beschreibt den älteren Stand und nicht die aktuell erreichbare Oberfläche.
+
 # PflegeExamen Lokal (Android · Kotlin / Jetpack Compose)
 
 Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen Pflegeausbildung.
@@ -16,6 +18,12 @@ Kostenlose Lernapp für die schriftliche Examensprüfung in der generalistischen
 - Die optionalen externen Anbieter bleiben in den Einstellungen verfügbar. Dabei können Inhalte an den jeweiligen Anbieter übertragen werden.
 
 ---
+
+## Vorgaben aus QuellenExamen
+
+Die Prüfungsthemen und Kompetenzbeschreibungen orientieren sich an der bereitgestellten Vorbereitungsliste Frühjahr 2027 (Seiten 1–2). Die Beschreibungen stehen in der Themenansicht hinter den Kompetenzkürzeln; die Liste ordnet die Kompetenzen jeweils einem ganzen Themenblock zu. Krankheitsbilder enthalten Anatomie und Physiologie als Schwerpunkt. Die 17 Operatorenvarianten entsprechen den bereitgestellten Fotos der Operatorenliste. Andere Operatoren bleiben in bestehenden Daten erhalten, werden für neue Fallaufgaben aber nicht angeboten; zulässige Operatoren lassen sich weiterhin über das HTML-Studio bearbeiten.
+
+**Quellenbasis noch nicht vollständig:** Die beiden bereitgestellten iCare-PDFs waren für die verwendete Drive-Schnittstelle zu groß und konnten nicht ausgewertet werden. Es wurden keine vollständigen Lehrbücher oder fachlichen Quellen in diese öffentliche Codebasis kopiert; importiere berechtigte Quellen direkt auf dem Gerät. Für die vollständige Auswertung werden kleinere Teil-PDFs mit nachvollziehbaren Seitenangaben benötigt. Es kann daher noch keine vollständige Themenabdeckung zugesichert werden.
 
 ## Große Dateien
 

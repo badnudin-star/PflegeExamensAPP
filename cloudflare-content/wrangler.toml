@@ -1,0 +1,9 @@
+name = "pflegeexamen-content"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+# D1 binding must be configured with the actual database ID before deployment.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "pflegeexamen-content"
+# database_id = "<D1 database ID>"

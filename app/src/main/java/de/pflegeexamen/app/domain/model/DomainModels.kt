@@ -239,6 +239,32 @@ data class DefaultPreparationTemplate(
  */
 object DefaultCatalogs {
 
+    // Vorbereitungsliste Frühjahr 2027, Seiten 1–2. Die Beschreibungen gelten
+    // jeweils für die gesamte Themenliste des zugehörigen Prüfungstags.
+    val competenceDescriptions: Map<String, String> = linkedMapOf(
+        "I.1" to "Die Pflege von Menschen aller Altersstufen verantwortlich planen, organisieren, gestalten, durchführen, steuern und evaluieren.",
+        "I.5" to "Menschen aller Altersstufen bei der Lebensgestaltung unterstützen, begleiten und beraten.",
+        "I.6" to "Entwicklung und Autonomie in der Lebensspanne fördern.",
+        "II.1" to "Kommunikation und Interaktion mit Menschen aller Altersstufen und ihren Bezugspersonen personen- und situationsbezogen gestalten und eine angemessene Information sicherstellen.",
+        "IV" to "Das eigene Handeln auf der Grundlage von Gesetzen, Verordnungen und ethischen Leitlinien reflektieren und begründen.",
+        "I.2" to "Pflegeprozesse und Pflegediagnostik bei Menschen aller Altersstufen mit gesundheitlichen Problemlagen planen, organisieren, gestalten, durchführen, steuern und evaluieren unter dem besonderen Fokus von Gesundheitsförderung und Prävention.",
+        "II.2" to "Information, Schulung und Beratung bei Menschen aller Altersstufen verantwortlich organisieren, gestalten, steuern und evaluieren.",
+        "IV.1" to "Pflegehandeln an aktuellen wissenschaftlichen Erkenntnissen, insbesondere an pflegewissenschaftlichen Forschungsergebnissen, Theorien und Modellen ausrichten.",
+        "I.3" to "Pflegeprozesse und Pflegediagnostik von Menschen aller Altersstufen in hoch belasteten und kritischen Lebenssituationen verantwortlich planen, organisieren, gestalten, durchführen, steuern und evaluieren.",
+        "I.4" to "In lebensbedrohlichen sowie in Krisen- oder Katastrophensituationen zielgerichtet handeln.",
+        "II.3" to "Ethisch reflektiert handeln.",
+        "III.2" to "Ärztliche Anordnungen im Pflegekontext eigenständig durchführen."
+    )
+
+    fun descriptionsForCompetences(codes: String): List<Pair<String, String>> =
+        codes.split(",").map { it.trim() }.distinct().mapNotNull { code ->
+            competenceDescriptions[code]?.let { code to it }
+        }
+
+    /** Nur die in den neun Bildern enthaltenen Operatoren; Varianten sind getrennte Aufgabenformen. */
+    fun isAllowedOperator(name: String): Boolean =
+        defaultOperators.any { it.name.equals(name.trim(), ignoreCase = true) }
+
     val defaultCategories: List<DefaultCategoryTemplate> = listOf(
         DefaultCategoryTemplate(
             name = "Prüfungstag 1 · I.1, I.5, I.6, II.1, IV",
@@ -772,12 +798,12 @@ object DefaultCatalogs {
         DefaultOperatorTemplate(
             name = "Erklären",
             requirementLevel = "Taxonomie WV",
-            description = "Wirkungszusammenhänge, physiologische Abläufe oder Gesetzmäßigkeiten verständlich und allgemeingültig (ohne Fallbezug) darlegen.",
+            description = "Wirkungszusammenhänge verständlich darlegen; ob ein Fallbezug nötig ist, ergibt sich aus der Aufgabe.",
             exampleQuestion = "Erklären Sie den Einfluss der Einnahme eines oralen Glukokortikoids auf den Blutzuckerwert.",
             expectationHorizon = "Oral verabreichte Glukokortikoide erhöhen den Blutzucker, weil sie die Insulinsekretion der Bauchspeicheldrüse bremsen und die Glukoseaufnahme in die Skelettmuskulatur verringern.",
             commentNotes = "K1: Gut erklärt ist, was andere Menschen gut verstehen können.\nK2: Bei dieser Frage kann niemals ein Fallbezug hergestellt werden.",
             gradingRubric = "Pro Erklärung 2 Punkte.",
-            caseRelationRule = CaseRelationRule.NO_CASE_RELATION,
+            caseRelationRule = CaseRelationRule.OPTIONAL_CASE_RELATION,
             questionPattern = "Erklären Sie die Zusammenhänge bei {thema} ({aspekt}).",
             structureType = OperatorStructureType.CAUSAL_REASONING,
             defaultPoints = 2
@@ -785,12 +811,12 @@ object DefaultCatalogs {
         DefaultOperatorTemplate(
             name = "Begründen",
             requirementLevel = "Taxonomie WV",
-            description = "Eine Aussage oder Regel allgemeingültig (ohne Fallbezug) mithilfe fachlicher Ursache-Wirkungs-Zusammenhänge stützen.",
+            description = "Eine Aussage oder Regel mithilfe fachlicher Zusammenhänge stützen; ob ein Fallbezug nötig ist, ergibt sich aus der Aufgabe.",
             exampleQuestion = "Begründen Sie, warum verschiedene orale Medikamente nicht alle auf einmal verabreicht werden sollen.",
             expectationHorizon = "Verschiedene orale Medikamente müssen getrennt voneinander verabreicht werden (z. B. vor oder nach dem Essen), da sonst Gefahr von Interaktionen besteht und die Wirksamkeit verändert wird.",
             commentNotes = "K1: Bei dieser Frage kann niemals ein Fallbezug hergestellt werden.",
             gradingRubric = "Pro Begründung 2 Punkte.",
-            caseRelationRule = CaseRelationRule.NO_CASE_RELATION,
+            caseRelationRule = CaseRelationRule.OPTIONAL_CASE_RELATION,
             questionPattern = "Begründen Sie fachlich die Bedeutung oder Regel zu {aspekt} bei {thema}.",
             structureType = OperatorStructureType.CAUSAL_REASONING,
             defaultPoints = 2
@@ -798,12 +824,12 @@ object DefaultCatalogs {
         DefaultOperatorTemplate(
             name = "Erläutern",
             requirementLevel = "Taxonomie WV",
-            description = "Einen allgemeingültigen Sachverhalt erklären/begründen und zusätzlich durch ein Beispiel oder weiterführende Informationen aufwerten.",
+            description = "Einen Sachverhalt erklären oder begründen und durch ein Beispiel oder weitere Informationen ergänzen. Bei Fallbezug gilt die entsprechende ASB-Variante.",
             exampleQuestion = "Erläutern Sie die Bedeutung der Wundversorgung nach Expertenstandard für Patienten mit chronischen Wunden.",
             expectationHorizon = "Fachliche Erklärung/Begründung (warum es bedeutsam ist) + konkretes veranschaulichendes Beispiel (ohne zwingenden Fallbezug).",
             commentNotes = "K1: Die Erläuterung beinhaltet häufig auch eine Erklärung oder Begründung. Sie wird aber mit einem Beispiel oder zusätzlichen Informationen aufgewertet.\nK2: Bei dieser Frage muss kein Fallbezug hergestellt werden, sie ist allgemein gehalten.",
             gradingRubric = "Pro Erläuterung 3 Punkte (2 Punkte für die Erklärung und ein Punkt für das Beispiel).",
-            caseRelationRule = CaseRelationRule.NO_CASE_RELATION,
+            caseRelationRule = CaseRelationRule.OPTIONAL_CASE_RELATION,
             questionPattern = "Erläutern Sie die Bedeutung von {aspekt} bei {thema} anhand eines Beispiels.",
             structureType = OperatorStructureType.CAUSAL_REASONING,
             defaultPoints = 3

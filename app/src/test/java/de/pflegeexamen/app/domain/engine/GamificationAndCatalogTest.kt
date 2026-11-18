@@ -84,8 +84,8 @@ class GamificationAndCatalogTest {
             .filter { it.caseRelationRule == CaseRelationRule.NO_CASE_RELATION }
             .map { it.name }
         assertTrue("Definieren" in noCaseNames)
-        assertTrue("Erklären" in noCaseNames)
-        assertTrue("Begründen" in noCaseNames)
+        assertTrue("Erklären" !in noCaseNames)
+        assertTrue("Begründen" !in noCaseNames)
 
         DefaultCatalogs.defaultOperators.forEach { op ->
             assertTrue(op.exampleQuestion.isNotBlank())
