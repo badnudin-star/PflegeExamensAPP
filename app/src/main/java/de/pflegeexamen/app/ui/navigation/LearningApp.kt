@@ -38,10 +38,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.data.content.PublishedContentStore
+import de.pflegeexamen.app.data.progress.CardProgressStore
+import de.pflegeexamen.app.data.progress.SharedPreferencesCardProgress
 import de.pflegeexamen.app.data.progress.CaseProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
+import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 
@@ -58,6 +61,9 @@ fun LearningApp(store: PublishedContentStore) {
     val context = LocalContext.current
     val caseProgress = remember(context.applicationContext) { CaseProgressStore(SharedPreferencesCaseProgress(context)) }
     val completedCases by caseProgress.completed.collectAsStateWithLifecycle()
+    val cardProgress = remember(context.applicationContext) { CardProgressStore(SharedPreferencesCardProgress(context)) }
+    val learnedCards by cardProgress.learned.collectAsStateWithLifecycle()
+    var showLearned by rememberSaveable { mutableStateOf(false) }
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
     val showNavigation = destinations.any { it.route == route }
@@ -82,12 +88,12 @@ fun LearningApp(store: PublishedContentStore) {
                 val depthLabel = when (depth) { "short" -> "Kurz"; "balanced" -> "Ausgewogen"; else -> "Ausführlich" }
                 NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty()) { nav.popBackStack() }
             }
-            composable("cards") { CardPicker(catalog) { nav.navigate("card_session/$it") } }
+            composable("cards") { CardPicker(catalog, learnedCards, showLearned, { showLearned = it }) { nav.navigate("card_session/$it") } }
             composable("card_session/{index}") { entry ->
                 val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
                 val topic = DefaultCatalogs.defaultPreparations.getOrNull(index)?.title
                 val available = if (index == -1) catalog.cards else catalog.cards.filter { it.topic == topic }
-                CardSession(available, index == -1) { nav.popBackStack() }
+                CardSession(available, index == -1, learnedCards, showLearned, cardProgress::setLearned) { nav.popBackStack() }
             }
             composable("cases") { CasePicker(catalog, completedCases, caseProgress::setCompleted) { nav.navigate("case/${Uri.encode(it)}") } }
             composable("case/{id}") { entry ->
@@ -251,28 +257,44 @@ private fun DayHeader(title: String, summary: String, expanded: Boolean, toggle:
 }
 
 @Composable
-private fun CardPicker(catalog: LearningCatalog, open: (Int) -> Unit) {
-    // Bitset survives configuration changes; closing a day never removes its cards.
+private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearned: Boolean, setShowLearned: (Boolean) -> Unit, open: (Int) -> Unit) {
     var expandedDays by rememberSaveable { mutableIntStateOf(0) }
-    val counts = remember(catalog.cards) { catalog.cards.groupingBy { it.topic }.eachCount() }
+    val visible = remember(catalog.cards, learned, showLearned) { CardVisibility.visible(catalog.cards, learned, showLearned) }
+    val counts = remember(visible) { visible.groupingBy { it.topic }.eachCount() }
+    val allCounts = remember(catalog.cards) { catalog.cards.groupingBy { it.topic }.eachCount() }
+    val learnedCounts = remember(catalog.cards, learned) { catalog.cards.filter { it.id in learned }.groupingBy { it.topic }.eachCount() }
     val topics = DefaultCatalogs.defaultPreparations.withIndex()
+    val learnedCount = catalog.cards.count { it.id in learned }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Karteikarten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Text("Klappe einen Prüfungstag auf und wähle ein Thema oder mische alle Karten. Tippe beim Lernen auf die Karte, um sie umzudrehen.") }
-        item { Button(onClick = { open(-1) }, enabled = catalog.cards.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Alle Themen zufällig mischen") } }
+        item { Text("Markiere Karten beim Lernen als gelernt. Sie werden ausgeblendet, bis du sie wieder einblendest.") }
+        item {
+            Row(Modifier.fillMaxWidth().toggleable(value = showLearned, role = Role.Switch, onValueChange = setShowLearned)
+                .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Gelernte Karten anzeigen", fontWeight = FontWeight.SemiBold)
+                    Text("$learnedCount gelernt · Markierungen auf diesem Gerät", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = showLearned, onCheckedChange = null)
+            }
+        }
+        item { Button(onClick = { open(-1) }, enabled = visible.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Alle sichtbaren Karten zufällig mischen") } }
         if (catalog.cards.isEmpty()) item { Text("Noch keine Karteikarten veröffentlicht.") }
+        else if (visible.isEmpty()) item { Text("Alle Karten sind ausgeblendet. Aktiviere „Gelernte Karten anzeigen“, um sie wiederzusehen.") }
         (1..3).forEach { day ->
-            val group = topics.filter { it.value.examDayTag == "Tag $day" && (counts[it.value.title] ?: 0) > 0 }
+            val group = topics.filter { it.value.examDayTag == "Tag $day" && (allCounts[it.value.title] ?: 0) > 0 }
             if (group.isNotEmpty()) {
                 val expanded = expandedDays and (1 shl day) != 0
                 item(key = "card-day-$day") {
-                    DayHeader("Prüfungstag $day", "${group.size} Themen · ${group.sumOf { counts[it.value.title] ?: 0 }} Karten", expanded) {
+                    DayHeader("Prüfungstag $day", "${group.size} Themen · ${group.sumOf { counts[it.value.title] ?: 0 }} sichtbar", expanded) {
                         expandedDays = expandedDays xor (1 shl day)
                     }
                 }
                 if (expanded) items(group, key = { "cards-${it.index}" }) { entry ->
-                    ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("${counts[entry.value.title]} Karten") },
-                        modifier = Modifier.clickable { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
+                    val count = counts[entry.value.title] ?: 0
+                    val learnedCountForTopic = learnedCounts[entry.value.title] ?: 0
+                    ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("$count sichtbar · $learnedCountForTopic gelernt") },
+                        modifier = Modifier.clickable(enabled = count > 0) { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
                 }
             }
         }
@@ -281,16 +303,22 @@ private fun CardPicker(catalog: LearningCatalog, open: (Int) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CardSession(cards: List<PublishedCard>, random: Boolean, back: () -> Unit) {
-    val session = remember(cards, random) { if (random) cards.shuffled() else cards }
-    var index by remember(session) { mutableIntStateOf(0) }
-    var flipped by remember(session, index) { mutableStateOf(false) }
+private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
+    // Keep one stable order for the session when learned IDs change (especially in random mode).
+    val order = remember(cards, random) { if (random) cards.shuffled() else cards }
+    val session = remember(order, learned, showLearned) { CardVisibility.visible(order, learned, showLearned) }
+    var index by remember(order, showLearned) { mutableIntStateOf(0) }
+    val card = session.getOrNull(index)
+    var flipped by remember(card?.id) { mutableStateOf(false) }
     Scaffold(topBar = { TopAppBar(title = { Text("Karteikarten") }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
-        val card = session.getOrNull(index)
-        if (card == null) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { Text("Keine Karten verfügbar.") }
-        else Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (card == null) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Keine sichtbaren Karten mehr. Du kannst gelernte Karten in der Übersicht wieder einblenden.", textAlign = TextAlign.Center)
+                OutlinedButton(onClick = back) { Text("Zur Kartenübersicht") }
+            }
+        } else Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(card.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("${index + 1} / ${session.size}")
+            Text("${index + 1} / ${session.size}" + if (card.id in learned) " · Gelernt" else "")
             ElevatedCard(onClick = { flipped = !flipped }, modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(24.dp)) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -300,6 +328,13 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, back: () ->
                         if (flipped) Text("Quelle: ${card.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+            }
+            OutlinedButton(onClick = {
+                val markLearned = card.id !in learned
+                if (markLearned && !showLearned) index = CardVisibility.indexAfterRemoval(index, session.size)
+                setLearned(card.id, markLearned)
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (card.id in learned) "Wieder lernen · einblenden" else if (showLearned) "Als gelernt markieren" else "Gelernt · Karte ausblenden")
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconButton(onClick = { index-- }, enabled = index > 0) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Vorherige Karte") }
