@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,6 +35,7 @@ import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.data.content.PublishedContentStore
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
+import de.pflegeexamen.app.domain.notes.NotePresentation
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -66,7 +68,8 @@ fun LearningApp(store: PublishedContentStore) {
                 val depth = entry.arguments?.getString("depth").orEmpty()
                 val note = catalog.notes.firstOrNull { it.topic == topic }
                 val content = when (depth) { "short" -> note?.short; "balanced" -> note?.balanced; else -> note?.detailed }
-                FullTextScreen(topic ?: "Lernzettel", content.orEmpty(), note?.sources.orEmpty(), { nav.popBackStack() })
+                val depthLabel = when (depth) { "short" -> "Kurz"; "balanced" -> "Ausgewogen"; else -> "Ausführlich" }
+                NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty()) { nav.popBackStack() }
             }
             composable("cards") { CardPicker(catalog) { nav.navigate("card_session/$it") } }
             composable("card_session/{index}") { entry ->
@@ -167,6 +170,41 @@ private fun TopicTile(title: String, available: Boolean, open: (String) -> Unit)
                 }
                 if (!available) Text("Lernzettel noch nicht veröffentlicht", style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteScreen(title: String, depth: String, body: String, back: () -> Unit) {
+    val sections = remember(body) { NotePresentation.sections(body) }
+    Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
+        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
+    }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("LERNZETTEL · ${depth.uppercase()}", color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Inhalte und aktuelle Vorgaben vor der Anwendung prüfen.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            items(sections) { section ->
+                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        section.heading?.let { heading ->
+                            Text(heading, style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        section.paragraphs.forEach { paragraph ->
+                            Text(paragraph, fontSize = 17.sp, lineHeight = 27.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            }
+            if (sections.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }
         }
     }
 }

@@ -29,6 +29,13 @@ class LearningCatalogTest {
         assertTrue(catalog.notes.all { it.short.isNotBlank() && it.balanced.isNotBlank() && it.detailed.isNotBlank() && it.sources.size == 3 })
         assertTrue(catalog.notes.all { "Quellen und Einordnung" in it.short && "Quellen und Einordnung" in it.balanced && "Quellen und Einordnung" in it.detailed })
     }
+    @Test fun `bundled cards cover all fixed topics without duplicates`() {
+        val catalog = requireNotNull(LearningCatalogCodec.parse(java.io.File("src/main/assets/learning_content.json").readText()))
+        assertEquals(523, catalog.cards.size)
+        assertEquals(DefaultCatalogs.defaultPreparations.map { it.title }.toSet(), catalog.cards.map { it.topic }.toSet())
+        assertEquals(523, catalog.cards.map { it.id }.distinct().size)
+        assertTrue(catalog.cards.all { it.front.isNotBlank() && it.back.isNotBlank() && it.sources.size == 2 })
+    }
     @Test fun `a publication without source or valid answers is rejected`() {
         assertNull(parse(complete.copy(cards = listOf(complete.cards.first().copy(sources = emptyList())))))
         assertNull(parse(complete.copy(quizzes = listOf(complete.quizzes.first().copy(correctIndex = 5)))))
