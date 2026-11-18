@@ -34,6 +34,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.data.content.PublishedContentStore
 import de.pflegeexamen.app.domain.content.*
+import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 
@@ -310,6 +311,7 @@ private fun readableCaseText(text: String): String = text.trim().lines().fold(mu
 @Composable
 private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
     val title = case.title.ifBlank { case.diseases.joinToString(" · ") }
+    val sections = remember(case.text) { CasePresentation.sections(case.text) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
@@ -318,7 +320,14 @@ private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
             }
-            item { ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) { Text(readableCaseText(case.text), Modifier.padding(18.dp), fontSize = 17.sp, lineHeight = 27.sp) } }
+            items(sections) { section ->
+                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        section.heading?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+                        section.paragraphs.forEach { Text(it, fontSize = 17.sp, lineHeight = 27.sp) }
+                    }
+                }
+            }
             item { Text("Aufgaben", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             if (case.instructions.isNotBlank()) item { Text(readableCaseText(case.instructions), style = MaterialTheme.typography.bodyMedium) }
             if (case.answerNote.isNotBlank()) item { Text(readableCaseText(case.answerNote), style = MaterialTheme.typography.bodySmall) }
