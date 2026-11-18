@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,12 +18,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,6 +38,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.data.content.PublishedContentStore
+import de.pflegeexamen.app.data.progress.CaseProgressStore
+import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
@@ -48,6 +55,9 @@ private val destinations = listOf(
 @Composable
 fun LearningApp(store: PublishedContentStore) {
     val catalog by store.catalog.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val caseProgress = remember(context.applicationContext) { CaseProgressStore(SharedPreferencesCaseProgress(context)) }
+    val completedCases by caseProgress.completed.collectAsStateWithLifecycle()
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
     val showNavigation = destinations.any { it.route == route }
@@ -79,10 +89,10 @@ fun LearningApp(store: PublishedContentStore) {
                 val available = if (index == -1) catalog.cards else catalog.cards.filter { it.topic == topic }
                 CardSession(available, index == -1) { nav.popBackStack() }
             }
-            composable("cases") { CasePicker(catalog) { nav.navigate("case/${Uri.encode(it)}") } }
+            composable("cases") { CasePicker(catalog, completedCases, caseProgress::setCompleted) { nav.navigate("case/${Uri.encode(it)}") } }
             composable("case/{id}") { entry ->
                 val case = catalog.cases.firstOrNull { it.id == entry.arguments?.getString("id") }
-                if (case != null) CaseDetail(case) { nav.popBackStack() } else FullTextScreen("Fallbeispiel", "Nicht verfügbar.", emptyList()) { nav.popBackStack() }
+                if (case != null) CaseDetail(case, case.id in completedCases, { caseProgress.setCompleted(case.id, it) }) { nav.popBackStack() } else FullTextScreen("Fallbeispiel", "Nicht verfügbar.", emptyList()) { nav.popBackStack() }
             }
             composable("quiz") { QuizScreen(catalog) }
             composable("ranking") { SimpleInfo("Quiz-Rangliste", "Das Cloudflare-Ranking ist noch nicht eingerichtet. Es werden keine alten Lernpunkte übertragen. Sobald die Quizwertung serverseitig bereitsteht, kann die Rangliste stündlich aktualisiert werden.") { nav.popBackStack() } }
@@ -158,12 +168,16 @@ private fun topicIcon(title: String): ImageVector = when {
 private fun TopicTile(title: String, available: Boolean, open: (String) -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
         Column {
-            Box(Modifier.fillMaxWidth().height(100.dp).background(Brush.linearGradient(listOf(Color(0xFF175C68), Color(0xFF6FA69C)))).padding(18.dp)) {
-                Icon(topicIcon(title), null, Modifier.size(64.dp).align(Alignment.CenterEnd), tint = Color.White.copy(alpha = .8f))
-                Text("PFLEGEEXAMEN", Modifier.align(Alignment.TopStart), color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelMedium)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 100.dp)
+                    .background(Brush.linearGradient(listOf(Color(0xFF175C68), Color(0xFF6FA69C)))).padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(title, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Icon(topicIcon(title), null, Modifier.size(48.dp), tint = Color.White.copy(alpha = .8f))
             }
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf("Ausführlich" to "detailed", "Ausgewogen" to "balanced", "Kurz" to "short").forEach { (label, depth) ->
                         OutlinedButton(onClick = { open(depth) }, enabled = available, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 3.dp)) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
@@ -222,14 +236,45 @@ private fun FullTextScreen(title: String, body: String, sources: List<String>, b
 }
 
 @Composable
+private fun DayHeader(title: String, summary: String, expanded: Boolean, toggle: () -> Unit) {
+    Surface(onClick = toggle, modifier = Modifier.fillMaxWidth().semantics {
+        stateDescription = if (expanded) "Ausgeklappt" else "Eingeklappt"
+    }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(summary, style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+        }
+    }
+}
+
+@Composable
 private fun CardPicker(catalog: LearningCatalog, open: (Int) -> Unit) {
+    // Bitset survives configuration changes; closing a day never removes its cards.
+    var expandedDays by rememberSaveable { mutableIntStateOf(0) }
+    val counts = remember(catalog.cards) { catalog.cards.groupingBy { it.topic }.eachCount() }
+    val topics = DefaultCatalogs.defaultPreparations.withIndex()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Karteikarten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Text("Wähle ein Thema oder mische alle Karten. Tippe beim Lernen auf die Karte, um sie umzudrehen.") }
+        item { Text("Klappe einen Prüfungstag auf und wähle ein Thema oder mische alle Karten. Tippe beim Lernen auf die Karte, um sie umzudrehen.") }
         item { Button(onClick = { open(-1) }, enabled = catalog.cards.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Alle Themen zufällig mischen") } }
         if (catalog.cards.isEmpty()) item { Text("Noch keine Karteikarten veröffentlicht.") }
-        DefaultCatalogs.defaultPreparations.withIndex().filter { e -> catalog.cards.any { it.topic == e.value.title } }.forEach { entry ->
-            item(key = "cards-${entry.index}") { ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("${catalog.cards.count { it.topic == entry.value.title }} Karten") }, modifier = Modifier.clickable { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) }) }
+        (1..3).forEach { day ->
+            val group = topics.filter { it.value.examDayTag == "Tag $day" && (counts[it.value.title] ?: 0) > 0 }
+            if (group.isNotEmpty()) {
+                val expanded = expandedDays and (1 shl day) != 0
+                item(key = "card-day-$day") {
+                    DayHeader("Prüfungstag $day", "${group.size} Themen · ${group.sumOf { counts[it.value.title] ?: 0 }} Karten", expanded) {
+                        expandedDays = expandedDays xor (1 shl day)
+                    }
+                }
+                if (expanded) items(group, key = { "cards-${it.index}" }) { entry ->
+                    ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("${counts[entry.value.title]} Karten") },
+                        modifier = Modifier.clickable { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
+                }
+            }
         }
     }
 }
@@ -265,33 +310,45 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, back: () ->
 }
 
 @Composable
-private fun CasePicker(catalog: LearningCatalog, open: (String) -> Unit) {
+private fun CasePicker(catalog: LearningCatalog, completed: Set<String>, setCompleted: (String, Boolean) -> Unit, open: (String) -> Unit) {
     val cases = remember(catalog.cases) { catalog.cases.sortedBy { it.id } }
-    val collapsed = remember { mutableStateMapOf<Int, Boolean>() }
+    var expandedDays by rememberSaveable { mutableIntStateOf(0) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fallbeispiele", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Text("Wähle einen Prüfungstag. Die Musterlösungen findest du direkt unter den Aufgaben.") }
+        item { Text("Klappe einen Prüfungstag auf. Markierungen werden auf diesem Gerät gespeichert.") }
         if (cases.isEmpty()) item { Text("Noch keine Fallbeispiele veröffentlicht.") }
         listOf(1, 2, 3, 0).forEach { day ->
             val group = cases.filter { if (day == 0) it.examDay == null || it.examDay !in 1..3 else it.examDay == day }
             if (group.isNotEmpty()) {
+                val expanded = expandedDays and (1 shl day) != 0
                 item(key = "case-day-$day") {
-                    Surface(onClick = { collapsed[day] = !(collapsed[day] ?: false) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (day == 0) "Weitere Fälle" else "Prüfungstag $day", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                            Text("${group.size} Fälle")
-                            Icon(if (collapsed[day] == true) Icons.Default.ExpandMore else Icons.Default.ExpandLess, "Ein- oder ausklappen")
+                    DayHeader(if (day == 0) "Weitere Fälle" else "Prüfungstag $day",
+                        "${group.size} Fälle · ${group.count { it.id in completed }} bearbeitet", expanded) {
+                        expandedDays = expandedDays xor (1 shl day)
+                    }
+                }
+                if (expanded) items(group, key = { it.id }) { case ->
+                    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth().clickable { open(case.id) }.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(case.title.ifBlank { case.diseases.joinToString(" · ") }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text("${case.questions.size} Aufgaben · Fall öffnen", style = MaterialTheme.typography.bodySmall)
+                            }
+                            CaseCompletionToggle(case.id in completed, { setCompleted(case.id, it) })
                         }
                     }
                 }
-                if (collapsed[day] != true) items(group, key = { it.id }) { case ->
-                    ElevatedCard(onClick = { open(case.id) }, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(case.title.ifBlank { case.diseases.joinToString(" · ") }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("${case.questions.size} Aufgaben", style = MaterialTheme.typography.bodySmall)
-                    } }
-                }
             }
         }
+    }
+}
+
+@Composable
+private fun CaseCompletionToggle(completed: Boolean, setCompleted: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().toggleable(value = completed, role = Role.Checkbox, onValueChange = setCompleted)
+        .padding(horizontal = 10.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = completed, onCheckedChange = null)
+        Text(if (completed) "Bearbeitet" else "Noch nicht bearbeitet", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -309,7 +366,7 @@ private fun readableCaseText(text: String): String = text.trim().lines().fold(mu
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
+private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (Boolean) -> Unit, back: () -> Unit) {
     val title = case.title.ifBlank { case.diseases.joinToString(" · ") }
     val sections = remember(case.text) { CasePresentation.sections(case.text) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
@@ -320,6 +377,7 @@ private fun CaseDetail(case: PublishedCase, back: () -> Unit) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
             }
+            item { CaseCompletionToggle(completed, setCompleted) }
             items(sections) { section ->
                 ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
