@@ -26,6 +26,7 @@ async function protectRequest(request, env, path) {
   if (request.method === 'POST' && path === '/participants') limiter = env.REGISTRATION_RATE;
   else if (request.method === 'GET' && (path === '/quiz/today' || path === '/leaderboard')) limiter = env.READ_RATE;
   else if ((request.method === 'POST' && path === '/quiz/attempt') ||
+           (request.method === 'GET' && path === '/quiz/attempt/result') ||
            (request.method === 'DELETE' && path === '/participants/me')) {
     limiter = env.AUTH_RATE;
     needsAccountLimit = true;
@@ -159,6 +160,24 @@ export default {
           env.DB.prepare('UPDATE quiz_snapshot_generation SET generation = generation + 1 WHERE id = 1')
         ]);
         return new Response(null, {status:204, headers});
+      }
+      if (request.method === 'GET' && path === '/quiz/attempt/result') {
+        const user = await participant(request, env);
+        if (!user) return json({error:'Nicht autorisiert.'}, 401);
+        const query = new URL(request.url).searchParams;
+        const dates = query.getAll('date');
+        const day = dates[0];
+        const parsed = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(day) : NaN;
+        if ([...query.keys()].some(key => key !== 'date') || dates.length !== 1 ||
+            !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== day)
+          return json({error:'Ungültiges Quizdatum.'}, 400);
+        const attempt = await env.DB.prepare('SELECT correct, total FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?')
+          .bind(user.id, day).first();
+        if (!attempt) return json({date:day, error:'Noch kein gewerteter Versuch.'}, 404);
+        if (!Number.isInteger(attempt.correct) || !Number.isInteger(attempt.total) ||
+            attempt.total !== QUIZ_SIZE || attempt.correct < 0 || attempt.correct > attempt.total)
+          throw new Error('invalid stored attempt');
+        return json({date:day, correct:attempt.correct, total:attempt.total});
       }
       if (request.method === 'GET' && path === '/quiz/today') {
         const day = today(), quiz = await loadQuiz(env, day);

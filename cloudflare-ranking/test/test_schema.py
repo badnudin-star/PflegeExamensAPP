@@ -12,6 +12,15 @@ class QuizSchemaTests(unittest.TestCase):
         self.db.execute('INSERT INTO scores VALUES (?, ?)', ('legacy', 500000))
         self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p1', 'hash1', 'Name', 1))
 
+    def test_result_query_uses_both_account_and_quiz_date(self):
+        self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p2', 'hash2', 'Other', 2))
+        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
+        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p2', '2026-11-01', 40, 50, 2))
+        query = 'SELECT correct, total FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?'
+        self.assertEqual(self.db.execute(query, ('p1', '2026-11-01')).fetchone(), (10, 50))
+        self.assertEqual(self.db.execute(query, ('p2', '2026-11-01')).fetchone(), (40, 50))
+        self.assertIsNone(self.db.execute(query, ('p1', '2026-11-02')).fetchone())
+
     def test_generation_blocks_snapshot_that_started_before_deletion(self):
         self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
         self.db.execute('INSERT INTO quiz_hourly_snapshot VALUES (1, ?, ?)', ('old', 1))

@@ -28,6 +28,10 @@ function database() {
     }, async first() {
       if (sql.includes('FROM quiz_snapshot_generation')) return {generation:state.generation};
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
+      if (sql.includes('FROM quiz_attempts WHERE participant_id')) {
+        const attempt=attempts.find(a => a.id===args[0] && a.date===args[1]);
+        return attempt ? {correct:attempt.points, total:attempt.total} : null;
+      }
       if (sql.includes('COUNT(DISTINCT participant_id)')) return {count:new Set(attempts.map(a => a.id)).size};
       if (sql.includes('FROM quiz_hourly_snapshot')) return state.snapshot ? {payload_json:state.snapshot} : null;
       throw Error('unexpected first');
@@ -195,7 +199,7 @@ test('rate controls run before database writes and external quiz fetches', async
   try {
     for (const [method,path,body,token] of [
       ['POST','/participants',{username:'Alice'}], ['GET','/quiz/today'], ['GET','/leaderboard'],
-      ['POST','/quiz/attempt',{},'a'.repeat(64)], ['DELETE','/participants/me',undefined,'a'.repeat(64)]
+      ['POST','/quiz/attempt',{},'a'.repeat(64)], ['GET','/quiz/attempt/result?date=2026-01-01',undefined,'a'.repeat(64)], ['DELETE','/participants/me',undefined,'a'.repeat(64)]
     ]) {
       const result=await worker.fetch(request(method,path,body,token),e);
       assert.equal(result.status,429);
@@ -204,7 +208,7 @@ test('rate controls run before database writes and external quiz fetches', async
     assert.equal(e.DB.state.participants.length,0);
     assert.equal(e.DB.state.attempts.length,0);
     assert.equal(upstreamCalls,0);
-    assert.equal(seen.length,5);
+    assert.equal(seen.length,6);
     assert.ok(seen.every(key=>/^[0-9a-f]{64}$/.test(key) && !key.includes('192.0.2.1')));
   } finally { globalThis.fetch=original; }
 });
@@ -239,4 +243,43 @@ test('account limiter hashes bearer token, also protects deletion, and does not 
   e.ACCOUNT_RATE=undefined;
   assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,503);
   assert.equal(e.DB.state.participants.length,1);
+});
+
+
+test('after a lost submission response only the owner can retrieve today’s saved score', async () => {
+  const original=globalThis.fetch, quiz=questions(), e=env();
+  globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
+  try {
+    const alice=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+    const bob=(await (await worker.fetch(request('POST','/participants',{username:'Bob'}),e)).json()).token;
+    const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
+    const body={date:visible.date, fingerprint:visible.fingerprint,answers:answerSet(quiz)};
+    assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`),e)).status,401);
+    let before=await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,alice),e);
+    assert.equal(before.status,404); assert.equal((await before.json()).date,day());
+    // Treat the response as lost: the request was nevertheless committed.
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,201);
+    const recovered=await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,alice),e);
+    assert.equal(recovered.status,200);
+    assert.equal(recovered.headers.get('Cache-Control'),'no-store');
+    assert.deepEqual(await recovered.json(),{date:day(), correct:50, total:50});
+    assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,bob),e)).status,404);
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,409);
+    assert.equal(e.DB.state.attempts.length,1);
+  } finally { globalThis.fetch=original; }
+});
+
+test('score lookup supports past dates and rejects malformed or ambiguous queries', async () => {
+  const e=env();
+  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  const id=e.DB.state.participants[0].id;
+  e.DB.state.attempts.push({id,date:'2026-01-31',points:33,total:50});
+  const previous=await worker.fetch(request('GET','/quiz/attempt/result?date=2026-01-31',undefined,token),e);
+  assert.equal(previous.status,200);
+  assert.deepEqual(await previous.json(),{date:'2026-01-31',correct:33,total:50});
+  for (const query of ['', '?date=2026-02-30', '?date=20260131', '?date=2026-01-31&date=2026-02-01', '?date=2026-01-31&other=1']) {
+    assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result${query}`,undefined,token),e)).status,400);
+  }
+  e.DB.state.attempts[0].points=51;
+  assert.equal((await worker.fetch(request('GET','/quiz/attempt/result?date=2026-01-31',undefined,token),e)).status,503);
 });
