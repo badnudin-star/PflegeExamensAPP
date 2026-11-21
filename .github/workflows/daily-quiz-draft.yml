@@ -12,6 +12,7 @@ jobs:
   draft:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - name: Freigabe und Konfiguration prüfen
         id: configured
         env:
@@ -20,15 +21,7 @@ jobs:
           MODEL: ${{ vars.GEMINI_MODEL }}
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          if [ "$ENABLED" = true ] && [ -n "$FOLDER" ] && [ -n "$MODEL" ] && [ -n "$GOOGLE_CREDS" ] && [ -n "$GEMINI_API_KEY" ]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'Quizgenerierung nicht aktiviert oder nicht vollständig konfiguriert.'
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/checkout@v7
-        if: steps.configured.outputs.ready == 'true'
+        run: python tools/daily_quiz/check_config.py
       - uses: actions/setup-python@v6
         if: steps.configured.outputs.ready == 'true'
         with:
@@ -50,11 +43,16 @@ jobs:
           printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
           unset GOOGLE_CREDS
           python tools/daily_quiz/quiz_pipeline.py generate --folder "$LEARNING_DRIVE_FOLDER_ID" --model "$GEMINI_MODEL" --output "$RUNNER_TEMP/quiz-draft.json"
+      - name: Offline-Prüfansicht erstellen
+        if: steps.configured.outputs.ready == 'true'
+        run: python tools/daily_quiz/review_sheet.py "$RUNNER_TEMP/quiz-draft.json" "$RUNNER_TEMP/quiz-review.html"
       - name: Entwurf zur fachlichen Prüfung bereitstellen
         if: steps.configured.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: tagesquiz-entwurf
-          path: ${{ runner.temp }}/quiz-draft.json
+          path: |
+            ${{ runner.temp }}/quiz-draft.json
+            ${{ runner.temp }}/quiz-review.html
           if-no-files-found: error
           retention-days: 7
