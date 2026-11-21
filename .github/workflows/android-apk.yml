@@ -46,6 +46,9 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v7
 
+      - name: Aktuellen Lernkatalog für Offline-Nutzung einbinden
+        run: python tools/learning_import/bundle_published.py --url "$ORG_GRADLE_PROJECT_contentUrl"
+
       - name: JDK 17 einrichten
         uses: actions/setup-java@v6
         with:
@@ -93,6 +96,21 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
+
+      - name: Offline-Katalog in der APK prüfen
+        run: |
+          python - <<'PYCODE'
+          import hashlib
+          import zipfile
+          from pathlib import Path
+
+          original = Path('app/src/main/assets/learning_content.json').read_bytes()
+          with zipfile.ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
+              packaged = apk.read('assets/learning_content.json')
+          if packaged != original:
+              raise SystemExit('Die APK enthält nicht den geprüften Offline-Katalog.')
+          print('Offline-Katalog in APK geprüft: SHA-256 ' + hashlib.sha256(packaged).hexdigest())
+          PYCODE
 
       - name: Debug-APK umbenennen
         run: |
