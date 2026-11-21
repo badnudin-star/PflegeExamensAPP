@@ -1,19 +1,23 @@
--- Cloudflare D1 (SQLite Free Tier) Schema für das stündliche PflegeExamen-Ranking
-CREATE TABLE IF NOT EXISTS scores (
-  user_id TEXT PRIMARY KEY,
+-- Neue, getrennte Tabellen: vorhandene alte Lernpunkte werden nicht übernommen.
+CREATE TABLE IF NOT EXISTS quiz_participants (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
   username TEXT NOT NULL,
-  total_xp INTEGER NOT NULL DEFAULT 0,
-  streak_days INTEGER NOT NULL DEFAULT 0,
-  rank_title TEXT NOT NULL DEFAULT '1. Ausbildungsjahr',
-  updated_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_scores_rank
-  ON scores(total_xp DESC, streak_days DESC, updated_at ASC);
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+  participant_id TEXT NOT NULL REFERENCES quiz_participants(id),
+  quiz_date TEXT NOT NULL,
+  correct INTEGER NOT NULL CHECK(correct >= 0),
+  total INTEGER NOT NULL CHECK(total = 50 AND correct <= total),
+  submitted_at INTEGER NOT NULL,
+  PRIMARY KEY(participant_id, quiz_date)
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_attempts_participant ON quiz_attempts(participant_id);
 
-CREATE TABLE IF NOT EXISTS hourly_snapshots (
+CREATE TABLE IF NOT EXISTS quiz_hourly_snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   payload_json TEXT NOT NULL,
-  generated_at INTEGER NOT NULL,
-  next_update_at INTEGER NOT NULL
+  generated_at INTEGER NOT NULL
 );

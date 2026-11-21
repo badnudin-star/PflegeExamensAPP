@@ -10,3 +10,7 @@ binding = "DB"
 database_name = "pflege_ranking_db"
 # Nach `npx wrangler d1 create pflege_ranking_db` hier deine erhaltene UUID eintragen:
 database_id = "DEINE_D1_DATABASE_ID_HIER"
+
+# Öffentlicher Inhaltsendpunkt, wird bei späterer Einrichtung gesetzt.
+# [vars]
+# QUIZ_CATALOG_URL = "https://pflegeexamen-content.badnudin.workers.dev/content"

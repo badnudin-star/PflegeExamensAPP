@@ -1,4 +1,4 @@
-name: Deploy PflegeExamen Ranking Worker (0 EUR Free Tier)
+name: Deploy Quiz-Ranking Worker (vorbereitet)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.ENABLE_CLOUDFLARE_DEPLOY == 'true' }}
+    if: ${{ vars.ENABLE_QUIZ_RANKING_DEPLOY == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - uses: cloudflare/wrangler-action@v4
