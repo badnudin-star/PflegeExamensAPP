@@ -83,10 +83,13 @@ async function loadQuiz(env, date) {
   if (!questions.length) return null;
   if (questions.length !== QUIZ_SIZE || new Set(questions.map(q => q.id)).size !== QUIZ_SIZE ||
       questions.some(q => typeof q.id !== 'string' || !q.id.trim() || typeof q.topic !== 'string' || !q.topic.trim() ||
-        typeof q.question !== 'string' || !q.question.trim() || !Array.isArray(q.options) || q.options.length !== 4 ||
+        typeof q.question !== 'string' || !q.question.trim() || typeof q.explanation !== 'string' || !q.explanation.trim() ||
+        !Array.isArray(q.options) || q.options.length !== 4 ||
         q.options.some(o => typeof o !== 'string' || !o.trim()) || new Set(q.options).size !== 4 ||
         !Number.isInteger(q.correctIndex) || q.correctIndex < 0 || q.correctIndex > 3)) throw new Error('bad quiz');
-  const frozen = questions.map(q => ({id:q.id, topic:q.topic, question:q.question, options:q.options, correctIndex:q.correctIndex}));
+  // Answers and explanations are intentionally public for immediate feedback.
+  // Including them in the fingerprint invalidates a session when they change.
+  const frozen = questions.map(q => ({id:q.id, topic:q.topic, question:q.question, options:q.options, correctIndex:q.correctIndex, explanation:q.explanation}));
   return {questions:frozen, fingerprint:await digest(JSON.stringify(frozen))};
 }
 export function scoreAnswers(questions, answers) {
@@ -160,7 +163,7 @@ export default {
       if (request.method === 'GET' && path === '/quiz/today') {
         const day = today(), quiz = await loadQuiz(env, day);
         if (!quiz) return json({error:'Heute ist noch kein Quiz veröffentlicht.'}, 404);
-        return json({date:day, fingerprint:quiz.fingerprint, questions:quiz.questions.map(({correctIndex, ...q}) => q)});
+        return json({date:day, fingerprint:quiz.fingerprint, questions:quiz.questions});
       }
       if (request.method === 'POST' && path === '/quiz/attempt') {
         const user = await participant(request, env);
