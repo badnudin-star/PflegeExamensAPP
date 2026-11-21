@@ -5,6 +5,7 @@ import android.util.AtomicFile
 import de.pflegeexamen.app.BuildConfig
 import de.pflegeexamen.app.domain.content.LearningCatalog
 import de.pflegeexamen.app.domain.content.CatalogUpdatePolicy
+import de.pflegeexamen.app.domain.content.RefreshDecision
 import de.pflegeexamen.app.domain.content.LearningCatalogCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+
+enum class ContentRefreshResult { UPDATED, UP_TO_DATE, NOT_CONFIGURED, SERVER_OLDER, INVALID_OR_INCOMPLETE, UNAVAILABLE }
 
 /** Read-only published content. No secret or editable service URL is stored in the app. */
 class PublishedContentStore(private val context: Context) {
@@ -33,22 +36,27 @@ class PublishedContentStore(private val context: Context) {
     private val _catalog = MutableStateFlow(initial)
     val catalog: StateFlow<LearningCatalog> = _catalog.asStateFlow()
 
-    suspend fun refresh(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun refresh(): ContentRefreshResult = withContext(Dispatchers.IO) {
         lock.withLock {
-            if (!CONTENT_URL.startsWith("https://")) return@withLock false
+            if (!CONTENT_URL.startsWith("https://")) return@withLock ContentRefreshResult.NOT_CONFIGURED
             var connection: HttpURLConnection? = null
             try {
                 connection = URL(CONTENT_URL).openConnection() as HttpURLConnection
                 connection.connectTimeout = 15_000
                 connection.readTimeout = 30_000
                 connection.instanceFollowRedirects = false
-                if (connection.responseCode != 200) return@withLock false
+                if (connection.responseCode != 200) return@withLock ContentRefreshResult.UNAVAILABLE
                 val raw = connection.inputStream.use { input ->
-                    val bytes = input.readBytesLimited(MAX_CONTENT_BYTES) ?: return@withLock false
+                    val bytes = input.readBytesLimited(MAX_CONTENT_BYTES) ?: return@withLock ContentRefreshResult.INVALID_OR_INCOMPLETE
                     bytes.toString(Charsets.UTF_8)
                 }
-                val next = LearningCatalogCodec.parse(raw) ?: return@withLock false
-                if (!CatalogUpdatePolicy.canRefresh(_catalog.value, next)) return@withLock false
+                val next = LearningCatalogCodec.parse(raw) ?: return@withLock ContentRefreshResult.INVALID_OR_INCOMPLETE
+                when (CatalogUpdatePolicy.decideRefresh(_catalog.value, next)) {
+                    RefreshDecision.UP_TO_DATE -> return@withLock ContentRefreshResult.UP_TO_DATE
+                    RefreshDecision.SERVER_OLDER -> return@withLock ContentRefreshResult.SERVER_OLDER
+                    RefreshDecision.REJECTED -> return@withLock ContentRefreshResult.INVALID_OR_INCOMPLETE
+                    RefreshDecision.UPDATE -> Unit
+                }
                 val output = file.startWrite()
                 try {
                     output.write(raw.toByteArray(Charsets.UTF_8))
@@ -58,11 +66,11 @@ class PublishedContentStore(private val context: Context) {
                     throw e
                 }
                 _catalog.value = next
-                true
+                ContentRefreshResult.UPDATED
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
-                false
+                ContentRefreshResult.UNAVAILABLE
             } finally {
                 connection?.disconnect()
             }

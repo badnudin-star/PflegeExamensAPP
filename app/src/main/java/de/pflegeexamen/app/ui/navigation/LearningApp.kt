@@ -43,6 +43,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.data.content.PublishedContentStore
+import de.pflegeexamen.app.data.content.ContentRefreshResult
 import de.pflegeexamen.app.data.progress.CardProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesCardProgress
 import de.pflegeexamen.app.data.progress.CaseProgressStore
@@ -640,10 +641,30 @@ private fun SimpleInfo(title: String, body: String, back: () -> Unit) = FullText
 private fun AppSettings(store: PublishedContentStore, back: () -> Unit) {
     val context = LocalContext.current
     val catalog by store.catalog.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<ContentRefreshResult?>(null) }
     Scaffold(topBar = { TopAppBar(title = { Text("Einstellungen") }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Lerninhalte", style = MaterialTheme.typography.titleLarge)
             Text("Inhaltsstand: ${catalog.revision}. ${if (PublishedContentStore.CONTENT_URL.isBlank()) "Automatische Updates sind noch nicht eingerichtet." else "Updates werden bei verfügbarer Verbindung regelmäßig geprüft."}")
+            OutlinedButton(enabled = !checking, onClick = {
+                checking = true
+                result = null
+                scope.launch {
+                    try { result = store.refresh() } finally { checking = false }
+                }
+            }) { Text(if (checking) "Prüfung läuft …" else "Jetzt auf Updates prüfen") }
+            result?.let { status ->
+                Text(when (status) {
+                    ContentRefreshResult.UPDATED -> "Neue Inhalte wurden heruntergeladen."
+                    ContentRefreshResult.UP_TO_DATE -> "Der abgerufene Stand entspricht dem lokalen Inhaltsstand."
+                    ContentRefreshResult.NOT_CONFIGURED -> "Für diese App-Version ist keine Update-Adresse eingerichtet. Der Offline-Stand bleibt verfügbar."
+                    ContentRefreshResult.SERVER_OLDER -> "Der abgerufene Stand ist älter als der lokale Stand. Der Offline-Stand bleibt erhalten."
+                    ContentRefreshResult.INVALID_OR_INCOMPLETE -> "Der Serverstand ist ungültig, unvollständig oder widersprüchlich. Der Offline-Stand bleibt erhalten."
+                    ContentRefreshResult.UNAVAILABLE -> "Die Prüfung oder das Speichern war nicht möglich. Der Offline-Stand bleibt erhalten. Bitte später erneut versuchen."
+                }, style = MaterialTheme.typography.bodyMedium)
+            }
             HorizontalDivider()
             Text("Darstellung & Bedienung", style = MaterialTheme.typography.titleLarge)
             Text("Schriftgröße, Kontrast und weitere Bedienhilfen kannst du in den Android-Einstellungen ändern.")
