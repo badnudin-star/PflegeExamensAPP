@@ -57,6 +57,10 @@ class SyncTests(unittest.TestCase):
             http=Http()
             with self.assertRaisesRegex(ValueError,'Quellenabschnitt'): sync(http,'https://worker.example',BUNDLED,'folder',object(),TOKEN)
             self.assertEqual(http.puts,[])
+    def test_source_section_can_describe_open_gaps(self):
+        http = Http()
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', return_value='x'*100 + '\nQUELLEN UND OFFENE LÜCKE\n'):
+            self.assertEqual(sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN), 'published')
     def test_folder_changed_during_import_prevents_publication(self):
         modified = dict(FILES)
         modified.pop(next(iter(modified)))

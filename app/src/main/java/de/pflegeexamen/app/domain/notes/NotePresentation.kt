@@ -41,7 +41,7 @@ object NotePresentation {
             var line = lines[i]
             if (modern && newHeader.matches(line)) { flushParagraph(); skipSources = false; i++; continue }
             if (modern && line.matches(Regex("^\\d{1,3}$"))) { i++; continue }
-            if (modern && line.matches(Regex("(?i)^QUELLEN(?: UND GRENZEN)?$"))) { flushSection(); skipSources = true; i++; continue }
+            if (modern && line.matches(Regex("(?i)^QUELLEN(?: UND .{1,80})?$"))) { flushSection(); skipSources = true; i++; continue }
             if (skipSources) {
                 if (upperHeading(line) && !line.startsWith("ABBILDUNG")) skipSources = false
                 else { i++; continue }
