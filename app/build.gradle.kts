@@ -19,11 +19,19 @@ android {
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.path == "/content"
     }.getOrDefault(false)) { "contentUrl muss eine öffentliche HTTPS-URL mit Pfad /content sein." }
 
+    // Optional public read-only leaderboard, not a user setting and disabled by default.
+    val rankingUrl = providers.gradleProperty("rankingUrl").orElse("").get()
+    require(rankingUrl.isEmpty() || runCatching {
+        val uri = URI(rankingUrl)
+        uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.rawPath == "/leaderboard"
+    }.getOrDefault(false)) { "rankingUrl muss eine öffentliche HTTPS-URL mit Pfad /leaderboard sein." }
+
     defaultConfig {
         applicationId = "de.pflegeexamen.app"
         minSdk = 26
         targetSdk = 35
         buildConfigField("String", "CONTENT_URL", "\"$contentUrl\"")
+        buildConfigField("String", "RANKING_URL", "\"$rankingUrl\"")
         versionCode = 12
         versionName = "3.0.1"
 

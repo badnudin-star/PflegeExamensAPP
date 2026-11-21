@@ -42,6 +42,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import de.pflegeexamen.app.BuildConfig
+import de.pflegeexamen.app.data.quiz.HttpsRankingTransport
+import de.pflegeexamen.app.data.quiz.QuizRankingClient
+import de.pflegeexamen.app.data.quiz.RankingLoad
 import de.pflegeexamen.app.data.content.PublishedContentStore
 import de.pflegeexamen.app.data.content.ContentRefreshResult
 import de.pflegeexamen.app.data.progress.CardProgressStore
@@ -119,7 +123,7 @@ fun LearningApp(store: PublishedContentStore) {
                 CaseDayTopics(catalog, day, open = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
             composable("quiz") { QuizScreen(catalog, quizProgress) }
-            composable("ranking") { SimpleInfo("Quiz-Rangliste", "Das Cloudflare-Ranking ist noch nicht eingerichtet. Es werden keine alten Lernpunkte übertragen. Sobald die Quizwertung serverseitig bereitsteht, kann die Rangliste stündlich aktualisiert werden.") { nav.popBackStack() } }
+            composable("ranking") { QuizRankingScreen { nav.popBackStack() } }
             composable("settings") { AppSettings(store) { nav.popBackStack() } }
         }
     }
@@ -634,7 +638,45 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SimpleInfo(title: String, body: String, back: () -> Unit) = FullTextScreen(title, body, emptyList(), back)
+private fun QuizRankingScreen(back: () -> Unit) {
+    val client = remember { QuizRankingClient(BuildConfig.RANKING_URL, HttpsRankingTransport()) }
+    val scope = rememberCoroutineScope()
+    var loading by remember { mutableStateOf(true) }
+    var result by remember { mutableStateOf<RankingLoad?>(null) }
+    suspend fun reload() {
+        loading = true
+        try { result = client.load() } finally { loading = false }
+    }
+    LaunchedEffect(client) { reload() }
+    Scaffold(topBar = { TopAppBar(title = { Text("Quiz-Rangliste") }, navigationIcon = {
+        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
+    }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("Quiz-Rangliste", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+            item { Text("Nur gewertete Multiple-Choice-Quiz zählen. Deine lokale Übung wird derzeit nicht an eine Rangliste übertragen.") }
+            if (loading) item { Text("Rangliste wird geladen …") }
+            else when (val state = result) {
+                RankingLoad.NotConfigured -> item { Text("Die Rangliste ist noch nicht eingerichtet.") }
+                RankingLoad.Unavailable, null -> item { Text("Die Rangliste ist derzeit nicht verfügbar. Bitte später erneut versuchen.") }
+                is RankingLoad.Ready -> {
+                    val snapshot = state.snapshot
+                    val time = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                        .format(java.util.Date(snapshot.generatedAtMillis))
+                    item { Text("Stand: $time · ${snapshot.totalParticipants} Teilnehmende", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text("Der Server aktualisiert die Rangliste ungefähr stündlich; der angezeigte Stand kann älter sein.", style = MaterialTheme.typography.bodySmall) }
+                    if (snapshot.entries.isEmpty()) item { Text("Noch keine gewerteten Quizversuche.") }
+                    items(snapshot.entries, key = { it.rank }) { entry ->
+                        ListItem(headlineContent = { Text("${entry.rank}. ${entry.username}") },
+                            supportingContent = { Text("${entry.quizzes} Quiz") }, trailingContent = { Text("${entry.points} Punkte") })
+                    }
+                }
+            }
+            if (!loading && result != RankingLoad.NotConfigured) item {
+                OutlinedButton(onClick = { loading = true; scope.launch { reload() } }) { Text("Rangliste aktualisieren") }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
