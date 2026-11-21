@@ -1,41 +1,21 @@
-# Stündliches PflegeExamen-Ranking (0 € · Cloudflare Workers + D1 + optional GitHub Pages)
+# Quiz-Rangliste: serverseitiger Entwurf
 
-Dieses Backend verursacht **0 € Kosten**, benötigt **keine Kreditkarte** und aktualisiert das globale Ranking automatisch **einmal pro Stunde** (`0 * * * *`).
+**Status: vorbereitet, nicht veröffentlicht und noch nicht mit der aktuellen App verbunden.** Die App zeigt weiter eine neutrale Platzhalterseite. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
 
-## Was passiert stündlich?
-1. Nutzer starten die App und wählen ein Pseudonym (z. B. `PflegeFuchs27`).
-2. Jede Stunde sendet die App über `POST /score` anonymisiert `{ userId, username, totalXp, streakDays, rankTitle }` an diesen Worker (oder lädt lesend `GET /leaderboard`).
-3. Der Worker-Cron (`0 * * * *`) erstellt jede volle Stunde eine feste **Top-100-Momentaufnahme** in D1 (`hourly_snapshots`) und optional auch als `docs/leaderboard.json` in deinem GitHub-Repository.
+## Funktionsweise des Entwurfs
 
-## Einrichtung in 5 Minuten (0 €)
+- Ein Teilnehmer registriert ein Pseudonym und erhält einmalig ein zufälliges Geräte-Token; gespeichert wird nur dessen SHA-256-Hash. Der Verlust des Tokens bedeutet derzeit den Verlust des Zugangs.
+- `GET /quiz/today` liefert das veröffentlichte Tagesquiz ohne die Lösungsindizes. Es akzeptiert nur einen vollständigen Satz von 50 gültigen Fragen.
+- `POST /quiz/attempt` nimmt mit dem Token und einer Prüfsumme zum Quiz genau eine vollständige Antwortliste an. Der Server berechnet die Zahl richtiger Antworten. Pro Teilnehmer und Berliner Kalendertag ist dank Datenbank-Eindeutigkeit nur ein gewerteter Versuch möglich. Keine fremden XP werden angenommen.
+- `GET /leaderboard` liefert einen gespeicherten Top-100-Snapshot; der Cron aktualisiert ihn stündlich. Punkte sind ausschließlich die Summe richtig beantworteter MC-Fragen. Die Antwort enthält Pseudonyme, aber keine Geräte-IDs oder Token. Alte Tabellen bleiben unberührt und werden nicht ausgewertet.
 
-### 1. Kostenloses Cloudflare-Konto & D1-Datenbank anlegen
-```bash
-cd cloudflare-ranking
-npx wrangler login
-npx wrangler d1 create pflege_ranking_db
-```
-Die ausgegebene `database_id` in `wrangler.toml` eintragen.
+**Kein fälschungssicheres Ranking:** Der bestehende Inhaltskatalog ist öffentlich und enthält die Lösungen. Man kann Antworten dort einsehen oder mehrere anonyme Konten erstellen. Der Entwurf braucht vor öffentlichem Betrieb mindestens ein geeignetes Identitäts-/Missbrauchsschutzkonzept und Rate-Limiting. Auch Datenschutz, Löschung und Verlust/Wiederherstellung des Geräte-Tokens sind noch zu klären. An der öffentlichen Inhalts-API wurde nichts verändert. Solange die App lokale Quiz ohne dieses Backend auswertet, sind keine Ranglistenpunkte möglich.
 
-### 2. SQLite-Tabellen in D1 anlegen
-```bash
-npx wrangler d1 execute pflege_ranking_db --remote --file=./schema.sql
-```
+## Noch erforderlich vor Inbetriebnahme
 
-### 3. Worker kostenlos veröffentlichen
-```bash
-npx wrangler deploy
-```
-Du erhältst sofort eine HTTPS-URL wie:
-`https://pflege-examen-ranking.<dein-subdomain>.workers.dev`
+1. Einen sicheren Missbrauchsschutz, ein Datenschutz- und Löschkonzept sowie die Android-Integration fertigstellen und mit realer Cloudflare-D1-Datenbank testen.
+2. Cloudflare Worker und eine separate D1-Datenbank einrichten, `schema.sql` anwenden und D1 als `DB` binden. Der Entwurf benötigt eine öffentliche HTTPS-Adresse `QUIZ_CATALOG_URL` mit Pfad `/content`. Die ID und Adresse müssen bei der späteren Einrichtung in der Konfiguration ergänzt werden. `/health` prüft nur, ob der Worker antwortet, nicht Datenbank oder Inhalt.
+3. Das vorhandene Tagesquiz muss geprüft veröffentlicht sein. Keine Gemini-Schlüssel oder Cloudflare-Tokens in App, Repository oder Chat speichern.
+4. Das Deployment bleibt standardmäßig aus. Das alte Flag `ENABLE_CLOUDFLARE_DEPLOY` startet diesen Workflow nicht mehr. Das neue Flag `ENABLE_QUIZ_RANKING_DEPLOY` darf erst nach Abschluss der obigen Punkte und Prüfung der Cloudflare-Zugangsdaten gesetzt werden. Keine Preisgarantie: Kosten, Nutzungsgrenzen und Kontobedingungen hängen vom Anbieter und Verbrauch ab.
 
-### 4. URL in der App oder fest in der APK hinterlegen
-- **In der App:** *Einstellungen -> Benutzername & Stündliches Ranking -> Ranking-URL* eintragen & *Verbindung testen*.
-- **Für alle Nutzer fest in der APK/Bundle:** Die URL in `RankingSettings.DEFAULT_RANKING_ENDPOINT_URL` (oder in `PflegeBundleStudio.html` -> `rankingEndpointUrl`) eintragen, bevor du die APK baust!
-
-### Optional: Automatischer GitHub-JSON-Export
-Falls zusätzlich `docs/leaderboard.json` für GitHub Pages jede Stunde committet werden soll, einmalig zwei Secrets setzen:
-```bash
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler secret put GITHUB_REPO   # Format: deinuser/deinrepo
-```
+Lokale Tests: `npm test --prefix cloudflare-ranking` und `python -m unittest discover -s cloudflare-ranking/test -p 'test_*.py' -v`. Sie ersetzen keinen Test auf Cloudflare oder auf einem Android-Gerät.

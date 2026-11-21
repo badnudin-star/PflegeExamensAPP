@@ -1,250 +1,139 @@
-/**
- * PflegeExamen Lokal - Kostenloser Cloudflare Worker + D1 Ranking-Service (0 EUR)
- * - POST /score       -> Spielstand speichern (mit Basis-Plausibilitaetscheck) + akt. Stunden-Snapshot
- * - GET  /leaderboard -> Vorberechnetes stuendliches Ranking aus D1 ausliefern
- * - GET  /health      -> Erreichbarkeitstest fuer die App
- * - Cron (0 * * * *)  -> Erzeugt jede volle Stunde den Snapshot und exportiert optional leaderboard.json nach GitHub
- */
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+// Draft quiz-only ranking. No client-submitted XP, streak or direct score is accepted.
+const HOUR = 60 * 60 * 1000;
+const MAX_BODY = 64 * 1024;
+const MAX_CATALOG = 8 * 1024 * 1024;
+const QUIZ_SIZE = 50;
+const headers = {
+  'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
+  'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
-
-const HOUR_MS = 60 * 60 * 1000;
-
-function jsonResponse(data, status = 200, cacheSeconds = 0) {
-  const cacheControl =
-    status === 200 && cacheSeconds > 0
-      ? `public, max-age=${cacheSeconds}`
-      : "no-store";
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": cacheControl,
-      ...CORS_HEADERS,
-    },
-  });
+const json = (value, status = 200) => new Response(JSON.stringify(value), {status, headers});
+const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+async function digest(value) {
+  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))));
 }
-
-function sanitizeUsername(raw) {
-  const cleaned = String(raw || "")
-    .replace(/[^\p{L}\p{N}_\- .]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 24);
-  return cleaned;
+function today() {
+  return new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
 }
-
-function nextTopOfHour(nowMs) {
-  return Math.ceil((nowMs + 1000) / HOUR_MS) * HOUR_MS;
+function validUsername(value) {
+  return typeof value === 'string' && value === value.trim() && value.length >= 2 && value.length <= 24 &&
+    /^[\p{L}\p{N}_ .-]+$/u.test(value) && !/\s{2}/u.test(value);
 }
-
-async function buildAndSaveHourlySnapshot(env, nowMs = Date.now()) {
-  const topRows = await env.DB.prepare(
-    `SELECT user_id, username, total_xp, streak_days, rank_title, updated_at
-     FROM scores
-     ORDER BY total_xp DESC, streak_days DESC, updated_at ASC
-     LIMIT 100`
-  ).all();
-
-  const countRow = await env.DB.prepare(
-    `SELECT COUNT(*) AS cnt FROM scores`
-  ).first();
-
-  const entries = (topRows.results || []).map((row, idx) => ({
-    rank: idx + 1,
-    userId: row.user_id,
-    username: row.username,
-    totalXp: Number(row.total_xp || 0),
-    streakDays: Number(row.streak_days || 0),
-    rankTitle: row.rank_title || "1. Ausbildungsjahr",
-    updatedAtMillis: Number(row.updated_at || nowMs),
-    isCurrentUser: false,
-  }));
-
-  const nextUpdate = nextTopOfHour(nowMs);
-  const snapshot = {
-    generatedAtMillis: nowMs,
-    nextUpdateAtMillis: nextUpdate,
-    totalParticipants: Number(countRow?.cnt || entries.length),
-    entries,
-    sourceLabel: "Stündliches Community-Ranking",
-  };
-
-  const payloadJson = JSON.stringify(snapshot);
-  await env.DB.prepare(
-    `INSERT INTO hourly_snapshots (id, payload_json, generated_at, next_update_at)
-     VALUES (1, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       payload_json = excluded.payload_json,
-       generated_at = excluded.generated_at,
-       next_update_at = excluded.next_update_at`
-  )
-    .bind(payloadJson, nowMs, nextUpdate)
-    .run();
-
-  return { snapshot, payloadJson };
-}
-
-async function getCurrentHourlySnapshot(env, rebuildIfEmpty = false) {
-  const existing = await env.DB.prepare(
-    `SELECT payload_json, next_update_at FROM hourly_snapshots WHERE id = 1`
-  ).first();
-
-  const nowMs = Date.now();
-  if (
-    existing &&
-    existing.payload_json &&
-    Number(existing.next_update_at || 0) > nowMs
-  ) {
-    try {
-      const parsed = JSON.parse(existing.payload_json);
-      if (!rebuildIfEmpty || Number(parsed.totalParticipants || 0) > 0) {
-        return parsed;
-      }
-    } catch {
-      // Beschädigtes Snapshot-JSON wird unten neu aufgebaut.
-    }
+async function limited(request, max) {
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (declared > max || !request.body) throw new Error('invalid body');
+  const reader = request.body.getReader(), chunks = [];
+  let size = 0;
+  for (;;) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) { await reader.cancel(); throw new Error('too large'); }
+    chunks.push(value);
   }
-  const built = await buildAndSaveHourlySnapshot(env, nowMs);
-  return built.snapshot;
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
 }
-
-async function maybePushSnapshotToGitHub(env, payloadJson) {
-  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return;
-  const branch = env.GITHUB_BRANCH || "main";
-  const filePath = env.GITHUB_FILE_PATH || "docs/leaderboard.json";
-  const apiUrl = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/${filePath}`;
-
-  const headers = {
-    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-    Accept: "application/vnd.github+json",
-    "User-Agent": "PflegeExamen-Ranking-Worker",
-    "Content-Type": "application/json",
-  };
-
-  let existingSha = undefined;
-  const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, { headers });
-  if (getRes.ok) {
-    const meta = await getRes.json();
-    existingSha = meta.sha;
-  }
-
-  const bytes = new TextEncoder().encode(payloadJson);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const contentBase64 = btoa(binary);
-
-  const putBody = {
-    message: `chore(ranking): hourly leaderboard snapshot ${new Date().toISOString()}`,
-    content: contentBase64,
-    branch,
-    ...(existingSha ? { sha: existingSha } : {}),
-  };
-
-  await fetch(apiUrl, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(putBody),
-  });
+function catalogUrl(raw) {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password || u.pathname !== '/content' || u.search || u.hash) return null;
+    return u.toString();
+  } catch { return null; }
 }
-
+async function loadQuiz(env, date) {
+  const url = catalogUrl(env.QUIZ_CATALOG_URL);
+  if (!url) throw new Error('catalog not configured');
+  const response = await fetch(url, {headers: {'Cache-Control':'no-cache'}, redirect:'error'});
+  if (response.status !== 200) throw new Error('catalog unavailable');
+  const catalog = await limited(response, MAX_CATALOG);
+  if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.quizzes)) throw new Error('bad catalog');
+  const questions = catalog.quizzes.filter(q => q && q.published === date);
+  if (!questions.length) return null;
+  if (questions.length !== QUIZ_SIZE || new Set(questions.map(q => q.id)).size !== QUIZ_SIZE ||
+      questions.some(q => typeof q.id !== 'string' || !q.id.trim() || typeof q.topic !== 'string' || !q.topic.trim() ||
+        typeof q.question !== 'string' || !q.question.trim() || !Array.isArray(q.options) || q.options.length !== 4 ||
+        q.options.some(o => typeof o !== 'string' || !o.trim()) || new Set(q.options).size !== 4 ||
+        !Number.isInteger(q.correctIndex) || q.correctIndex < 0 || q.correctIndex > 3)) throw new Error('bad quiz');
+  const frozen = questions.map(q => ({id:q.id, topic:q.topic, question:q.question, options:q.options, correctIndex:q.correctIndex}));
+  return {questions:frozen, fingerprint:await digest(JSON.stringify(frozen))};
+}
+export function scoreAnswers(questions, answers) {
+  if (!Array.isArray(answers) || answers.length !== questions.length) throw new Error('invalid answers');
+  const selected = new Map();
+  for (const answer of answers) {
+    if (!answer || typeof answer.id !== 'string' || selected.has(answer.id) ||
+        !Number.isInteger(answer.option) || answer.option < 0 || answer.option > 3) throw new Error('invalid answers');
+    selected.set(answer.id, answer.option);
+  }
+  if (questions.some(q => !selected.has(q.id))) throw new Error('invalid answers');
+  return questions.reduce((score, q) => score + Number(selected.get(q.id) === q.correctIndex), 0);
+}
+async function participant(request, env) {
+  const token = request.headers.get('Authorization')?.match(/^Bearer ([0-9a-f]{64})$/)?.[1];
+  if (!token) return null;
+  return env.DB.prepare('SELECT id FROM quiz_participants WHERE token_hash = ?').bind(await digest(token)).first();
+}
+async function snapshot(env, now = Date.now()) {
+  const result = await env.DB.prepare(`SELECT p.username, SUM(a.correct) AS points, COUNT(*) AS quizzes
+    FROM quiz_attempts a JOIN quiz_participants p ON p.id = a.participant_id
+    GROUP BY p.id, p.username ORDER BY points DESC, MIN(a.submitted_at) ASC, p.id ASC LIMIT 100`).all();
+  const count = await env.DB.prepare('SELECT COUNT(DISTINCT participant_id) AS count FROM quiz_attempts').first();
+  const value = {generatedAtMillis:now, nextUpdateAtMillis:(Math.floor(now / HOUR) + 1) * HOUR,
+    totalParticipants:Number(count?.count || 0),
+    entries:(result.results || []).map((row, index) => ({rank:index+1, username:row.username, points:Number(row.points), quizzes:Number(row.quizzes)}))};
+  await env.DB.prepare(`INSERT INTO quiz_hourly_snapshot(id, payload_json, generated_at) VALUES(1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at`).bind(JSON.stringify(value), now).run();
+  return value;
+}
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, "") || "/";
-
-    if (request.method === "GET" && path === "/health") {
-      return jsonResponse({
-        ok: true,
-        service: "pflege-examen-ranking",
-        updateIntervalMinutes: 60,
-        freeTier: true,
-      });
-    }
-
-    if (request.method === "GET" && (path === "/leaderboard" || path === "/")) {
-      const snapshot = await getCurrentHourlySnapshot(env);
-      return jsonResponse(snapshot, 200, 60);
-    }
-
-    if (request.method === "POST" && path === "/score") {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Ungueltiges JSON" }, 400);
+    const path = new URL(request.url).pathname;
+    if (request.method === 'OPTIONS') return new Response(null, {status:204, headers});
+    if (request.method === 'GET' && path === '/health') return json({ok:true, service:'quiz-ranking-draft'});
+    if (!env.DB) return json({error:'Ranking nicht konfiguriert.'}, 503);
+    try {
+      if (request.method === 'POST' && path === '/participants') {
+        let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
+        if (!validUsername(data?.username) || Object.keys(data).length !== 1) return json({error:'Pseudonym ungültig.'}, 400);
+        const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+        const id = crypto.randomUUID();
+        await env.DB.prepare('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES(?, ?, ?, ?)')
+          .bind(id, await digest(token), data.username, Date.now()).run();
+        return json({token}, 201);
       }
-
-      const userId = String(body.userId || "").trim().slice(0, 64);
-      const username = sanitizeUsername(body.username);
-      if (!userId || username.length < 2) {
-        return jsonResponse({ error: "userId und gueltiger username erforderlich" }, 400);
+      if (request.method === 'GET' && path === '/quiz/today') {
+        const day = today(), quiz = await loadQuiz(env, day);
+        if (!quiz) return json({error:'Heute ist noch kein Quiz veröffentlicht.'}, 404);
+        return json({date:day, fingerprint:quiz.fingerprint, questions:quiz.questions.map(({correctIndex, ...q}) => q)});
       }
-
-      const rawXp = Number(body.totalXp);
-      const requestedXp = Number.isFinite(rawXp)
-        ? Math.max(0, Math.min(500000, Math.floor(rawXp)))
-        : 0;
-      const rawStreak = Number(body.streakDays);
-      const streakDays = Number.isFinite(rawStreak)
-        ? Math.max(0, Math.min(3650, Math.floor(rawStreak)))
-        : 0;
-      const rankTitle = String(body.rankTitle || "1. Ausbildungsjahr").trim().slice(0, 48);
-      const nowMs = Date.now();
-
-      // Basis-Schutz gegen unplausible XP-Spruenge pro Stunde
-      const existing = await env.DB.prepare(
-        `SELECT total_xp, updated_at FROM scores WHERE user_id = ?`
-      )
-        .bind(userId)
-        .first();
-
-      let acceptedXp = requestedXp;
-      if (existing) {
-        const prevXp = Number(existing.total_xp || 0);
-        const hoursElapsed = Math.max(1, (nowMs - Number(existing.updated_at || nowMs)) / HOUR_MS);
-        const maxAllowed = prevXp + Math.ceil(hoursElapsed * 5000);
-        if (acceptedXp > maxAllowed) {
-          acceptedXp = maxAllowed;
-        }
+      if (request.method === 'POST' && path === '/quiz/attempt') {
+        const user = await participant(request, env);
+        if (!user) return json({error:'Nicht autorisiert.'}, 401);
+        let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
+        const day = today();
+        if (!data || data.date !== day || typeof data.fingerprint !== 'string' || Object.keys(data).sort().join(',') !== 'answers,date,fingerprint')
+          return json({error:'Nur das aktuelle Tagesquiz kann gewertet werden.'}, 400);
+        const quiz = await loadQuiz(env, day);
+        if (!quiz) return json({error:'Heute ist noch kein Quiz veröffentlicht.'}, 404);
+        if (quiz.fingerprint !== data.fingerprint) return json({error:'Quiz wurde geändert. Bitte neu laden.'}, 409);
+        let score; try { score = scoreAnswers(quiz.questions, data.answers); } catch { return json({error:'Antworten unvollständig oder ungültig.'}, 400); }
+        const saved = await env.DB.prepare(`INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at)
+          VALUES(?, ?, ?, ?, ?) ON CONFLICT(participant_id, quiz_date) DO NOTHING`)
+          .bind(user.id, day, score, quiz.questions.length, Date.now()).run();
+        if (!saved.meta?.changes) return json({error:'Dieses Tagesquiz wurde bereits gewertet.'}, 409);
+        return json({date:day, correct:score, total:quiz.questions.length}, 201);
       }
-
-      await env.DB.prepare(
-        `INSERT INTO scores (user_id, username, total_xp, streak_days, rank_title, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           username = excluded.username,
-           total_xp = excluded.total_xp,
-           streak_days = excluded.streak_days,
-           rank_title = excluded.rank_title,
-           updated_at = excluded.updated_at`
-      )
-        .bind(userId, username, acceptedXp, streakDays, rankTitle, nowMs)
-        .run();
-
-      const snapshot = await getCurrentHourlySnapshot(env, true);
-      return jsonResponse(snapshot);
+      if (request.method === 'GET' && path === '/leaderboard') {
+        const row = await env.DB.prepare('SELECT payload_json FROM quiz_hourly_snapshot WHERE id = 1').first();
+        return json(row ? JSON.parse(row.payload_json) : await snapshot(env));
+      }
+      return json({error:'Nicht gefunden.'}, 404);
+    } catch {
+      return json({error:'Quiz-Ranking vorübergehend nicht verfügbar.'}, 503);
     }
-
-    return jsonResponse({ error: "Not found" }, 404);
   },
-
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(
-      (async () => {
-        const { payloadJson } = await buildAndSaveHourlySnapshot(env, Date.now());
-        await maybePushSnapshotToGitHub(env, payloadJson);
-      })()
-    );
-  },
+  async scheduled(_event, env, ctx) { ctx.waitUntil(snapshot(env)); }
 };
