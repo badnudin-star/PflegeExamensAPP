@@ -1,0 +1,60 @@
+name: Tagesquiz einmalig testen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Bestätigt Rechte/Datenschutz, mögliche Kosten und die Übertragung von fünf Lernzetteln an Gemini'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: daily-quiz-draft
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Bestätigung und Konfiguration prüfen
+        env:
+          CONFIRMED: ${{ inputs.confirm }}
+          FOLDER: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+          MODEL: ${{ vars.GEMINI_MODEL }}
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python tools/daily_quiz/check_config.py --manual-test
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Abhängigkeiten installieren
+        run: pip install -r tools/learning_import/requirements.txt
+      - name: Einmaligen Testentwurf erstellen
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+        run: |
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/learning-drive-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/daily_quiz/quiz_pipeline.py generate --folder "$LEARNING_DRIVE_FOLDER_ID" --model "$GEMINI_MODEL" --output "$RUNNER_TEMP/quiz-draft.json"
+      - name: Offline-Prüfansicht erstellen
+        run: python tools/daily_quiz/review_sheet.py "$RUNNER_TEMP/quiz-draft.json" "$RUNNER_TEMP/quiz-review.html"
+      - name: Testentwurf bereitstellen (keine Veröffentlichung)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tagesquiz-test-nicht-veroeffentlichen
+          path: |
+            ${{ runner.temp }}/quiz-draft.json
+            ${{ runner.temp }}/quiz-review.html
+          if-no-files-found: error
+          retention-days: 3
+      - name: Ergebnis erläutern
+        run: |
+          echo '### Einmaliger Quiztest' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Es wurde nichts veröffentlicht. Testfragen und Belege müssen fachlich geprüft werden. Das Test-Artifact kann nicht mit dem regulären Veröffentlichungsworkflow geladen werden.' >> "$GITHUB_STEP_SUMMARY"

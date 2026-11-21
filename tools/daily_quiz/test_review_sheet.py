@@ -57,12 +57,12 @@ class ReviewSheetTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def config(self, values):
+    def config(self, values, *args):
         with tempfile.TemporaryDirectory() as temp:
             output, summary = Path(temp) / 'output', Path(temp) / 'summary'
-            env = {k: v for k, v in os.environ.items() if k not in ('ENABLED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')}
+            env = {k: v for k, v in os.environ.items() if k not in ('ENABLED', 'CONFIRMED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')}
             env.update(values, GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
-            result = subprocess.run([sys.executable, str(ROOT / 'check_config.py')], env=env, capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(ROOT / 'check_config.py'), *args], env=env, capture_output=True, text=True)
             return result, output.read_text(), summary.read_text()
 
     def test_disabled_is_explicit_and_does_not_require_credentials(self):
@@ -85,6 +85,39 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(output, 'ready=true\n')
         self.assertIn('noch nicht geprüft', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
+
+    def test_manual_test_requires_explicit_confirmation_and_complete_config(self):
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        for confirmation in ('', 'false', 'TRUE'):
+            result, output, summary = self.config({**configured, 'CONFIRMED':confirmation}, '--manual-test')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=false\n')
+            self.assertIn('nicht bestätigt', summary)
+            self.assertNotIn('secret', result.stdout + result.stderr + summary)
+        result, output, summary = self.config({'CONFIRMED':'true'}, '--manual-test')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output, 'ready=false\n')
+        self.assertIn('unvollständig', summary)
+        result, output, summary = self.config({**configured, 'CONFIRMED':'true', 'ENABLED':'false'}, '--manual-test')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output, 'ready=true\n')
+        self.assertIn('noch nicht geprüft', summary)
+        self.assertNotIn('secret', result.stdout + result.stderr + summary)
+
+    def test_manual_workflow_is_separate_from_publish_and_scheduled_generation(self):
+        workflows = ROOT.parents[1] / '.github' / 'workflows'
+        manual = (workflows / 'quiz-manual-test.yml').read_text()
+        publisher = (workflows / 'publish-quiz.yml').read_text()
+        self.assertIn('workflow_dispatch:', manual)
+        self.assertNotIn('schedule:', manual)
+        self.assertNotIn('QUIZ_GENERATION_ENABLED', manual)
+        self.assertIn('default: false', manual)
+        self.assertIn('check_config.py --manual-test', manual)
+        self.assertIn('name: tagesquiz-test-nicht-veroeffentlichen', manual)
+        self.assertNotIn('CONTENT_PUBLISH_TOKEN', manual)
+        self.assertNotIn('quiz_pipeline.py publish', manual)
+        self.assertIn('--name tagesquiz-entwurf', publisher)
+        self.assertNotIn('tagesquiz-test-nicht-veroeffentlichen', publisher)
 
 
 if __name__ == '__main__':
