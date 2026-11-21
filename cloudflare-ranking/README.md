@@ -1,6 +1,6 @@
 # Quiz-Rangliste: serverseitiger Entwurf
 
-**Status: vorbereitet, nicht veröffentlicht und noch nicht mit der aktuellen App verbunden.** Die App zeigt weiter eine neutrale Platzhalterseite. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
+**Status: vorbereitet, nicht veröffentlicht und noch nicht mit der aktuellen App verbunden.** Die App enthält eine vorbereitete, standardmäßig deaktivierte reine Leseansicht; sie zeigt ohne konfigurierte Adresse weiterhin einen Hinweis. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
 
 ## Funktionsweise des Entwurfs
 
@@ -13,7 +13,7 @@
 
 ## Noch erforderlich vor Inbetriebnahme
 
-1. Einen sicheren Missbrauchsschutz, ein Datenschutz- und Löschkonzept sowie die Android-Integration fertigstellen und mit realer Cloudflare-D1-Datenbank testen.
+1. Einen sicheren Missbrauchsschutz, ein Datenschutz- und Löschkonzept sowie die Android-Integration für gewertete Versuche fertigstellen und mit realer Cloudflare-D1-Datenbank testen.
 2. Cloudflare Worker und eine separate D1-Datenbank einrichten, `schema.sql` anwenden und D1 als `DB` binden. Der Entwurf benötigt eine öffentliche HTTPS-Adresse `QUIZ_CATALOG_URL` mit Pfad `/content`. Die ID und Adresse müssen bei der späteren Einrichtung in der Konfiguration ergänzt werden. `/health` prüft nur, ob der Worker antwortet, nicht Datenbank oder Inhalt.
 3. Das vorhandene Tagesquiz muss geprüft veröffentlicht sein. Keine Gemini-Schlüssel oder Cloudflare-Tokens in App, Repository oder Chat speichern.
 4. Das Deployment bleibt standardmäßig aus. Das alte Flag `ENABLE_CLOUDFLARE_DEPLOY` startet diesen Workflow nicht mehr. Das neue Flag `ENABLE_QUIZ_RANKING_DEPLOY` darf erst nach Abschluss der obigen Punkte und Prüfung der Cloudflare-Zugangsdaten gesetzt werden. Keine Preisgarantie: Kosten, Nutzungsgrenzen und Kontobedingungen hängen vom Anbieter und Verbrauch ab.
@@ -33,3 +33,9 @@ Der nicht deployte Worker begrenzt Registrierung, Lesezugriffe und authentifizie
 Die Werte in `wrangler.toml` sind Startwerte, keine zugesicherten Grenzen. Cloudflare zählt näherungsweise und getrennt je Standort; Grenzen können überschritten oder durch wechselnde IPs, Tokens und Standorte umgangen werden. Geteilte Anschlüsse und Mobilfunknetze können mehrere legitime Personen gemeinsam ausbremsen; auch die Löschung kann vorübergehend begrenzt werden. Namespace-IDs müssen im Cloudflare-Konto eindeutig sein und die Bindings, Kosten und Limits vor einem späteren Deployment tatsächlich getestet werden. Tests mit lokalen Mocks ersetzen keinen Cloudflare-Integrationstest. Identität, Mehrfachkonten, Datenschutz und öffentliche Lösungen sind weiterhin ungelöst; das Ranking bleibt deaktiviert.
 
 Technische Grundlage: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+
+## Vorbereitete Android-Leseansicht
+
+Die App kann einen öffentlichen `/leaderboard`-Snapshot anzeigen, wenn beim Build die öffentliche HTTPS-URL über `-PrankingUrl=https://…/leaderboard` gesetzt wird. Standardmäßig ist die URL leer: Die Ansicht zeigt dann nur einen Hinweis und ruft keinen Ranking-Server ab. Dies ist keine App-Einstellung. Auch bei gesetzter URL lädt die App nur beim Öffnen der Rangliste oder auf ausdrückliches Aktualisieren; sie übermittelt dabei keine Quizantworten, Tokens oder lokalen Punkte und speichert die Rangliste nicht dauerhaft. Sie zeigt den Zeitpunkt des Server-Snapshots, der älter als eine Stunde sein kann.
+
+Dies ist **keine** Teilnahme am Ranking: Registrierung, Server-Quiz, Wertung, Löschung und sichere Tokens fehlen in der Android-App weiterhin. Vor Nutzung sind Cloudflare-Einrichtung, Datenschutz, Missbrauchsschutz, echte Gerätetests und eine geprüfte Quizveröffentlichung erforderlich. Kein automatisches Deployment oder neue Einstellung aktivieren.
