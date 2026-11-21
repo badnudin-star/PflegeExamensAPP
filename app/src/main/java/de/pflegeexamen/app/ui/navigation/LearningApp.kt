@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -51,6 +52,7 @@ import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
+import kotlinx.coroutines.launch
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -218,6 +220,8 @@ private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, sim
 private fun NoteScreen(title: String, depth: String, body: String, query: String, back: () -> Unit) {
     val blocks = remember(body) { NotePresentation.blocks(body) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var positioned by remember(body, query) { mutableStateOf(false) }
     val match = remember(blocks, query) { NotePresentation.firstMatch(blocks, query) }
     LaunchedEffect(match, body, query) { if (match != null) listState.scrollToItem(match + 1) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
@@ -233,7 +237,7 @@ private fun NoteScreen(title: String, depth: String, body: String, query: String
                     Text("Inhalte und aktuelle Vorgaben vor der Anwendung prüfen.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            items(blocks) { block ->
+            itemsIndexed(blocks) { blockIndex, block ->
                 val term = query.trim()
                 val highlight = MaterialTheme.colorScheme.secondaryContainer
                 val display = remember(block.text, term, highlight) { buildAnnotatedString {
@@ -254,7 +258,17 @@ private fun NoteScreen(title: String, depth: String, body: String, query: String
                         style = if (block.isHeading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
                         fontSize = if (block.isHeading) 18.sp else 17.sp, lineHeight = 27.sp,
                         fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
-                        color = if (block.isHeading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                        color = if (block.isHeading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        onTextLayout = { layout ->
+                            if (!positioned && blockIndex == match && term.isNotEmpty()) {
+                                val offset = block.text.indexOf(term, ignoreCase = true)
+                                if (offset >= 0) {
+                                    positioned = true
+                                    val y = layout.getBoundingBox(offset).top.toInt().coerceAtLeast(0)
+                                    scope.launch { listState.scrollToItem(blockIndex + 1, y) }
+                                }
+                            }
+                        })
                 }
             }
             if (blocks.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }
