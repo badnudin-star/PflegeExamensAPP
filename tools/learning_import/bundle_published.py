@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.error import HTTPError
 
 from import_notes import MAX_CATALOG, TOPICS, save_atomic
 from sync_drive import validate_base
@@ -65,4 +66,17 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as exc:
+        # Do not disclose URL, server response bodies, or configuration values.
+        known = ('CONTENT_URL muss', 'Serverkatalog', 'Die beiden aktuellen Lernzettel',
+                 'Katalogabruf fehlgeschlagen', 'Ungültiger', 'Ungültige')
+        if type(exc) is ValueError and str(exc).startswith(known):
+            message = str(exc)
+        elif isinstance(exc, HTTPError):
+            message = f'Katalogabruf fehlgeschlagen (HTTP {exc.code})'
+        else:
+            message = type(exc).__name__
+        print('::error title=Offline-Katalog::' + message.replace('%', '%25').replace('\n', '%0A'), flush=True)
+        raise
