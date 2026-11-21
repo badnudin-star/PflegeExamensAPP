@@ -47,6 +47,8 @@ import de.pflegeexamen.app.data.progress.CardProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesCardProgress
 import de.pflegeexamen.app.data.progress.CaseProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
+import de.pflegeexamen.app.data.progress.QuizProgressStore
+import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.cards.CardVisibility
@@ -69,6 +71,7 @@ fun LearningApp(store: PublishedContentStore) {
     val completedCases by caseProgress.completed.collectAsStateWithLifecycle()
     val cardProgress = remember(context.applicationContext) { CardProgressStore(SharedPreferencesCardProgress(context)) }
     val learnedCards by cardProgress.learned.collectAsStateWithLifecycle()
+    val quizProgress = remember(context.applicationContext) { QuizProgressStore(SharedPreferencesQuizProgress(context)) }
     var showLearned by rememberSaveable { mutableStateOf(false) }
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
@@ -108,7 +111,7 @@ fun LearningApp(store: PublishedContentStore) {
                 val case = catalog.cases.firstOrNull { it.id == entry.arguments?.getString("id") }
                 if (case != null) CaseDetail(case, case.id in completedCases, { caseProgress.setCompleted(case.id, it) }) { nav.popBackStack() } else FullTextScreen("Fallbeispiel", "Nicht verfügbar.", emptyList()) { nav.popBackStack() }
             }
-            composable("quiz") { QuizScreen(catalog) }
+            composable("quiz") { QuizScreen(catalog, quizProgress) }
             composable("ranking") { SimpleInfo("Quiz-Rangliste", "Das Cloudflare-Ranking ist noch nicht eingerichtet. Es werden keine alten Lernpunkte übertragen. Sobald die Quizwertung serverseitig bereitsteht, kann die Rangliste stündlich aktualisiert werden.") { nav.popBackStack() } }
             composable("settings") { AppSettings(store) { nav.popBackStack() } }
         }
@@ -491,40 +494,61 @@ private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (B
 }
 
 @Composable
-private fun QuizScreen(catalog: LearningCatalog) {
+private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
-    var selectedDate by remember(dates) { mutableStateOf(dates.firstOrNull()) }
+    var selectedDate by rememberSaveable(dates) { mutableStateOf(dates.firstOrNull()) }
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
-    var index by remember(quiz) { mutableIntStateOf(0) }
-    var choice by remember(quiz, index) { mutableIntStateOf(-1) }
-    var correct by remember(quiz) { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    var session by remember(selectedDate, quiz, progress) { mutableStateOf(selectedDate?.let { progress.load(it, quiz) }) }
+    var confirmRestart by remember(selectedDate, quiz) { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    fun update(next: de.pflegeexamen.app.domain.quiz.QuizSession) {
+        selectedDate?.let { progress.save(it, quiz, next) }
+        session = next
+    }
+    if (confirmRestart) {
+        AlertDialog(onDismissRequest = { confirmRestart = false }, title = { Text("Quiz neu beginnen?") },
+            text = { Text("Dein gespeicherter Übungsfortschritt für dieses Quiz wird zurückgesetzt.") },
+            confirmButton = { TextButton(onClick = {
+                selectedDate?.let { progress.reset(it); session = progress.load(it, quiz) }
+                confirmRestart = false
+                scope.launch { scroll.scrollTo(0) }
+            }) { Text("Neu beginnen") } },
+            dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("Abbrechen") } })
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Multiple-Choice-Quiz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Vier Antwortmöglichkeiten · eine Antwort ist richtig", style = MaterialTheme.typography.bodyMedium)
+        Text("Dein Übungsfortschritt wird nur auf diesem Gerät gespeichert und nicht für die Rangliste gewertet.", style = MaterialTheme.typography.bodySmall)
         if (dates.isNotEmpty()) {
             var menuOpen by remember { mutableStateOf(false) }
             Box {
                 OutlinedButton(onClick = { menuOpen = true }) { Text("Quiz: $selectedDate · ${quiz.size} Fragen"); Icon(Icons.Default.ExpandMore, null) }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    dates.forEach { date -> DropdownMenuItem(text = { Text("$date · ${catalog.quizzes.count { it.published == date }} Fragen") }, onClick = { selectedDate = date; menuOpen = false }) }
+                    dates.forEach { date -> DropdownMenuItem(text = { Text("$date · ${catalog.quizzes.count { it.published == date }} Fragen") }, onClick = { selectedDate = date; menuOpen = false; scope.launch { scroll.scrollTo(0) } }) }
                 }
             }
         }
-        if (quiz.isEmpty()) Text("Noch keine Quizfragen veröffentlicht.")
-        else if (index >= quiz.size) { Text("Übung beendet: $correct von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge); Text("Eine Ranglistenwertung ist noch nicht eingerichtet."); OutlinedButton(onClick = { index = 0; correct = 0 }) { Text("Erneut üben") } }
-        else {
-            val q = quiz[index]
-            Text("${index + 1} / ${quiz.size} · ${q.topic}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        val current = session
+        if (quiz.isEmpty() || current == null) Text("Noch keine Quizfragen veröffentlicht.")
+        else if (current.index >= quiz.size) {
+            Text("Übung beendet: ${current.correctCount(quiz)} von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge)
+            Text("Eine Ranglistenwertung ist noch nicht eingerichtet.")
+            OutlinedButton(onClick = { confirmRestart = true }) { Text("Erneut üben") }
+        } else {
+            val q = quiz[current.index]
+            val choice = current.answers.getOrNull(current.index)
+            Text("${current.index + 1} / ${quiz.size} · ${q.topic}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(q.question, style = MaterialTheme.typography.titleLarge)
             q.options.forEachIndexed { option, text ->
-                OutlinedButton(onClick = { if (choice < 0) { choice = option; if (option == q.correctIndex) correct++ } }, enabled = choice < 0, modifier = Modifier.fillMaxWidth()) { Text(text, modifier = Modifier.fillMaxWidth()) }
+                OutlinedButton(onClick = { update(current.answer(option, quiz)) }, enabled = choice == null, modifier = Modifier.fillMaxWidth()) { Text(text, modifier = Modifier.fillMaxWidth()) }
             }
-            if (choice >= 0) {
+            if (choice != null) {
                 Text(if (choice == q.correctIndex) "Richtig" else "Nicht richtig. Richtig ist: ${q.options[q.correctIndex]}", fontWeight = FontWeight.Bold)
                 Text(q.explanation); Text("Quelle: ${q.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
-                Button(onClick = { index++ }) { Text("Nächste Frage") }
+                Button(onClick = { update(current.advance(quiz)); scope.launch { scroll.scrollTo(0) } }) { Text("Nächste Frage") }
             }
-            Text("Aktuell nur Übung: Für eine faire Rangliste muss die Antwort serverseitig gewertet werden.", style = MaterialTheme.typography.bodySmall)
+            if (current.answers.isNotEmpty()) OutlinedButton(onClick = { confirmRestart = true }) { Text("Quiz neu beginnen") }
         }
     }
 }
