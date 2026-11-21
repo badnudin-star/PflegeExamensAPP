@@ -44,7 +44,7 @@ def validate_snapshot(raw, bundled):
 
 
 def download(url):
-    request = Request(validate_endpoint(url), headers={'Cache-Control': 'no-cache', 'Accept': 'application/json'})
+    request = Request(validate_endpoint(url), headers={'Cache-Control': 'no-cache', 'Accept': 'application/json', 'User-Agent': 'python-requests/2.32.3'})
     with build_opener(NoRedirect()).open(request, timeout=60) as response:
         if response.status != 200:
             raise ValueError(f'Katalogabruf fehlgeschlagen (HTTP {response.status})')
