@@ -21,3 +21,10 @@ CREATE TABLE IF NOT EXISTS quiz_hourly_snapshot (
   payload_json TEXT NOT NULL,
   generated_at INTEGER NOT NULL
 );
+
+-- Prevent a snapshot that raced with deletion from being published afterwards.
+CREATE TABLE IF NOT EXISTS quiz_snapshot_generation (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generation INTEGER NOT NULL CHECK (generation >= 0)
+);
+INSERT INTO quiz_snapshot_generation(id, generation) VALUES (1, 0) ON CONFLICT(id) DO NOTHING;

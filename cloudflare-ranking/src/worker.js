@@ -5,7 +5,7 @@ const MAX_CATALOG = 8 * 1024 * 1024;
 const QUIZ_SIZE = 50;
 const headers = {
   'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
-  'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 const json = (value, status = 200) => new Response(JSON.stringify(value), {status, headers});
@@ -77,17 +77,27 @@ async function participant(request, env) {
   return env.DB.prepare('SELECT id FROM quiz_participants WHERE token_hash = ?').bind(await digest(token)).first();
 }
 async function snapshot(env, now = Date.now()) {
-  const result = await env.DB.prepare(`SELECT p.username, SUM(a.correct) AS points, COUNT(*) AS quizzes
-    FROM quiz_attempts a JOIN quiz_participants p ON p.id = a.participant_id
-    GROUP BY p.id, p.username ORDER BY points DESC, MIN(a.submitted_at) ASC, p.id ASC LIMIT 100`).all();
-  const count = await env.DB.prepare('SELECT COUNT(DISTINCT participant_id) AS count FROM quiz_attempts').first();
-  const value = {generatedAtMillis:now, nextUpdateAtMillis:(Math.floor(now / HOUR) + 1) * HOUR,
-    totalParticipants:Number(count?.count || 0),
-    entries:(result.results || []).map((row, index) => ({rank:index+1, username:row.username, points:Number(row.points), quizzes:Number(row.quizzes)}))};
-  await env.DB.prepare(`INSERT INTO quiz_hourly_snapshot(id, payload_json, generated_at) VALUES(1, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at`).bind(JSON.stringify(value), now).run();
-  return value;
+  // If deletion overlaps aggregation, never persist or return a stale snapshot.
+  // The conditional write uses the generation bumped atomically on deletion.
+  for (let retry = 0; retry < 3; retry++) {
+    const generation = await env.DB.prepare('SELECT generation FROM quiz_snapshot_generation WHERE id = 1').first();
+    if (!generation || !Number.isSafeInteger(generation.generation)) throw new Error('missing generation');
+    const result = await env.DB.prepare(`SELECT p.username, SUM(a.correct) AS points, COUNT(*) AS quizzes
+      FROM quiz_attempts a JOIN quiz_participants p ON p.id = a.participant_id
+      GROUP BY p.id, p.username ORDER BY points DESC, MIN(a.submitted_at) ASC, p.id ASC LIMIT 100`).all();
+    const count = await env.DB.prepare('SELECT COUNT(DISTINCT participant_id) AS count FROM quiz_attempts').first();
+    const value = {generatedAtMillis:now, nextUpdateAtMillis:(Math.floor(now / HOUR) + 1) * HOUR,
+      totalParticipants:Number(count?.count || 0),
+      entries:(result.results || []).map((row, index) => ({rank:index+1, username:row.username, points:Number(row.points), quizzes:Number(row.quizzes)}))};
+    const saved = await env.DB.prepare(`INSERT INTO quiz_hourly_snapshot(id, payload_json, generated_at)
+      SELECT 1, ?, ? WHERE (SELECT generation FROM quiz_snapshot_generation WHERE id = 1) = ?
+      ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at`)
+      .bind(JSON.stringify(value), now, generation.generation).run();
+    if (saved.meta?.changes) return value;
+  }
+  throw new Error('snapshot changed during deletion');
 }
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
@@ -103,6 +113,19 @@ export default {
         await env.DB.prepare('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES(?, ?, ?, ?)')
           .bind(id, await digest(token), data.username, Date.now()).run();
         return json({token}, 201);
+      }
+      if (request.method === 'DELETE' && path === '/participants/me') {
+        const user = await participant(request, env);
+        if (!user) return json({error:'Nicht autorisiert.'}, 401);
+        // D1 batch is transactional. Invalidate the public snapshot and advance
+        // the generation in the same transaction as deleting the account.
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM quiz_attempts WHERE participant_id = ?').bind(user.id),
+          env.DB.prepare('DELETE FROM quiz_participants WHERE id = ?').bind(user.id),
+          env.DB.prepare('DELETE FROM quiz_hourly_snapshot WHERE id = 1'),
+          env.DB.prepare('UPDATE quiz_snapshot_generation SET generation = generation + 1 WHERE id = 1')
+        ]);
+        return new Response(null, {status:204, headers});
       }
       if (request.method === 'GET' && path === '/quiz/today') {
         const day = today(), quiz = await loadQuiz(env, day);

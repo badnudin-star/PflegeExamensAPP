@@ -6,8 +6,8 @@ globalThis.crypto ??= webcrypto;
 const day = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
 const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4}));
 function database() {
-  const participants = [], attempts = [], state = {participants, attempts, snapshot:null};
-  return {state, prepare(sql) {
+  const participants = [], attempts = [], state = {participants, attempts, snapshot:null, generation:0, onSnapshotWrite:null};
+  return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
     let args=[];
     return {bind(...values) {args=values; return this;}, async run() {
       if (sql.includes('INSERT INTO quiz_participants')) { participants.push({id:args[0], hash:args[1], username:args[2]}); return {meta:{changes:1}}; }
@@ -15,9 +15,18 @@ function database() {
         if (attempts.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
         attempts.push({id:args[0], date:args[1], points:args[2], total:args[3]}); return {meta:{changes:1}};
       }
-      if (sql.includes('INSERT INTO quiz_hourly_snapshot')) { state.snapshot=args[0]; return {meta:{changes:1}}; }
+      if (sql.includes('INSERT INTO quiz_hourly_snapshot')) {
+        if (state.onSnapshotWrite) { const hook=state.onSnapshotWrite; state.onSnapshotWrite=null; await hook(); }
+        if (args[2] !== state.generation) return {meta:{changes:0}};
+        state.snapshot=args[0]; return {meta:{changes:1}};
+      }
+      if (sql.includes('DELETE FROM quiz_attempts')) { for (let i=attempts.length-1; i>=0; i--) if (attempts[i].id===args[0]) attempts.splice(i,1); return {meta:{changes:1}}; }
+      if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) participants.splice(i,1); return {meta:{changes:1}}; }
+      if (sql.includes('DELETE FROM quiz_hourly_snapshot')) { state.snapshot=null; return {meta:{changes:1}}; }
+      if (sql.includes('UPDATE quiz_snapshot_generation')) { state.generation++; return {meta:{changes:1}}; }
       throw Error('unexpected run');
     }, async first() {
+      if (sql.includes('FROM quiz_snapshot_generation')) return {generation:state.generation};
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
       if (sql.includes('COUNT(DISTINCT participant_id)')) return {count:new Set(attempts.map(a => a.id)).size};
       if (sql.includes('FROM quiz_hourly_snapshot')) return state.snapshot ? {payload_json:state.snapshot} : null;
@@ -113,4 +122,54 @@ test('changed catalog fingerprint and date prevent stale attempts', async () => 
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',{...body,date:'2000-01-01'},token),e)).status,400);
     assert.equal(e.DB.state.attempts.length,0);
   } finally { globalThis.fetch=original; }
+});
+
+
+test('authenticated deletion removes only own account, attempts and cached ranking', async () => {
+  const original=globalThis.fetch, quiz=questions(), e=env();
+  globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1, quizzes:quiz}));
+  try {
+    const alice=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+    const bob=(await (await worker.fetch(request('POST','/participants',{username:'Bob'}),e)).json()).token;
+    const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
+    const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,201);
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,bob),e)).status,201);
+    assert.equal((await (await worker.fetch(request('GET','/leaderboard'),e)).json()).entries.length,2);
+    assert.equal((await worker.fetch(request('DELETE','/participants/me'),e)).status,401);
+    assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,'0'.repeat(64)),e)).status,401);
+    assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,alice),e)).status,204);
+    assert.equal(e.DB.state.participants.length,1); assert.equal(e.DB.state.attempts.length,1);
+    assert.equal(e.DB.state.snapshot,null);
+    const board=await (await worker.fetch(request('GET','/leaderboard'),e)).json();
+    assert.deepEqual(board.entries.map(x => x.username),['Bob']);
+    assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,alice),e)).status,401);
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,401);
+    assert.match((await worker.fetch(request('OPTIONS','/participants/me'),e)).headers.get('Access-Control-Allow-Methods'),/DELETE/);
+  } finally { globalThis.fetch=original; }
+});
+
+test('snapshot aggregation racing account deletion cannot restore deleted entry', async () => {
+  const original=globalThis.fetch, quiz=questions(), e=env();
+  globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1, quizzes:quiz}));
+  try {
+    const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+    const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
+    const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,token),e)).status,201);
+    e.DB.state.onSnapshotWrite=async () => {
+      assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,204);
+    };
+    const board=await (await worker.fetch(request('GET','/leaderboard'),e)).json();
+    assert.deepEqual(board.entries,[]); assert.equal(board.totalParticipants,0);
+    assert.ok(!e.DB.state.snapshot.includes('Alice'));
+  } finally { globalThis.fetch=original; }
+});
+
+test('failed deletion transaction does not claim success', async () => {
+  const e=env();
+  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  e.DB.batch=async () => { throw new Error('database unavailable'); };
+  assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,503);
+  assert.equal(e.DB.state.participants.length,1);
 });

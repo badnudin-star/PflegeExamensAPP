@@ -19,3 +19,9 @@
 4. Das Deployment bleibt standardmäßig aus. Das alte Flag `ENABLE_CLOUDFLARE_DEPLOY` startet diesen Workflow nicht mehr. Das neue Flag `ENABLE_QUIZ_RANKING_DEPLOY` darf erst nach Abschluss der obigen Punkte und Prüfung der Cloudflare-Zugangsdaten gesetzt werden. Keine Preisgarantie: Kosten, Nutzungsgrenzen und Kontobedingungen hängen vom Anbieter und Verbrauch ab.
 
 Lokale Tests: `npm test --prefix cloudflare-ranking` und `python -m unittest discover -s cloudflare-ranking/test -p 'test_*.py' -v`. Sie ersetzen keinen Test auf Cloudflare oder auf einem Android-Gerät.
+
+## Löschung im Prototyp
+
+Der noch nicht deployte Worker bietet `DELETE /participants/me` mit dem Geräte-Token als `Authorization: Bearer …`. In einer D1-Transaktion werden ausschließlich die zugehörigen Quizversuche und der Teilnehmer gelöscht und der öffentliche Ranglisten-Snapshot verworfen. Ein Generationszähler verhindert, dass ein gleichzeitig berechneter alter Snapshot die gelöschten Daten wiederherstellt; bis zur Neuberechnung kann die Rangliste vorübergehend nicht verfügbar sein. Die App hat hierfür **noch keine Bedienoberfläche**, und bei Tokenverlust besteht derzeit keine Wiederherstellung oder andere Löschmöglichkeit. Vor Deployment muss `schema.sql` einschließlich der neuen Generationstabelle angewendet werden. Nicht vorhandenes Schema führt zu Fehlern; die Operation darf nicht als erfolgreich gemeldet werden.
+
+Eine Löschung kann Daten aus dem aktiven Ranking entfernen, aber bereits ausgelieferte Antworten, externe Kopien und etwaige Backups nicht automatisch zurückholen. Speicherfristen, Backup-Löschung, Rechteinformation und ein sicherer Prozess bei Tokenverlust bleiben vor öffentlichem Betrieb zu klären. Es gibt weiterhin weder geeignete Identitäts-/Mehrfachkontosicherung noch Rate-Limiting oder Schutz gegen Einsicht der öffentlichen Quizlösungen.
