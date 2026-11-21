@@ -10,7 +10,10 @@ function database() {
   return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
     let args=[];
     return {bind(...values) {args=values; return this;}, async run() {
-      if (sql.includes('INSERT INTO quiz_participants')) { participants.push({id:args[0], hash:args[1], username:args[2]}); return {meta:{changes:1}}; }
+      if (sql.includes('INSERT INTO quiz_participants')) {
+        if (participants.some(p => p.hash === args[1])) return {meta:{changes:0}};
+        participants.push({id:args[0], hash:args[1], username:args[2]}); return {meta:{changes:1}};
+      }
       if (sql.includes('INSERT INTO quiz_attempts')) {
         if (attempts.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
         attempts.push({id:args[0], date:args[1], points:args[2], total:args[3]}); return {meta:{changes:1}};
@@ -52,6 +55,13 @@ function env() {
     REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
 }
 const answerSet = questions => questions.map((q,i)=>({id:q.id, option:i%4}));
+async function register(e, username) {
+  const token=Array.from(crypto.getRandomValues(new Uint8Array(32)), x=>x.toString(16).padStart(2,'0')).join('');
+  const response=await worker.fetch(request('POST','/participants',{username},token),e);
+  assert.equal(response.status,201);
+  assert.deepEqual(await response.json(),{username});
+  return token;
+}
 
 test('only exact, unique answers are scored by the server', () => {
   const q=questions(), a=answerSet(q);
@@ -67,9 +77,8 @@ test('no legacy points accepted, grading and one attempt per account/day', async
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
   try {
     assert.equal((await worker.fetch(request('POST','/score',{totalXp:500000}),e)).status,404);
-    assert.equal((await worker.fetch(request('POST','/participants',{username:'x',totalXp:500}),e)).status,400);
-    const reg=await worker.fetch(request('POST','/participants',{username:'PflegeFuchs'}),e);
-    assert.equal(reg.status,201); const {token}=await reg.json(); assert.match(token,/^[0-9a-f]{64}$/);
+    assert.equal((await worker.fetch(request('POST','/participants',{username:'x',totalXp:500},'a'.repeat(64)),e)).status,400);
+    const token=await register(e,'PflegeFuchs'); assert.match(token,/^[0-9a-f]{64}$/);
     assert.notEqual(e.DB.state.participants[0].hash,token);
     const get=await worker.fetch(request('GET','/quiz/today'),e);
     assert.equal(get.status,200); const visible=await get.json();
@@ -107,7 +116,7 @@ test('snapshot updates on schedule and contains only public fields', async () =>
   const original=globalThis.fetch, quiz=questions(), e=env();
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
   try {
-    const {token}=await (await worker.fetch(request('POST','/participants',{username:'Lernender'}),e)).json();
+    const token=await register(e,'Lernender');
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     assert.deepEqual((await (await worker.fetch(request('GET','/leaderboard'),e)).json()).entries,[]);
     const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
@@ -127,7 +136,7 @@ test('changed catalog fingerprint and date prevent stale attempts', async () => 
   const original=globalThis.fetch, quiz=questions(), e=env();
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
   try {
-    const {token}=await (await worker.fetch(request('POST','/participants',{username:'Name'}),e)).json();
+    const token=await register(e,'Name');
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
     quiz[0].explanation='Neue Erklärung';
@@ -144,8 +153,8 @@ test('authenticated deletion removes only own account, attempts and cached ranki
   const original=globalThis.fetch, quiz=questions(), e=env();
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1, quizzes:quiz}));
   try {
-    const alice=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
-    const bob=(await (await worker.fetch(request('POST','/participants',{username:'Bob'}),e)).json()).token;
+    const alice=await register(e,'Alice');
+    const bob=await register(e,'Bob');
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,201);
@@ -168,7 +177,7 @@ test('snapshot aggregation racing account deletion cannot restore deleted entry'
   const original=globalThis.fetch, quiz=questions(), e=env();
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1, quizzes:quiz}));
   try {
-    const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+    const token=await register(e,'Alice');
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,token),e)).status,201);
@@ -183,7 +192,7 @@ test('snapshot aggregation racing account deletion cannot restore deleted entry'
 
 test('failed deletion transaction does not claim success', async () => {
   const e=env();
-  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  const token=await register(e,'Alice');
   e.DB.batch=async () => { throw new Error('database unavailable'); };
   assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,503);
   assert.equal(e.DB.state.participants.length,1);
@@ -199,7 +208,7 @@ test('rate controls run before database writes and external quiz fetches', async
   try {
     for (const [method,path,body,token] of [
       ['POST','/participants',{username:'Alice'}], ['GET','/quiz/today'], ['GET','/leaderboard'],
-      ['POST','/quiz/attempt',{},'a'.repeat(64)], ['GET','/quiz/attempt/result?date=2026-01-01',undefined,'a'.repeat(64)], ['DELETE','/participants/me',undefined,'a'.repeat(64)]
+      ['POST','/quiz/attempt',{},'a'.repeat(64)], ['GET','/quiz/attempt/result?date=2026-01-01',undefined,'a'.repeat(64)], ['GET','/participants/me',undefined,'a'.repeat(64)], ['DELETE','/participants/me',undefined,'a'.repeat(64)]
     ]) {
       const result=await worker.fetch(request(method,path,body,token),e);
       assert.equal(result.status,429);
@@ -208,7 +217,7 @@ test('rate controls run before database writes and external quiz fetches', async
     assert.equal(e.DB.state.participants.length,0);
     assert.equal(e.DB.state.attempts.length,0);
     assert.equal(upstreamCalls,0);
-    assert.equal(seen.length,6);
+    assert.equal(seen.length,7);
     assert.ok(seen.every(key=>/^[0-9a-f]{64}$/.test(key) && !key.includes('192.0.2.1')));
   } finally { globalThis.fetch=original; }
 });
@@ -230,7 +239,7 @@ test('missing IP, unavailable binding, bad rate response or thrown error fail cl
 
 test('account limiter hashes bearer token, also protects deletion, and does not key on username', async () => {
   const e=env(), seen=[];
-  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  const token=await register(e,'Alice');
   e.ACCOUNT_RATE={async limit({key}) { seen.push(key); return {success:false}; }};
   assert.equal((await worker.fetch(request('POST','/quiz/attempt',{},token),e)).status,429);
   assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,429);
@@ -250,8 +259,8 @@ test('after a lost submission response only the owner can retrieve today’s sav
   const original=globalThis.fetch, quiz=questions(), e=env();
   globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
   try {
-    const alice=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
-    const bob=(await (await worker.fetch(request('POST','/participants',{username:'Bob'}),e)).json()).token;
+    const alice=await register(e,'Alice');
+    const bob=await register(e,'Bob');
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     const body={date:visible.date, fingerprint:visible.fingerprint,answers:answerSet(quiz)};
     assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`),e)).status,401);
@@ -271,7 +280,7 @@ test('after a lost submission response only the owner can retrieve today’s sav
 
 test('score lookup supports past dates and rejects malformed or ambiguous queries', async () => {
   const e=env();
-  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  const token=await register(e,'Alice');
   const id=e.DB.state.participants[0].id;
   e.DB.state.attempts.push({id,date:'2026-01-31',points:33,total:50});
   const previous=await worker.fetch(request('GET','/quiz/attempt/result?date=2026-01-31',undefined,token),e);
@@ -282,4 +291,32 @@ test('score lookup supports past dates and rejects malformed or ambiguous querie
   }
   e.DB.state.attempts[0].points=51;
   assert.equal((await worker.fetch(request('GET','/quiz/attempt/result?date=2026-01-31',undefined,token),e)).status,503);
+});
+
+test('client-held token makes registration retryable without creating duplicate accounts', async () => {
+  const e=env(), token='a'.repeat(64), other='b'.repeat(64);
+  assert.equal((await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).status,401);
+  let missing=await worker.fetch(request('GET','/participants/me',undefined,token),e);
+  assert.equal(missing.status,404);
+  const first=await worker.fetch(request('POST','/participants',{username:'Alice'},token),e);
+  assert.equal(first.status,201);
+  assert.deepEqual(await first.json(),{username:'Alice'});
+  // Pretend the first response was lost: status is recoverable and retry is idempotent.
+  let status=await worker.fetch(request('GET','/participants/me',undefined,token),e);
+  assert.equal(status.status,200); assert.equal(status.headers.get('Cache-Control'),'no-store');
+  assert.deepEqual(await status.json(),{username:'Alice'});
+  const repeated=await worker.fetch(request('POST','/participants',{username:'Alice'},token),e);
+  assert.equal(repeated.status,200); assert.deepEqual(await repeated.json(),{username:'Alice'});
+  assert.equal((await worker.fetch(request('POST','/participants',{username:'Bob'},token),e)).status,409);
+  assert.equal((await worker.fetch(request('GET','/participants/me',undefined,other),e)).status,404);
+  assert.equal((await worker.fetch(request('GET','/participants/me'),e)).status,401);
+  assert.equal(e.DB.state.participants.length,1);
+  assert.notEqual(e.DB.state.participants[0].hash,token);
+});
+
+test('concurrent retries with one token cannot create more than one participant', async () => {
+  const e=env(), token='c'.repeat(64);
+  const statuses=await Promise.all([1,2,3].map(async()=> (await worker.fetch(request('POST','/participants',{username:'Name'},token),e)).status));
+  assert.deepEqual(statuses.sort(),[200,200,201]);
+  assert.equal(e.DB.state.participants.length,1);
 });

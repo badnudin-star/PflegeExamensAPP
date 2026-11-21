@@ -12,6 +12,14 @@ class QuizSchemaTests(unittest.TestCase):
         self.db.execute('INSERT INTO scores VALUES (?, ?)', ('legacy', 500000))
         self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p1', 'hash1', 'Name', 1))
 
+    def test_retry_registration_by_token_is_idempotent_and_never_renames(self):
+        sql = ('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES (?, ?, ?, ?) '
+               'ON CONFLICT(token_hash) DO NOTHING')
+        self.assertEqual(self.db.execute(sql, ('p2', 'hash2', 'Neuer Name', 2)).rowcount, 1)
+        self.assertEqual(self.db.execute(sql, ('p3', 'hash2', 'Anderer Name', 3)).rowcount, 0)
+        self.assertEqual(self.db.execute('SELECT username FROM quiz_participants WHERE token_hash=?', ('hash2',)).fetchone()[0], 'Neuer Name')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM quiz_participants').fetchone()[0], 2)
+
     def test_result_query_uses_both_account_and_quiz_date(self):
         self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p2', 'hash2', 'Other', 2))
         self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
