@@ -1,9 +1,17 @@
 package de.pflegeexamen.app.domain.cases
 
 import de.pflegeexamen.app.domain.notes.NoteSection
+import de.pflegeexamen.app.domain.model.DefaultCatalogs
 
 /** Display-only formatting for extracted case PDFs. No source text is modified. */
 object CasePresentation {
+    /** Day grouping is not a claim that every listed topic applies to this case. */
+    fun topicIndicesForDay(day: Int?): List<Int> {
+        if (day == null || day !in 1..3) return emptyList()
+        return DefaultCatalogs.defaultPreparations.withIndex()
+            .filter { it.value.examDayTag == "Tag $day" }.map { it.index }
+    }
+
     fun sections(text: String): List<NoteSection> {
         val lines = text.replace("\r\n", "\n").lines().map { it.trim() }
         val sections = mutableListOf<NoteSection>()
