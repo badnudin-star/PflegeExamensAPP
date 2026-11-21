@@ -12,12 +12,25 @@ def gen(topic,source):
     return [{'question':f'{topic} Frage {n}', 'options':['A','B','C','D'], 'correctIndex':1, 'explanation':'Erklärung', 'evidence':SOURCE} for n in range(10)]
 class QuizTests(unittest.TestCase):
     def draft(self):
-        index={f'{qp.TOPICS.index(t)+1:02d}_{t[0]}_Ausfuehrlich.pdf':{'name':t[0]} for t in qp.select_topics(DATE)}
+        index={f'{qp.NEW_SLUGS[qp.TOPICS.index(t)]}_Neu.pdf':{'name':t[0]} for t in qp.select_topics(DATE)}
         return qp.create_draft(index,lambda f:SOURCE+' weiterer Text'*10,gen,DATE)
     def test_draft_exactly_50_and_topics_rotate(self):
         d=self.draft();self.assertEqual(len(d['quizzes']),50)
         self.assertEqual(len({q['topic'] for q in d['quizzes']}),5)
         self.assertNotEqual(qp.select_topics(DATE),qp.select_topics(DATE+dt.timedelta(days=1)))
+    def test_every_rotation_uses_a_known_current_source(self):
+        from import_notes import expected_names
+        available = expected_names()
+        for day in range(42):
+            for topic in qp.select_topics(DATE + dt.timedelta(days=day)):
+                filename = f'{qp.NEW_SLUGS[qp.TOPICS.index(topic)]}_Neu.pdf'
+                self.assertIn(filename, available)
+                self.assertEqual(available[filename][1], 'detailed')
+
+    def test_draft_rejects_missing_new_source(self):
+        with self.assertRaisesRegex(ValueError, 'Fehlende Quelle'):
+            qp.create_draft({}, lambda _: SOURCE, gen, DATE)
+
     def test_bad_sources_duplicates_and_options_rejected(self):
         items=gen('Thema',SOURCE);items[0]['evidence']='Erfundene Quelle, die nicht im Lernzettel steht.'
         with self.assertRaises(ValueError): qp.validate_generated(items,'Thema','x.pdf',SOURCE,DATE.isoformat(),0)

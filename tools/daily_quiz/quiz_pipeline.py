@@ -12,7 +12,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'learning_import'))
-from import_notes import TOPICS, MAX_CATALOG, list_folder, download_text, save_atomic
+from import_notes import TOPICS, NEW_SLUGS, MAX_CATALOG, list_folder, download_text, save_atomic
 from sync_drive import origin, read_remote, validate_base
 
 COUNT = 50
@@ -67,7 +67,7 @@ def gemini_request(http, key, model, topic, source):
 def create_draft(indexed, extract, generate, date):
     day=date.isoformat(); questions=[]
     for slug, topic in select_topics(date):
-        prefix=f'{TOPICS.index((slug,topic))+1:02d}_{slug}_Ausfuehrlich.pdf'
+        prefix=f'{NEW_SLUGS[TOPICS.index((slug, topic))]}_Neu.pdf'
         if prefix not in indexed: raise ValueError(f'Fehlende Quelle: {prefix}')
         source=extract(indexed[prefix])
         if not isinstance(source,str) or len(source.strip())<80: raise ValueError('Quelltext fehlt')
