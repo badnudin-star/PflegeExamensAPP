@@ -24,7 +24,7 @@ class Http:
 
 class SyncTests(unittest.TestCase):
     def run_sync(self, http, bundled=BUNDLED):
-        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + 'Quellen und Einordnung'):
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'):
             return sync(http, 'https://worker.example', bundled, 'folderid', object(), TOKEN)
     def test_origin_requires_safe_https(self):
         for value in ('http://a', 'https://user:pass@a', 'https://a/path', 'https://a?x=1'):
@@ -57,11 +57,15 @@ class SyncTests(unittest.TestCase):
             http=Http()
             with self.assertRaisesRegex(ValueError,'Quellenabschnitt'): sync(http,'https://worker.example',BUNDLED,'folder',object(),TOKEN)
             self.assertEqual(http.puts,[])
+    def test_source_section_can_describe_open_gaps(self):
+        http = Http()
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', return_value='x'*100 + '\nQUELLEN UND OFFENE LÜCKE\n'):
+            self.assertEqual(sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN), 'published')
     def test_folder_changed_during_import_prevents_publication(self):
         modified = dict(FILES)
         modified.pop(next(iter(modified)))
         http = Http()
-        with patch('sync_drive.list_folder', side_effect=[FILES, modified]), patch('sync_drive.download_text', return_value='x'*100 + 'Quellen und Einordnung'):
+        with patch('sync_drive.list_folder', side_effect=[FILES, modified]), patch('sync_drive.download_text', return_value='x'*100 + '\nQUELLEN UND GRENZEN\n'):
             with self.assertRaisesRegex(ValueError, 'während des Imports geändert'):
                 sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN)
         self.assertEqual(http.puts, [])

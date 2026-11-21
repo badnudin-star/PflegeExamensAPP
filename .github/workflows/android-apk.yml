@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Public endpoint only; never put tokens or credentials into the APK.
-      ORG_GRADLE_PROJECT_contentUrl: ${{ vars.CONTENT_URL }}
+      ORG_GRADLE_PROJECT_contentUrl: ${{ vars.CONTENT_URL || 'https://pflegeexamen-content.badnudin.workers.dev/content' }}
 
     steps:
       - name: Repository auschecken

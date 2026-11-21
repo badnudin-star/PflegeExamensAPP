@@ -40,26 +40,40 @@ TOPICS = [
  ('Schenkelhalsfraktur', 'Schenkelhalsfraktur'), ('Tiefe_Venenthrombose', 'Thrombose'),
  ('Umgang_mit_Sondenkost', 'Umgang mit Sondenkost'), ('Wundmanagement', 'Wundmanagement'),
 ]
-VARIANTS = {'Kurz': 'short', 'Ausgeglichen': 'balanced', 'Ausfuehrlich': 'detailed'}
+# Explicit mappings for the two current versions in Schriftliches Examen.
+# Some PDFs intentionally cover several of the 42 fixed preparation topics.
+NEW_SLUGS = [
+ 'Altersgerechte_Kommunikation', 'Atopische_Dermatitis', 'Entwicklung_Erikson',
+ 'Herzinsuffizienz', 'Konflikteskalation_Glasl', 'Laienpflege_Professionelle_Pflege',
+ 'Soziale_Rolle_Familienalltag', 'NANDA_Pflegediagnosen', 'Pflegebeduerftigkeit_SGB_V_XI',
+ 'Soziale_Rolle_Familienalltag', 'S3_Leitlinie_Teiluebersicht', 'Pflegebeduerftigkeit_SGB_V_XI',
+ 'Pflegende_Angehoerige', 'Qualitaetssicherung', 'Beratung_Information_Schulung',
+ 'Corbin_Strauss', 'Ernaehrungsmanagement', 'Expertenstandards',
+ 'Gesundheitsfoerderung_Praevention_Vorsorge', 'Lymphoedem', 'Mammakarzinom',
+ 'Pflege_bei_Chemotherapie', 'Pflegeforschung', 'Gesundheitsfoerderung_Praevention_Vorsorge',
+ 'Rheumatoide_Arthritis', 'Sturzprophylaxe', 'Gesundheitsfoerderung_Praevention_Vorsorge',
+ 'Pflegeethik', 'Fallbesprechung_Kollegiale_Beratung', 'Hypoxischer_Hirnschaden',
+ 'Handeln_im_Notfall', 'Lungenembolie', 'Nosokomiale_Infektion', 'Palliativpflege',
+ 'Patientenverfuegung', 'Pflege_bei_Fieber', 'Pflegeethik', 'Reanimation',
+ 'Schenkelhalsfraktur', 'Thrombose', 'Sondenkost', 'Wundmanagement',
+]
 MAX_PDF = 5 * 1024 * 1024
 MAX_CATALOG = 8 * 1024 * 1024
 
 
 def expected_names():
-    return {f'{number:02d}_{slug}_{variant}.pdf': (title, field)
-            for number, (slug, title) in enumerate(TOPICS, 1)
-            for variant, field in VARIANTS.items()}
+    return {name: (slug, field) for slug in dict.fromkeys(NEW_SLUGS)
+            for name, field in ((f'{slug}_Neu.pdf', 'detailed'), (f'Einfach_{slug}.pdf', 'short'))}
 
 
 def index_files(files):
-    expected = expected_names()
-    indexed = {}
+    expected, indexed = expected_names(), {}
     for f in files:
         name = f['name']
         if name not in expected:
-            if re.match(r'^\d\d_.*\.pdf$', name, re.I):
-                raise ValueError(f'Unerwartete nummerierte PDF: {name}')
-            continue  # e.g. combined volumes are not individual variants
+            if name.lower().endswith('_neu.pdf') or name.lower().startswith('einfach_'):
+                raise ValueError(f'Unbekannter Lernzettel: {name}')
+            continue
         if name in indexed:
             raise ValueError(f'Mehrdeutige Datei: {name}')
         if f.get('mimeType') != 'application/pdf' or not 0 < int(f.get('size', 0)) <= MAX_PDF:
@@ -76,37 +90,48 @@ def assemble(base, indexed, extract):
         raise ValueError('Ungültiger Basiskatalog')
     if any(not isinstance(base.get(k), list) for k in ('notes', 'cards', 'cases', 'quizzes')):
         raise ValueError('Basiskatalog ist unvollständig')
-    notes = {title: {'topic': title, 'sources': []} for _, title in TOPICS}
-    for name, (title, field) in expected_names().items():
+    texts = {}
+    for name in expected_names():
         text = extract(indexed[name])
         if not isinstance(text, str) or len(text.strip()) < 80:
             raise ValueError(f'Keine lesbare Textschicht: {name}')
-        # Preserve the PDF's own source references and page order. No AI or summary.
-        notes[title][field] = text.strip()
-        notes[title]['sources'].append('Lernzettel: ' + name + ' (Quellen und Fundstellen im Text)')
+        texts[name] = text.strip()
+    notes = []
+    for (_, title), slug in zip(TOPICS, NEW_SLUGS, strict=True):
+        main, simple = f'{slug}_Neu.pdf', f'Einfach_{slug}.pdf'
+        # Keep the original schema valid for deployed Workers and older clients.
+        notes.append({'topic': title, 'short': texts[simple], 'balanced': texts[main],
+                      'detailed': texts[main], 'formatVersion': 2,
+                      'sources': ['Lernzettel: ' + main, 'Lernzettel: ' + simple]})
     result = dict(base)
-    result.update(revision=base['revision'] + 1, notes=list(notes.values()))
+    result.update(revision=base['revision'] + 1, notes=notes)
     encoded = (json.dumps(result, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
     if len(encoded) > MAX_CATALOG:
         raise ValueError('Katalog überschreitet das 8-MB-Limit')
     return encoded
 
 
-def list_folder(session, folder):
+def list_children(session, folder):
     files, token = [], None
     while True:
         params = {'q': f"'{folder}' in parents and trashed = false", 'pageSize': 100,
                   'fields': 'nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum)',
                   'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true'}
-        if token:
-            params['pageToken'] = token
+        if token: params['pageToken'] = token
         response = session.get('https://www.googleapis.com/drive/v3/files', params=params, timeout=60)
         response.raise_for_status()
         body = response.json()
         files.extend(body['files'])
         token = body.get('nextPageToken')
-        if not token:
-            return index_files(files)
+        if not token: return files
+
+
+def list_folder(session, folder):
+    # Configured ID remains the shared parent; do not require changing a GitHub variable.
+    children = list_children(session, folder)
+    folders = [f for f in children if f['name'] == 'Schriftliches Examen' and f.get('mimeType') == 'application/vnd.google-apps.folder']
+    if len(folders) != 1: raise ValueError('Unterordner Schriftliches Examen fehlt oder ist mehrdeutig')
+    return index_files(list_children(session, folders[0]['id']))
 
 
 def extract_pdf(content):
@@ -167,7 +192,7 @@ def main():
     if before != list_folder(session, args.folder):
         raise ValueError('Drive-Ordner während des Imports geändert; kein Katalog geschrieben')
     save_atomic(args.output, data)
-    print(f'{len(TOPICS)} Themen mit je drei Lernzetteln importiert. Keine Veröffentlichung erfolgt.')
+    print(f'{len(TOPICS)} Themen mit je zwei Lernzetteln importiert. Keine Veröffentlichung erfolgt.')
 
 
 if __name__ == '__main__':

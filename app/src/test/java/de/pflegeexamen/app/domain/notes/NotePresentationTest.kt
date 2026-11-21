@@ -37,4 +37,25 @@ class NotePresentationTest {
         assertTrue(NotePresentation.sections(text).flatMap { it.paragraphs }.joinToString().contains("Quellen und Einordnung"))
         assertTrue(NotePresentation.sections("").isEmpty())
     }
+    @Test fun `new PDFs present headings and hide end references`() {
+        val text = """
+            EXAMENSVORBEREITUNG · LERNZETTEL
+            1
+            EINFACH: HERZINSUFFIZIENZ
+            WIE ARBEITET DAS HERZ?
+            Das Herz pumpt Blut.
+            EXAMENSVORBEREITUNG · LERNZETTEL 2
+            WANN IST ES EIN NOTFALL?
+            Atemnot kann auftreten.
+            QUELLEN UND GRENZEN
+            Interne Referenzen nicht anzeigen.
+        """.trimIndent()
+        val blocks = NotePresentation.blocks(text)
+        assertTrue(blocks.any { it.isHeading && it.text == "WANN IST ES EIN NOTFALL?" })
+        assertTrue(blocks.any { it.text.contains("Atemnot") })
+        assertFalse(blocks.toString().contains("Interne Referenzen"))
+        assertEquals(blocks.indexOfFirst { it.text.contains("Atemnot") }, NotePresentation.firstMatch(blocks, "atemnot"))
+        assertNull(NotePresentation.firstMatch(blocks, "  "))
+        assertNull(NotePresentation.firstMatch(blocks, "fehlt"))
+    }
 }

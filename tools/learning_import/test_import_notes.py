@@ -15,7 +15,7 @@ class ImportTests(unittest.TestCase):
         kotlin = (Path(__file__).resolve().parents[2] / 'app/src/main/java/de/pflegeexamen/app/domain/model/DomainModels.kt').read_text()
         positions = [kotlin.index('title = "' + title + '"') for _, title in TOPICS]
         self.assertEqual(positions, sorted(positions))
-        self.assertEqual(len(self.files), 126)
+        self.assertEqual(len(self.files), 74)
         indexed = index_files(self.files)
         result = json.loads(assemble(self.base, indexed, lambda f: f['name'] + 'x' * 100))
         self.assertEqual(result['revision'], 10)
@@ -24,14 +24,15 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(result['quizzes'], self.base['quizzes'])
         self.assertEqual(len(result['notes']), 42)
         first = result['notes'][0]
-        self.assertIn('_Kurz.pdf', first['short'])
-        self.assertIn('_Ausgeglichen.pdf', first['balanced'])
-        self.assertIn('_Ausfuehrlich.pdf', first['detailed'])
+        self.assertIn('Einfach_', first['short'])
+        self.assertIn('_Neu.pdf', first['balanced'])
+        self.assertIn('_Neu.pdf', first['detailed'])
+        self.assertEqual(first['formatVersion'], 2)
 
     def test_missing_duplicate_wrong_type_and_unexpected_are_rejected(self):
         for files in [self.files[:-1], self.files + [self.files[0]],
                       [dict(self.files[0], mimeType='text/plain')] + self.files[1:],
-                      self.files + [dict(self.files[0], name='01_anderes_Kurz.pdf')]]:
+                      self.files + [dict(self.files[0], name='Anderes_Neu.pdf')]]:
             with self.subTest(files=files[-1]['name']), self.assertRaises(ValueError):
                 index_files(files)
 

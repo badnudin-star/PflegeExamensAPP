@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +30,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,7 @@ import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
+import kotlinx.coroutines.launch
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -78,15 +84,17 @@ fun LearningApp(store: PublishedContentStore) {
     }) { padding ->
         NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
             composable("home") { NewHome(catalog, { nav.navigate(it) }, { nav.navigate("settings") }) }
-            composable("topics") { Topics(catalog) { index, depth -> nav.navigate("note/$index/$depth") } }
-            composable("note/{index}/{depth}") { entry ->
+            composable("topics") { Topics(catalog) { index, depth, query -> nav.navigate("note/$index/$depth?query=${Uri.encode(query)}") } }
+            composable("note/{index}/{depth}?query={query}", arguments = listOf(
+                androidx.navigation.navArgument("query") { defaultValue = "" }
+            )) { entry ->
                 val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
                 val topic = DefaultCatalogs.defaultPreparations.getOrNull(index)?.title
                 val depth = entry.arguments?.getString("depth").orEmpty()
-                val note = catalog.notes.firstOrNull { it.topic == topic }
-                val content = when (depth) { "short" -> note?.short; "balanced" -> note?.balanced; else -> note?.detailed }
-                val depthLabel = when (depth) { "short" -> "Kurz"; "balanced" -> "Ausgewogen"; else -> "Ausführlich" }
-                NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty()) { nav.popBackStack() }
+                val note = catalog.notes.firstOrNull { it.topic == topic && it.formatVersion == 2 }
+                val content = if (depth == "simple") note?.short else note?.detailed
+                val depthLabel = if (depth == "simple") "Vereinfacht" else "Lernzettel"
+                NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty(), entry.arguments?.getString("query").orEmpty()) { nav.popBackStack() }
             }
             composable("cards") { CardPicker(catalog, learnedCards, showLearned, { showLearned = it }) { nav.navigate("card_session/$it") } }
             composable("card_session/{index}") { entry ->
@@ -132,32 +140,41 @@ private fun HomeCard(title: String, body: String, action: String, click: () -> U
 }
 
 @Composable
-private fun Topics(catalog: LearningCatalog, open: (Int, String) -> Unit) {
-    var query by remember { mutableStateOf("") }
+private fun Topics(catalog: LearningCatalog, open: (Int, String, String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     val topics = DefaultCatalogs.defaultPreparations
+    val term = query.trim()
+    fun contentMatch(text: String): Boolean = term.isNotEmpty() && NotePresentation.firstMatch(NotePresentation.blocks(text), term) != null
+    fun matches(entry: de.pflegeexamen.app.domain.model.DefaultPreparationTemplate): Boolean {
+        val note = catalog.notes.firstOrNull { it.topic == entry.title && it.formatVersion == 2 }
+        return entry.title.contains(term, true) || entry.keywordsCsv.contains(term, true) ||
+            (note != null && (contentMatch(note.detailed) || contentMatch(note.short)))
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Deine Themen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Text("Ausführlich enthält ausführliche Lernzettel. Ausgewogen fasst die wichtigsten Inhalte zusammen. Kurz schneidet die Informationen nur an.", style = MaterialTheme.typography.bodyMedium) }
-        item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Alle Themen suchen") }, singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) }) }
+        item { Text("Tippe auf ein Thema für den Lernzettel oder auf den Bereich darunter für die vereinfachte Version.", style = MaterialTheme.typography.bodyMedium) }
+        item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Themen und Lernzettel durchsuchen") }, singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) }) }
         listOf("Tag 1", "Tag 2", "Tag 3").forEach { day ->
-            val group = topics.withIndex().filter { it.value.examDayTag == day && (it.value.title.contains(query.trim(), true) || it.value.keywordsCsv.contains(query.trim(), true)) }
+            val group = topics.withIndex().filter { it.value.examDayTag == day && matches(it.value) }
             if (group.isNotEmpty()) {
                 item(key = "heading-$day") {
                     Surface(onClick = { collapsed[day] = !(collapsed[day] ?: false) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(day, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                            Text("${group.size} Themen"); Icon(if (collapsed[day] == true) Icons.Default.ExpandMore else Icons.Default.ExpandLess, "Ein- oder ausklappen")
+                            Text("${group.size} Themen"); Icon(if (collapsed[day] == true && term.isEmpty()) Icons.Default.ExpandMore else Icons.Default.ExpandLess, "Ein- oder ausklappen")
                         }
                     }
                 }
-                if (collapsed[day] != true) items(group, key = { "topic-${it.index}" }) { entry ->
-                    val note = catalog.notes.firstOrNull { it.topic == entry.value.title }
-                    TopicTile(entry.value.title, note != null) { open(entry.index, it) }
+                if (collapsed[day] != true || term.isNotEmpty()) items(group, key = { "topic-${it.index}" }) { entry ->
+                    val note = catalog.notes.firstOrNull { it.topic == entry.value.title && it.formatVersion == 2 }
+                    TopicTile(entry.value.title, note != null, note != null && contentMatch(note.detailed), note != null && contentMatch(note.short)) {
+                        open(entry.index, it, term)
+                    }
                 }
             }
         }
-        if (topics.none { it.title.contains(query.trim(), true) || it.keywordsCsv.contains(query.trim(), true) }) item { Text("Keine passenden Themen gefunden.") }
+        if (topics.none { matches(it) }) item { Text("Keine passenden Themen oder Lernzettel gefunden.") }
     }
 }
 
@@ -171,25 +188,28 @@ private fun topicIcon(title: String): ImageVector = when {
 }
 
 @Composable
-private fun TopicTile(title: String, available: Boolean, open: (String) -> Unit) {
+private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, simpleMatch: Boolean, open: (String) -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
         Column {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 100.dp)
-                    .background(Brush.linearGradient(listOf(Color(0xFF175C68), Color(0xFF6FA69C)))).padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .background(Brush.linearGradient(listOf(Color(0xFF175C68), Color(0xFF6FA69C))))
+                    .clickable(enabled = available, onClickLabel = "Lernzettel öffnen") { open("main") }.padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(title, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    if (mainMatch) Text("Suchtreffer im Lernzettel", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    if (!available) Text("Lernzettel noch nicht verfügbar", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                }
                 Icon(topicIcon(title), null, Modifier.size(48.dp), tint = Color.White.copy(alpha = .8f))
             }
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf("Ausführlich" to "detailed", "Ausgewogen" to "balanced", "Kurz" to "short").forEach { (label, depth) ->
-                        OutlinedButton(onClick = { open(depth) }, enabled = available, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 3.dp)) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
-                    }
+            Row(Modifier.fillMaxWidth().clickable(enabled = available, onClickLabel = "Vereinfachten Lernzettel öffnen") { open("simple") }.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Vereinfachte Lernzettel", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (simpleMatch) Text("Suchtreffer im vereinfachten Lernzettel", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
-                if (!available) Text("Lernzettel noch nicht veröffentlicht", style = MaterialTheme.typography.bodySmall)
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
             }
         }
     }
@@ -197,13 +217,18 @@ private fun TopicTile(title: String, available: Boolean, open: (String) -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteScreen(title: String, depth: String, body: String, back: () -> Unit) {
-    val sections = remember(body) { NotePresentation.sections(body) }
+private fun NoteScreen(title: String, depth: String, body: String, query: String, back: () -> Unit) {
+    val blocks = remember(body) { NotePresentation.blocks(body) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var positioned by remember(body, query) { mutableStateOf(false) }
+    val match = remember(blocks, query) { NotePresentation.firstMatch(blocks, query) }
+    LaunchedEffect(match, body, query) { if (match != null) listState.scrollToItem(match + 1) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
     }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("LERNZETTEL · ${depth.uppercase()}", color = MaterialTheme.colorScheme.primary,
@@ -212,20 +237,41 @@ private fun NoteScreen(title: String, depth: String, body: String, back: () -> U
                     Text("Inhalte und aktuelle Vorgaben vor der Anwendung prüfen.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            items(sections) { section ->
-                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        section.heading?.let { heading ->
-                            Text(heading, style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        section.paragraphs.forEach { paragraph ->
-                            Text(paragraph, fontSize = 17.sp, lineHeight = 27.sp, color = MaterialTheme.colorScheme.onSurface)
+            itemsIndexed(blocks) { blockIndex, block ->
+                val term = query.trim()
+                val highlight = MaterialTheme.colorScheme.secondaryContainer
+                val display = remember(block.text, term, highlight) { buildAnnotatedString {
+                    var pos = 0
+                    if (term.isNotEmpty()) {
+                        var found = block.text.indexOf(term, pos, ignoreCase = true)
+                        while (found >= 0) {
+                            append(block.text.substring(pos, found))
+                            withStyle(SpanStyle(background = highlight, fontWeight = FontWeight.Bold)) { append(block.text.substring(found, found + term.length)) }
+                            pos = found + term.length
+                            found = block.text.indexOf(term, pos, ignoreCase = true)
                         }
                     }
+                    append(block.text.substring(pos))
+                } }
+                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                    Text(display, Modifier.fillMaxWidth().padding(if (block.isHeading) 14.dp else 18.dp),
+                        style = if (block.isHeading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                        fontSize = if (block.isHeading) 18.sp else 17.sp, lineHeight = 27.sp,
+                        fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
+                        color = if (block.isHeading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        onTextLayout = { layout ->
+                            if (!positioned && blockIndex == match && term.isNotEmpty()) {
+                                val offset = block.text.indexOf(term, ignoreCase = true)
+                                if (offset >= 0) {
+                                    positioned = true
+                                    val y = layout.getBoundingBox(offset).top.toInt().coerceAtLeast(0)
+                                    scope.launch { listState.scrollToItem(blockIndex + 1, y) }
+                                }
+                            }
+                        })
                 }
             }
-            if (sections.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }
+            if (blocks.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }
         }
     }
 }
