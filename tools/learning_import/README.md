@@ -17,3 +17,7 @@ Tests: `python -m unittest discover -s tools/learning_import -v`. Neue PDF-Inhal
 ## Offline-Katalog im lokalen Build aktualisieren
 
 Vor einem lokalen Build kann `python tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content` ausgeführt werden. Das ersetzt die Asset-Datei im lokalen Arbeitsverzeichnis nach Validierung atomar; es ändert weder Google Drive noch den Server. Den Asset-Stand nur nach Prüfung und unter Beachtung der Veröffentlichungsrechte ins öffentliche Repository übernehmen. Der GitHub-Build macht dies ausschließlich im temporären Runner-Arbeitsverzeichnis.
+
+### Schutz des Offline-Bestands in der App
+
+Bei App-Start und Online-Aktualisierung akzeptiert die App höher revisionierte Kataloge nur, wenn die bereits installierten Lernzettel-Themen, Karteikarten-IDs und Fall-IDs weiterhin enthalten sind. Ein Cache oder privates Bundle derselben Revision darf nur verwendet werden, wenn sein dekodierter Inhalt dem mitgelieferten Stand entspricht. Ein unvollständiger oder widersprüchlicher Stand wird ignoriert; der vorhandene Offline-Stand bleibt erhalten. Quizfragen sind von dieser Bestandsschutz-Regel ausgenommen, damit sie später archiviert werden können. Die Prüfung erkennt keine geänderten Texte oder medizinischen Fehler und ersetzt keine fachliche Kontrolle. Ein absichtliches Entfernen oder Umbenennen von Lerninhalten erfordert vorab ein gesondertes Migrationskonzept; bloß eine höhere Revision reicht dafür nicht.

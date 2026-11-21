@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import de.pflegeexamen.app.BuildConfig
 import de.pflegeexamen.app.domain.content.LearningCatalog
+import de.pflegeexamen.app.domain.content.CatalogUpdatePolicy
 import de.pflegeexamen.app.domain.content.LearningCatalogCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,9 +27,9 @@ class PublishedContentStore(private val context: Context) {
     private val privateBundle = runCatching {
         context.assets.open("private/learning_content.json").bufferedReader().use { it.readText() }
     }.getOrNull()?.let(LearningCatalogCodec::parse)
-    private val packagedCatalog = privateBundle?.takeIf { it.revision >= bundledCatalog.revision } ?: bundledCatalog
+    private val packagedCatalog = privateBundle?.takeIf { CatalogUpdatePolicy.canUseAtStartup(bundledCatalog, it) } ?: bundledCatalog
     private val initial = runCatching { file.openRead().bufferedReader().use { it.readText() } }.getOrNull()
-        ?.let(LearningCatalogCodec::parse)?.takeIf { it.revision >= packagedCatalog.revision } ?: packagedCatalog
+        ?.let(LearningCatalogCodec::parse)?.takeIf { CatalogUpdatePolicy.canUseAtStartup(packagedCatalog, it) } ?: packagedCatalog
     private val _catalog = MutableStateFlow(initial)
     val catalog: StateFlow<LearningCatalog> = _catalog.asStateFlow()
 
@@ -47,7 +48,7 @@ class PublishedContentStore(private val context: Context) {
                     bytes.toString(Charsets.UTF_8)
                 }
                 val next = LearningCatalogCodec.parse(raw) ?: return@withLock false
-                if (next.revision <= _catalog.value.revision) return@withLock false
+                if (!CatalogUpdatePolicy.canRefresh(_catalog.value, next)) return@withLock false
                 val output = file.startWrite()
                 try {
                     output.write(raw.toByteArray(Charsets.UTF_8))
