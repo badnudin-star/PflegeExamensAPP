@@ -13,6 +13,35 @@ const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0'
 async function digest(value) {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))));
 }
+// Approximate, per-Cloudflare-location limits; not identity verification.
+// Only Cloudflare's connecting-IP header is used, never client forwarding headers.
+async function allowRate(limiter, key) {
+  if (!limiter || typeof limiter.limit !== 'function') throw new Error('rate limiting unavailable');
+  const result = await limiter.limit({key});
+  if (typeof result?.success !== 'boolean') throw new Error('rate limiting unavailable');
+  return result.success;
+}
+async function protectRequest(request, env, path) {
+  let limiter, needsAccountLimit = false;
+  if (request.method === 'POST' && path === '/participants') limiter = env.REGISTRATION_RATE;
+  else if (request.method === 'GET' && (path === '/quiz/today' || path === '/leaderboard')) limiter = env.READ_RATE;
+  else if ((request.method === 'POST' && path === '/quiz/attempt') ||
+           (request.method === 'DELETE' && path === '/participants/me')) {
+    limiter = env.AUTH_RATE;
+    needsAccountLimit = true;
+  }
+  else return true;
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip || ip.length > 45 || ip.length < 2 || !/^[0-9a-f:.]+$/i.test(ip) || !/[.:]/.test(ip))
+    throw new Error('client address unavailable');
+  // Hash is pseudonymous, not anonymous; Cloudflare processes the original IP.
+  if (!await allowRate(limiter, await digest('ip:' + ip.toLowerCase()))) return false;
+  if (needsAccountLimit) {
+    const token = request.headers.get('Authorization')?.match(/^Bearer ([0-9a-f]{64})$/)?.[1];
+    if (token && !await allowRate(env.ACCOUNT_RATE, await digest('token:' + token))) return false;
+  }
+  return true;
+}
 function today() {
   return new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
 }
@@ -105,6 +134,7 @@ export default {
     if (request.method === 'GET' && path === '/health') return json({ok:true, service:'quiz-ranking-draft'});
     if (!env.DB) return json({error:'Ranking nicht konfiguriert.'}, 503);
     try {
+      if (!await protectRequest(request, env, path)) return json({error:'Zu viele Anfragen. Bitte später erneut versuchen.'}, 429);
       if (request.method === 'POST' && path === '/participants') {
         let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
         if (!validUsername(data?.username) || Object.keys(data).length !== 1) return json({error:'Pseudonym ungültig.'}, 400);
