@@ -12,18 +12,19 @@ def gen(topic,source):
     return [{'question':f'{topic} Frage {n}', 'options':['A','B','C','D'], 'correctIndex':1, 'explanation':'Erklärung', 'evidence':SOURCE} for n in range(10)]
 class QuizTests(unittest.TestCase):
     def draft(self):
-        index={f'{qp.NEW_SLUGS[qp.TOPICS.index(t)]}_Neu.pdf':{'name':t[0]} for t in qp.select_topics(DATE)}
+        from import_notes import topic_candidates
+        index={name:{'name':name} for t in qp.select_topics(DATE) for name in topic_candidates(qp.TOPICS.index(t))[0]}
         return qp.create_draft(index,lambda f:SOURCE+' weiterer Text'*10,gen,DATE)
     def test_draft_exactly_50_and_topics_rotate(self):
         d=self.draft();self.assertEqual(len(d['quizzes']),50)
         self.assertEqual(len({q['topic'] for q in d['quizzes']}),5)
         self.assertNotEqual(qp.select_topics(DATE),qp.select_topics(DATE+dt.timedelta(days=1)))
     def test_every_rotation_uses_a_known_current_source(self):
-        from import_notes import expected_names
+        from import_notes import expected_names, topic_candidates
         available = expected_names()
         for day in range(42):
             for topic in qp.select_topics(DATE + dt.timedelta(days=day)):
-                filename = f'{qp.NEW_SLUGS[qp.TOPICS.index(topic)]}_Neu.pdf'
+                filename = topic_candidates(qp.TOPICS.index(topic))[0][0]
                 self.assertIn(filename, available)
                 self.assertEqual(available[filename][1], 'detailed')
 
@@ -38,6 +39,15 @@ class QuizTests(unittest.TestCase):
         with self.assertRaises(ValueError): qp.validate_draft(d)
         d=self.draft();d['quizzes'][0]['correctIndex']=4
         with self.assertRaises(ValueError): qp.validate_draft(d)
+    def test_annotation_exposes_only_safe_diagnostics(self):
+        self.assertEqual(qp.diagnostic(ValueError('Gemini-Anfrage fehlgeschlagen (HTTP 429); kein Quiz veröffentlicht')),
+                         'Gemini-Anfrage fehlgeschlagen (HTTP 429).')
+        self.assertEqual(qp.diagnostic(ValueError('Quellenzitat nicht im Lernzettel gefunden')),
+                         'Ein erzeugter Quellenbeleg steht nicht im Lernzettel.')
+        for error in (ValueError('secret or prompt'), RuntimeError('secret or prompt'),
+                      ValueError('Gemini-Anfrage fehlgeschlagen (HTTP 429); secret')):
+            self.assertNotIn('secret', qp.diagnostic(error))
+
     def test_publication_preserves_catalog_and_rejects_conflicts(self):
         base={'schemaVersion':1,'revision':3,'notes':[],'cards':[],'cases':[],'quizzes':[]}; draft=self.draft()
         class Response:

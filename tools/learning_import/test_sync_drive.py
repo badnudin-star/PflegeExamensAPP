@@ -2,10 +2,10 @@ import json
 import unittest
 from unittest.mock import patch
 from sync_drive import origin, sync, validate_base
-from import_notes import expected_names
+from import_notes import TOPICS, topic_candidates
 
 BUNDLED = {'schemaVersion':1,'revision':1,'notes':[], 'cards':[], 'cases':[], 'quizzes':[]}
-FILES = {name: {'name':name} for name in expected_names()}
+FILES = {name: {'name':name} for n in range(len(TOPICS)) for name in topic_candidates(n)[0]}
 TOKEN = 'z' * 32
 
 class Response:

@@ -12,7 +12,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'learning_import'))
-from import_notes import TOPICS, NEW_SLUGS, MAX_CATALOG, list_folder, download_text, save_atomic
+from import_notes import TOPICS, MAX_CATALOG, topic_files, list_folder, download_text, save_atomic
 from sync_drive import origin, read_remote, validate_base
 
 COUNT = 50
@@ -67,8 +67,7 @@ def gemini_request(http, key, model, topic, source):
 def create_draft(indexed, extract, generate, date):
     day=date.isoformat(); questions=[]
     for slug, topic in select_topics(date):
-        prefix=f'{NEW_SLUGS[TOPICS.index((slug, topic))]}_Neu.pdf'
-        if prefix not in indexed: raise ValueError(f'Fehlende Quelle: {prefix}')
+        prefix, _ = topic_files(indexed, TOPICS.index((slug, topic)))
         source=extract(indexed[prefix])
         if not isinstance(source,str) or len(source.strip())<80: raise ValueError('Quelltext fehlt')
         questions.extend(validate_generated(generate(topic,source),topic,prefix,source,day,len(questions)))
@@ -130,4 +129,27 @@ def main():
         publish(requests,args.worker,os.environ.get('CONTENT_PUBLISH_TOKEN',''),json.loads(raw),json.loads(args.bundled.read_text(encoding='utf-8')))
         print('Freigegebenes Tagesquiz veröffentlicht.')
 
-if __name__=='__main__': main()
+def diagnostic(exc):
+    # Only fixed messages and a numeric HTTP status go into GitHub annotations.
+    # Never include response bodies, credentials, prompts or source excerpts.
+    if isinstance(exc, ValueError):
+        message = str(exc)
+        match = re.fullmatch(r'Gemini-Anfrage fehlgeschlagen \(HTTP (\d{3})\); kein Quiz veröffentlicht', message)
+        if match:
+            return 'Gemini-Anfrage fehlgeschlagen (HTTP ' + match.group(1) + ').'
+        if message == 'Gemini lieferte keine gültigen Fragen':
+            return 'Gemini lieferte keine gültigen Fragen.'
+        if message == 'Quellenzitat nicht im Lernzettel gefunden':
+            return 'Ein erzeugter Quellenbeleg steht nicht im Lernzettel.'
+        if message.startswith(('Fehlende Quelle', 'Unbekannter Lernzettel', 'Unvollständiges Lernzettelpaar', 'Mehrdeutige Datei')):
+            return 'Drive-Lernzettel fehlen, sind unvollständig, unbekannt oder mehrdeutig.'
+    return 'Quiztest fehlgeschlagen; Details stehen im Schrittprotokoll.'
+
+
+if __name__=='__main__':
+    try:
+        main()
+    except Exception as exc:
+        if os.environ.get('GITHUB_ACTIONS') == 'true':
+            print('::error::' + diagnostic(exc), flush=True)
+        raise

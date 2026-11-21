@@ -41,8 +41,9 @@ class FakeHttp:
 
 class OfflineFlowTests(unittest.TestCase):
     def index(self):
-        return {f'{qp.NEW_SLUGS[qp.TOPICS.index(topic)]}_Neu.pdf': {'name': topic[0]}
-                for topic in qp.select_topics(DATE)}
+        from import_notes import topic_candidates
+        return {name: {'name': name} for topic in qp.select_topics(DATE)
+                for name in topic_candidates(qp.TOPICS.index(topic))[0]}
 
     def test_full_simulated_generation_review_and_publication(self):
         http = FakeHttp()
