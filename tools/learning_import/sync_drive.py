@@ -97,4 +97,23 @@ def main():
     print('Aktualisierter Katalog veröffentlicht.' if result == 'published' else 'Keine Änderung der Lernzettel.')
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as exc:
+        # GitHub annotations are accessible even where downloaded logs are blocked.
+        # Only expose our own predictable validation messages; never credentials or HTTP bodies.
+        known = ('Fehlende PDFs:', 'Unbekannter Lernzettel:', 'Mehrdeutige Datei:',
+                 'Falscher Typ oder unzulässige Größe:', 'Keine lesbare Textschicht:',
+                 'Quellenabschnitt fehlt:', 'Unterordner Schriftliches Examen',
+                 'Katalogabruf fehlgeschlagen', 'Veröffentlichung fehlgeschlagen',
+                 'Serverstand widerspricht', 'Ungültiger Basiskatalog',
+                 'Drive-Ordner während des Imports geändert', 'Dateiinhalt während des Imports geändert')
+        msg = str(exc)
+        if not (type(exc) is ValueError and msg.startswith(known)):
+            status = getattr(getattr(exc, 'response', None), 'status_code', None)
+            msg = type(exc).__name__ + (f' (HTTP {status})' if isinstance(status, int) else '')
+        msg = msg.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::error title=Lernzettel-Import::{msg}', flush=True)
+        raise
+
