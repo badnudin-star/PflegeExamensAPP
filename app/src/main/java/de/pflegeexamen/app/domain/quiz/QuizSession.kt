@@ -25,6 +25,12 @@ data class QuizSession(val fingerprint: String, val index: Int = 0, val answers:
         return copy(index = index + 1)
     }
 
+    /** Results are available only after completing the practice session. */
+    fun reviewIndices(questions: List<PublishedQuiz>, onlyWrong: Boolean): List<Int> {
+        require(isValidFor(questions) && index == questions.size && questions.isNotEmpty())
+        return questions.indices.filter { !onlyWrong || answers[it] != questions[it].correctIndex }
+    }
+
     fun correctCount(questions: List<PublishedQuiz>): Int {
         require(isValidFor(questions))
         return answers.indices.count { answers[it] == questions[it].correctIndex }

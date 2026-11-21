@@ -500,6 +500,9 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
     var session by remember(selectedDate, quiz, progress) { mutableStateOf(selectedDate?.let { progress.load(it, quiz) }) }
     var confirmRestart by remember(selectedDate, quiz) { mutableStateOf(false) }
+    var reviewing by remember(selectedDate, quiz) { mutableStateOf(false) }
+    var onlyWrong by remember(selectedDate, quiz) { mutableStateOf(false) }
+    var reviewPosition by remember(selectedDate, quiz) { mutableIntStateOf(0) }
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     fun update(next: de.pflegeexamen.app.domain.quiz.QuizSession) {
@@ -512,6 +515,8 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
             confirmButton = { TextButton(onClick = {
                 selectedDate?.let { progress.reset(it); session = progress.load(it, quiz) }
                 confirmRestart = false
+                reviewing = false
+                reviewPosition = 0
                 scope.launch { scroll.scrollTo(0) }
             }) { Text("Neu beginnen") } },
             dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("Abbrechen") } })
@@ -534,7 +539,37 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
         else if (current.index >= quiz.size) {
             Text("Übung beendet: ${current.correctCount(quiz)} von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge)
             Text("Eine Ranglistenwertung ist noch nicht eingerichtet.")
-            OutlinedButton(onClick = { confirmRestart = true }) { Text("Erneut üben") }
+            if (!reviewing) {
+                val wrongCount = current.reviewIndices(quiz, onlyWrong = true).size
+                Button(onClick = { onlyWrong = false; reviewPosition = 0; reviewing = true; scope.launch { scroll.scrollTo(0) } }) {
+                    Text("Alle Antworten ansehen")
+                }
+                if (wrongCount > 0) {
+                    OutlinedButton(onClick = { onlyWrong = true; reviewPosition = 0; reviewing = true; scope.launch { scroll.scrollTo(0) } }) {
+                        Text("$wrongCount falsch beantwortete Fragen ansehen")
+                    }
+                } else {
+                    Text("Alle Fragen richtig beantwortet.")
+                }
+                OutlinedButton(onClick = { confirmRestart = true }) { Text("Erneut üben") }
+            } else {
+                val indices = current.reviewIndices(quiz, onlyWrong)
+                val questionIndex = indices[reviewPosition]
+                val q = quiz[questionIndex]
+                val selected = current.answers[questionIndex]
+                Text(if (onlyWrong) "Falsch beantwortete Fragen" else "Alle Antworten", style = MaterialTheme.typography.titleMedium)
+                Text("${reviewPosition + 1} / ${indices.size} · Frage ${questionIndex + 1} · ${q.topic}", style = MaterialTheme.typography.labelLarge)
+                Text(q.question, style = MaterialTheme.typography.titleLarge)
+                Text("Deine Antwort: ${q.options[selected]}")
+                Text(if (selected == q.correctIndex) "Richtig" else "Richtige Antwort: ${q.options[q.correctIndex]}", fontWeight = FontWeight.Bold)
+                Text(q.explanation)
+                Text("Quelle: ${q.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { reviewPosition--; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition > 0) { Text("Zurück") }
+                    OutlinedButton(onClick = { reviewPosition++; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition < indices.lastIndex) { Text("Weiter") }
+                }
+                TextButton(onClick = { reviewing = false; scope.launch { scroll.scrollTo(0) } }) { Text("Zur Ergebnisübersicht") }
+            }
         } else {
             val q = quiz[current.index]
             val choice = current.answers.getOrNull(current.index)

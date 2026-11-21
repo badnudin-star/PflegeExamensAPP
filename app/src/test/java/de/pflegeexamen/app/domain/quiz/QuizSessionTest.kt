@@ -36,6 +36,30 @@ class QuizSessionTest {
         assertFalse(start.copy(index = -1).isValidFor(questions))
     }
 
+    @Test fun `review shows original positions and only wrong answers without modifying session`() {
+        val start = QuizSession(quizFingerprint(questions))
+        assertThrows(IllegalArgumentException::class.java) { start.reviewIndices(questions, false) }
+        val first = start.answer(1, questions).advance(questions)
+        assertThrows(IllegalArgumentException::class.java) { first.reviewIndices(questions, true) }
+        val feedback = first.answer(0, questions)
+        assertThrows(IllegalArgumentException::class.java) { feedback.reviewIndices(questions, false) }
+        val completed = feedback.advance(questions)
+        assertEquals(listOf(0, 1), completed.reviewIndices(questions, false))
+        assertEquals(listOf(1), completed.reviewIndices(questions, true))
+        assertEquals(listOf(1, 0), completed.answers)
+        assertEquals(1, completed.correctCount(questions))
+        assertThrows(IllegalArgumentException::class.java) { completed.reviewIndices(questions.reversed(), false) }
+        assertThrows(IllegalArgumentException::class.java) { completed.copy(answers = listOf(1)).reviewIndices(questions, false) }
+    }
+
+    @Test fun `review handles all correct all wrong and empty sessions`() {
+        val fingerprint = quizFingerprint(questions)
+        assertEquals(emptyList<Int>(), QuizSession(fingerprint, 2, listOf(1, 2)).reviewIndices(questions, true))
+        assertEquals(listOf(0, 1), QuizSession(fingerprint, 2, listOf(0, 0)).reviewIndices(questions, true))
+        val empty = emptyList<PublishedQuiz>()
+        assertThrows(IllegalArgumentException::class.java) { QuizSession(quizFingerprint(empty)).reviewIndices(empty, false) }
+    }
+
     @Test fun `content changes or question reorder invalidate state`() {
         val original = QuizSession(quizFingerprint(questions)).answer(1, questions)
         assertTrue(original.isValidFor(questions))
