@@ -31,7 +31,7 @@ class FakeHttp:
         self.requests.append((url, kwargs))
         group = len(self.requests)
         questions = [dict(question=f'Testfrage {group}-{i}', options=['A', 'B', 'C', 'D'],
-                          correctIndex=i % 4, explanation='Test-Erklärung', evidence=EVIDENCE)
+                          correctIndex=i % 4, explanation='Test-Erklärung', evidenceId=1)
                      for i in range(10)]
         return Response(body={'candidates': [{'content': {'parts': [{'text': json.dumps(questions)}]}}]})
     def put(self, url, **kwargs):

@@ -9,7 +9,7 @@ import quiz_pipeline as qp
 SOURCE='Dies ist ein ausreichend langer wörtlicher Beleg aus dem eigenen Lernzettel.'
 DATE=dt.date(2026,11,18)
 def gen(topic,source):
-    return [{'question':f'{topic} Frage {n}', 'options':['A','B','C','D'], 'correctIndex':1, 'explanation':'Erklärung', 'evidence':SOURCE} for n in range(10)]
+    return [{'question':f'{topic} Frage {n}', 'options':['A','B','C','D'], 'correctIndex':1, 'explanation':'Erklärung', 'evidenceId':1} for n in range(10)]
 class QuizTests(unittest.TestCase):
     def draft(self):
         from import_notes import topic_candidates
@@ -33,8 +33,8 @@ class QuizTests(unittest.TestCase):
             qp.create_draft({}, lambda _: SOURCE, gen, DATE)
 
     def test_bad_sources_duplicates_and_options_rejected(self):
-        items=gen('Thema',SOURCE);items[0]['evidence']='Erfundene Quelle, die nicht im Lernzettel steht.'
-        with self.assertRaises(ValueError): qp.validate_generated(items,'Thema','x.pdf',SOURCE,DATE.isoformat(),0)
+        items=gen('Thema',SOURCE);items[0]['evidenceId']=999
+        with self.assertRaises(ValueError): qp.validate_generated(items,'Thema','x.pdf',SOURCE + ' Weitere Informationen.',DATE.isoformat(),0)
         d=self.draft();d['quizzes'][1]['question']=d['quizzes'][0]['question']
         with self.assertRaises(ValueError): qp.validate_draft(d)
         d=self.draft();d['quizzes'][0]['correctIndex']=4

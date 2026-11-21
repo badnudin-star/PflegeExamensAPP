@@ -28,7 +28,7 @@ class Http:
 
 class GeminiRetryTests(unittest.TestCase):
     def call(self, http):
-        return qp.gemini_request(http, 'private-test-key', 'test-model', 'Thema', 'private source text')
+        return qp.gemini_request(http, 'private-test-key', 'test-model', 'Thema', 'private source text ' * 10)
 
     @patch('quiz_pipeline.random.uniform', return_value=0.5)
     @patch('quiz_pipeline.time.sleep')
