@@ -38,11 +38,15 @@ function database() {
   }};
 }
 function request(method, path, data, token) {
-  const headers = {'Content-Type':'application/json'};
+  const headers = {'Content-Type':'application/json', 'CF-Connecting-IP':'192.0.2.1'};
   if (token) headers.Authorization = `Bearer ${token}`;
   return new Request(`https://rank.test${path}`, {method, headers, ...(data === undefined ? {} : {body:JSON.stringify(data)})});
 }
-function env() { return {DB:database(), QUIZ_CATALOG_URL:'https://catalog.test/content'}; }
+function env() {
+  const allowed = {async limit() {return {success:true};}};
+  return {DB:database(), QUIZ_CATALOG_URL:'https://catalog.test/content',
+    REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
+}
 const answerSet = questions => questions.map((q,i)=>({id:q.id, option:i%4}));
 
 test('only exact, unique answers are scored by the server', () => {
@@ -170,6 +174,62 @@ test('failed deletion transaction does not claim success', async () => {
   const e=env();
   const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
   e.DB.batch=async () => { throw new Error('database unavailable'); };
+  assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,503);
+  assert.equal(e.DB.state.participants.length,1);
+});
+
+test('rate controls run before database writes and external quiz fetches', async () => {
+  const e=env(), seen=[];
+  const block = {async limit({key}) {seen.push(key); return {success:false};}};
+  e.REGISTRATION_RATE=block; e.READ_RATE=block; e.AUTH_RATE=block;
+  const original=globalThis.fetch;
+  let upstreamCalls=0;
+  globalThis.fetch=async () => {upstreamCalls++; throw new Error('unexpected');};
+  try {
+    for (const [method,path,body,token] of [
+      ['POST','/participants',{username:'Alice'}], ['GET','/quiz/today'], ['GET','/leaderboard'],
+      ['POST','/quiz/attempt',{},'a'.repeat(64)], ['DELETE','/participants/me',undefined,'a'.repeat(64)]
+    ]) {
+      const result=await worker.fetch(request(method,path,body,token),e);
+      assert.equal(result.status,429);
+      assert.ok(!JSON.stringify(await result.json()).includes('192.0.2.1'));
+    }
+    assert.equal(e.DB.state.participants.length,0);
+    assert.equal(e.DB.state.attempts.length,0);
+    assert.equal(upstreamCalls,0);
+    assert.equal(seen.length,5);
+    assert.ok(seen.every(key=>/^[0-9a-f]{64}$/.test(key) && !key.includes('192.0.2.1')));
+  } finally { globalThis.fetch=original; }
+});
+
+test('missing IP, unavailable binding, bad rate response or thrown error fail closed', async () => {
+  const e=env();
+  const missing=new Request('https://rank.test/participants', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'Alice'})});
+  assert.equal((await worker.fetch(missing,e)).status,503);
+  const spoofed=new Request('https://rank.test/participants', {method:'POST',headers:{'X-Forwarded-For':'192.0.2.1'},body:'{}'});
+  assert.equal((await worker.fetch(spoofed,e)).status,503);
+  for (const limiter of [undefined, {}, {limit:async()=>({})}, {limit:async()=>{throw Error('unavailable');}}]) {
+    e.REGISTRATION_RATE=limiter;
+    assert.equal((await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).status,503);
+  }
+  assert.equal(e.DB.state.participants.length,0);
+  assert.equal((await worker.fetch(request('GET','/health'),e)).status,200);
+  assert.equal((await worker.fetch(request('OPTIONS','/participants'),e)).status,204);
+});
+
+test('account limiter hashes bearer token, also protects deletion, and does not key on username', async () => {
+  const e=env(), seen=[];
+  const token=(await (await worker.fetch(request('POST','/participants',{username:'Alice'}),e)).json()).token;
+  e.ACCOUNT_RATE={async limit({key}) { seen.push(key); return {success:false}; }};
+  assert.equal((await worker.fetch(request('POST','/quiz/attempt',{},token),e)).status,429);
+  assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,429);
+  assert.equal(e.DB.state.participants.length,1);
+  assert.equal(seen.length,2);
+  assert.equal(seen[0],seen[1]);
+  assert.match(seen[0],/^[0-9a-f]{64}$/);
+  assert.notEqual(seen[0],token);
+  assert.ok(!seen[0].includes('Alice'));
+  e.ACCOUNT_RATE=undefined;
   assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,token),e)).status,503);
   assert.equal(e.DB.state.participants.length,1);
 });

@@ -57,5 +57,18 @@ class QuizSchemaTests(unittest.TestCase):
             self.db.execute(insert, ('p1', '2026-11-03', 1, 4, 3))
 
 
+class RateLimitConfigTests(unittest.TestCase):
+    def test_config_binds_all_required_limiters_with_distinct_namespaces(self):
+        import tomllib
+        path = Path(__file__).resolve().parents[1] / 'wrangler.toml'
+        config = tomllib.loads(path.read_text())
+        rate = config['ratelimits']
+        self.assertEqual({item['name'] for item in rate},
+                         {'REGISTRATION_RATE', 'READ_RATE', 'AUTH_RATE', 'ACCOUNT_RATE'})
+        self.assertEqual(len({item['namespace_id'] for item in rate}), 4)
+        self.assertTrue(all(item['namespace_id'].isdigit() and int(item['namespace_id']) > 0 for item in rate))
+        self.assertTrue(all(item['simple']['period'] in (10, 60) and item['simple']['limit'] > 0 for item in rate))
+
+
 if __name__ == '__main__':
     unittest.main()
