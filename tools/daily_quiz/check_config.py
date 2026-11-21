@@ -8,17 +8,26 @@ REQUIRED = ('FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')
 
 
 def main():
+    args = sys.argv[1:]
+    if args not in ([], ['--manual-test']):
+        print('Ungültiger Prüfmodus.')
+        return 1
+    manual = args == ['--manual-test']
     enabled = os.environ.get('ENABLED', '').strip()
-    if enabled in ('', 'false'):
+    confirmed = os.environ.get('CONFIRMED', '').strip()
+    if manual and confirmed != 'true':
+        ready, message, code = False, 'Manueller Test nicht bestätigt; keine Daten übertragen.', 1
+    elif not manual and enabled in ('', 'false'):
         ready, message, code = False, 'Quizgenerierung deaktiviert; kein Entwurf erstellt.', 0
-    elif enabled != 'true':
+    elif not manual and enabled != 'true':
         ready, message, code = False, 'QUIZ_GENERATION_ENABLED muss true oder false sein.', 1
     else:
         missing = [name for name in REQUIRED if not os.environ.get(name, '').strip()]
+        label = 'Manueller Quiztest' if manual else 'Quizgenerierung'
         if missing:
-            ready, message, code = False, 'Quizgenerierung aktiviert, aber Konfiguration unvollständig: ' + ', '.join(missing), 1
+            ready, message, code = False, label + ': Konfiguration unvollständig: ' + ', '.join(missing), 1
         else:
-            ready, message, code = True, 'Quizgenerierung aktiviert; Konfiguration vorhanden (Zugänge noch nicht geprüft).', 0
+            ready, message, code = True, label + ': Konfiguration vorhanden (Zugänge noch nicht geprüft).', 0
     print(message)
     if os.environ.get('GITHUB_OUTPUT'):
         with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
