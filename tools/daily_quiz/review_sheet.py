@@ -17,7 +17,9 @@ def render(raw):
     esc = lambda value: html.escape(value, quote=True)
     report = analyze(draft)
     cards = []
+    topics = {}
     for number, q in enumerate(draft['quizzes'], 1):
+        topics.setdefault(q['topic'], []).append(number)
         options = ''.join(
             '<li' + (' class="correct"' if i == q['correctIndex'] else '') + '>' + esc(option)
             + (' <strong>– als richtig markiert</strong>' if i == q['correctIndex'] else '') + '</li>'
@@ -29,8 +31,25 @@ def render(raw):
 <ol type="A">{options}</ol>
 <p><strong>Erklärung:</strong> {esc(q['explanation'])}</p>
 <p><strong>Quelle und Beleg:</strong><br>{'<br>'.join(esc(s) for s in q['sources'])}</p>
-<p class="check">☐ Frage, Lösung, Ablenker, Erklärung und Beleg fachlich geprüft</p>
+<div class="check"><strong>Prüfliste für diese Frage</strong>
+<ul class="checklist">
+<li>☐ Frage klar, fachlich aktuell und ohne mehrdeutige Formulierung</li>
+<li>☐ Genau eine Antwort richtig; alle Ablenker fachlich geprüft</li>
+<li>☐ Erklärung stimmt mit Lösung und Originalquelle überein</li>
+<li>☐ Beleg trägt die Antwort; Kontext und Originalquelle geprüft</li>
+<li>☐ Keine unpassenden Reihenfolge- oder Positionsbezüge</li>
+</ul>
+<p>☐ Ohne Beanstandung &nbsp;&nbsp; ☐ Beanstandet / offen – nicht freigeben</p>
+<p>Notizen / Fundstelle: ____________________________________________________<br>
+________________________________________________________________________</p>
+<a class="screen-only" href="#uebersicht">Zur Themenübersicht</a>
+</div>
 </section>''')
+    topic_links = ''.join(
+        '<li><strong>' + esc(topic) + '</strong>: ' + ', '.join(
+            f'<a href="#frage-{n}">{n}</a>' for n in numbers
+        ) + '</li>' for topic, numbers in topics.items()
+    )
     answer_counts = ' · '.join(f'{chr(65 + i)}: {n}' for i, n in enumerate(report['answer_counts']))
     pairs = ', '.join(f'<a href="#frage-{a}">{a}</a> / <a href="#frage-{b}">{b}</a>'
                       for a, b in report['similar_pairs']) or 'Keine nach dieser Heuristik.'
@@ -46,12 +65,15 @@ body{{font: 16px/1.5 system-ui,sans-serif; color:#182422; max-width: 900px; marg
 h1{{line-height:1.2}} h2{{font-size:1.1rem}} .notice{{padding:1rem; background:#fff4d6; border-left:4px solid #986400}}
 .question{{border:1px solid #cdd9d5; border-radius:8px; padding:1rem; margin:1rem 0; break-inside:avoid}}
 .question-text{{font-weight:600}} li{{margin:.3rem 0}} .correct{{color:#075d38}} .check{{border-top:1px solid #ddd; padding-top:.6rem}}
-code{{overflow-wrap:anywhere}} @media print{{body{{font-size:11pt}} .question{{border-radius:0}}}}
+.checklist{{list-style:none; padding-left:0}} .checklist li{{margin:.2rem 0}} .topic-index{{overflow-wrap:anywhere}}
+code{{overflow-wrap:anywhere}} @media print{{body{{font-size:11pt}} .question{{border-radius:0}} .screen-only{{display:none}} a{{color:inherit; text-decoration:none}}}}
 </style></head><body>
 <h1>Fachliche Prüfung – Tagesquiz {esc(draft['date'])}</h1>
 <div class="notice"><strong>Nur Prüfhilfe, keine automatische Freigabe.</strong> Alle 50 Fragen und die Originalquellen fachlich prüfen. Ein wörtliches Zitat belegt weder die medizinische Richtigkeit noch die Eindeutigkeit der Antwort. Bei Fehlern den Entwurf nicht veröffentlichen. Die Kästchen sind nur eine Druckhilfe und werden nicht gespeichert.</div>
 <p>SHA-256 der unveränderten <code>quiz-draft.json</code>:<br><code>{digest}</code></p>
 <p>Die Prüfansicht enthält Lösungen und Quellenauszüge. Sie kann wie das JSON-Artifact öffentlich zugänglich sein. Sie bearbeitet oder veröffentlicht nichts.</p>
+<section id="uebersicht" class="topic-index"><h2>Themenübersicht</h2>
+<p>Zu den Fragen springen; alle Fragen einzeln prüfen.</p><ul>{topic_links}</ul></section>
 <section class="notice"><h2>Automatische Prüfhilfen</h2>
 <p>Diese groben Hinweise können unvollständig oder unzutreffend sein. Sie bewerten weder medizinische Richtigkeit noch ob ein Beleg die Antwort stützt.</p>
 <p>Richtige Antwortpositionen: {answer_counts}.</p>

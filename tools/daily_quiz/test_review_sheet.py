@@ -25,7 +25,13 @@ class ReviewSheetTests(unittest.TestCase):
         self.assertIn('Tagesquiz 2026-11-18', page)
         self.assertEqual(page.count('class="question"'), 50)
         self.assertEqual(page.count('– als richtig markiert'), 50)
-        self.assertEqual(page.count('fachlich geprüft</p>'), 50)
+        self.assertEqual(page.count('Prüfliste für diese Frage'), 50)
+        self.assertEqual(page.count('Beanstandet / offen – nicht freigeben'), 50)
+        self.assertEqual(page.count('Notizen / Fundstelle:'), 50)
+        for number in range(1, 51):
+            self.assertIn(f'id="frage-{number}"', page)
+            self.assertIn(f'href="#frage-{number}"', page)
+        self.assertIn('Die Kästchen sind nur eine Druckhilfe und werden nicht gespeichert.', page)
         for q in draft['quizzes']:
             self.assertIn(q['question'], page)
             self.assertIn(q['sources'][1], page)
@@ -37,6 +43,7 @@ class ReviewSheetTests(unittest.TestCase):
         page = review_sheet.render(json.dumps(draft).encode())
         self.assertNotIn('<script', page)
         self.assertIn('&lt;script&gt;', page)
+        self.assertNotIn('<script', page)
         draft['quizzes'].pop()
         with self.assertRaises(ValueError):
             review_sheet.render(json.dumps(draft).encode())
