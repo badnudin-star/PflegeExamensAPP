@@ -4,7 +4,7 @@ import {webcrypto} from 'node:crypto';
 import worker, {scoreAnswers} from '../src/worker.js';
 globalThis.crypto ??= webcrypto;
 const day = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
-const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4}));
+const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4, explanation:`Erklärung ${i}`}));
 function database() {
   const participants = [], attempts = [], state = {participants, attempts, snapshot:null, generation:0, onSnapshotWrite:null};
   return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
@@ -69,7 +69,9 @@ test('no legacy points accepted, grading and one attempt per account/day', async
     assert.notEqual(e.DB.state.participants[0].hash,token);
     const get=await worker.fetch(request('GET','/quiz/today'),e);
     assert.equal(get.status,200); const visible=await get.json();
-    assert.equal(visible.questions.length,50); assert.equal(visible.questions[0].correctIndex,undefined);
+    assert.equal(visible.questions.length,50);
+    assert.equal(visible.questions[0].correctIndex,quiz[0].correctIndex);
+    assert.equal(visible.questions[0].explanation,quiz[0].explanation);
     const body={date:visible.date, fingerprint:visible.fingerprint, answers:answerSet(quiz)};
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,'0'.repeat(64)),e)).status,401);
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',{...body, points:500},token),e)).status,400);
@@ -89,6 +91,9 @@ test('unpublished or malformed quizzes do not accept attempts', async () => {
     globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:[]}));
     assert.equal((await worker.fetch(request('GET','/quiz/today'),e)).status,404);
     globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:questions().slice(1)}));
+    assert.equal((await worker.fetch(request('GET','/quiz/today'),e)).status,503);
+    const missingExplanation=questions(); delete missingExplanation[0].explanation;
+    globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:missingExplanation}));
     assert.equal((await worker.fetch(request('GET','/quiz/today'),e)).status,503);
     assert.equal((await worker.fetch(request('GET','/quiz/today'),{DB:e.DB, QUIZ_CATALOG_URL:'http://insecure/content'})).status,503);
   } finally { globalThis.fetch=original; }
@@ -121,7 +126,9 @@ test('changed catalog fingerprint and date prevent stale attempts', async () => 
     const {token}=await (await worker.fetch(request('POST','/participants',{username:'Name'}),e)).json();
     const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
     const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
-    quiz[0].correctIndex=1;
+    quiz[0].explanation='Neue Erklärung';
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,token),e)).status,409);
+    quiz[0].explanation='Erklärung 0'; quiz[0].correctIndex=1;
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,token),e)).status,409);
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',{...body,date:'2000-01-01'},token),e)).status,400);
     assert.equal(e.DB.state.attempts.length,0);
