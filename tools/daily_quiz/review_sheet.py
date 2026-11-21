@@ -8,12 +8,14 @@ from pathlib import Path
 
 from quiz_pipeline import validate_draft
 from import_notes import save_atomic
+from review_checks import analyze
 
 
 def render(raw):
     draft = validate_draft(json.loads(raw))
     digest = hashlib.sha256(raw).hexdigest()
     esc = lambda value: html.escape(value, quote=True)
+    report = analyze(draft)
     cards = []
     for number, q in enumerate(draft['quizzes'], 1):
         options = ''.join(
@@ -21,7 +23,7 @@ def render(raw):
             + (' <strong>– als richtig markiert</strong>' if i == q['correctIndex'] else '') + '</li>'
             for i, option in enumerate(q['options'])
         )
-        cards.append(f'''<section class="question">
+        cards.append(f'''<section class="question" id="frage-{number}">
 <h2>{number}. {esc(q['topic'])}</h2>
 <p class="question-text">{esc(q['question'])}</p>
 <ol type="A">{options}</ol>
@@ -29,6 +31,13 @@ def render(raw):
 <p><strong>Quelle und Beleg:</strong><br>{'<br>'.join(esc(s) for s in q['sources'])}</p>
 <p class="check">☐ Frage, Lösung, Ablenker, Erklärung und Beleg fachlich geprüft</p>
 </section>''')
+    answer_counts = ' · '.join(f'{chr(65 + i)}: {n}' for i, n in enumerate(report['answer_counts']))
+    pairs = ', '.join(f'<a href="#frage-{a}">{a}</a> / <a href="#frage-{b}">{b}</a>'
+                      for a, b in report['similar_pairs']) or 'Keine nach dieser Heuristik.'
+    if report['total_similar_pairs'] > len(report['similar_pairs']):
+        pairs += f" (weitere {report['total_similar_pairs'] - len(report['similar_pairs'])} Paare)"
+    repeated = '; '.join(', '.join(f'<a href="#frage-{n}">{n}</a>' for n in group)
+                         for group in report['repeated_evidence']) or 'Keine ab vier Verwendungen.'
     return f'''<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fachliche Prüfung – Tagesquiz {esc(draft['date'])}</title>
@@ -43,6 +52,12 @@ code{{overflow-wrap:anywhere}} @media print{{body{{font-size:11pt}} .question{{b
 <div class="notice"><strong>Nur Prüfhilfe, keine automatische Freigabe.</strong> Alle 50 Fragen und die Originalquellen fachlich prüfen. Ein wörtliches Zitat belegt weder die medizinische Richtigkeit noch die Eindeutigkeit der Antwort. Bei Fehlern den Entwurf nicht veröffentlichen. Die Kästchen sind nur eine Druckhilfe und werden nicht gespeichert.</div>
 <p>SHA-256 der unveränderten <code>quiz-draft.json</code>:<br><code>{digest}</code></p>
 <p>Die Prüfansicht enthält Lösungen und Quellenauszüge. Sie kann wie das JSON-Artifact öffentlich zugänglich sein. Sie bearbeitet oder veröffentlicht nichts.</p>
+<section class="notice"><h2>Automatische Prüfhilfen</h2>
+<p>Diese groben Hinweise können unvollständig oder unzutreffend sein. Sie bewerten weder medizinische Richtigkeit noch ob ein Beleg die Antwort stützt.</p>
+<p>Richtige Antwortpositionen: {answer_counts}.</p>
+<p>Ähnliche Fragen im selben Thema (Nummern): {pairs}.</p>
+<p>Gleicher Beleg mindestens viermal im selben Thema (Nummern): {repeated}.</p>
+</section>
 {''.join(cards)}
 </body></html>'''
 
