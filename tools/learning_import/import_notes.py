@@ -61,9 +61,48 @@ MAX_PDF = 5 * 1024 * 1024
 MAX_CATALOG = 8 * 1024 * 1024
 
 
+# New dedicated topic files replace older combined PDFs where available. The detailed
+# versions of these eight files currently have no _Neu suffix in Drive.
+DEDICATED_SLUGS = {
+    'Leben_im_Familienalltag': 'Leben_im_Familienalltag',
+    'SGB_V_und_SGB_XI': 'SGB_V_und_SGB_XI',
+    'Soziale_Rolle': 'Soziale_Rolle',
+    'Pflegebeduerftigkeit': 'Pflegebeduerftigkeit',
+    'Gesundheitsfoerderung': 'Gesundheitsfoerderung',
+    'Praevention': 'Praevention',
+    'Vorsorge': 'Vorsorge',
+    'Ethische_Prinzipien_und_Dilemma': 'Ethische_Prinzipien_und_Dilemma',
+}
+
+
+def topic_candidates(index):
+    slug, _ = TOPICS[index]
+    old = NEW_SLUGS[index]
+    fallback = (f'{old}_Neu.pdf', f'Einfach_{old}.pdf')
+    if slug in DEDICATED_SLUGS:
+        dedicated = DEDICATED_SLUGS[slug]
+        return [(f'{dedicated}.pdf', f'Einfach_{dedicated}.pdf'), fallback]
+    return [fallback]
+
+
 def expected_names():
-    return {name: (slug, field) for slug in dict.fromkeys(NEW_SLUGS)
-            for name, field in ((f'{slug}_Neu.pdf', 'detailed'), (f'Einfach_{slug}.pdf', 'short'))}
+    # Known names include older combined files as well as the new individual ones.
+    known = {}
+    for i, (slug, _) in enumerate(TOPICS):
+        for detailed, simple in topic_candidates(i):
+            known[detailed] = (slug, 'detailed')
+            known[simple] = (slug, 'short')
+    return known
+
+
+def topic_files(indexed, index):
+    """Prefer a complete individual pair; never mix a partial pair with a fallback."""
+    candidates = topic_candidates(index)
+    for detailed, simple in candidates:
+        present = (detailed in indexed, simple in indexed)
+        if all(present): return detailed, simple
+        if any(present): raise ValueError(f'Unvollständiges Lernzettelpaar: {detailed}, {simple}')
+    raise ValueError(f'Fehlende Quelle für Thema: {TOPICS[index][1]}')
 
 
 def index_files(files):
@@ -79,9 +118,8 @@ def index_files(files):
         if f.get('mimeType') != 'application/pdf' or not 0 < int(f.get('size', 0)) <= MAX_PDF:
             raise ValueError(f'Falscher Typ oder unzulässige Größe: {name}')
         indexed[name] = f
-    missing = sorted(set(expected) - set(indexed))
-    if missing:
-        raise ValueError('Fehlende PDFs: ' + ', '.join(missing))
+    for i in range(len(TOPICS)):
+        topic_files(indexed, i)
     return indexed
 
 
@@ -90,15 +128,15 @@ def assemble(base, indexed, extract):
         raise ValueError('Ungültiger Basiskatalog')
     if any(not isinstance(base.get(k), list) for k in ('notes', 'cards', 'cases', 'quizzes')):
         raise ValueError('Basiskatalog ist unvollständig')
+    pairs = [topic_files(indexed, i) for i in range(len(TOPICS))]
     texts = {}
-    for name in expected_names():
+    for name in dict.fromkeys(name for pair in pairs for name in pair):
         text = extract(indexed[name])
         if not isinstance(text, str) or len(text.strip()) < 80:
             raise ValueError(f'Keine lesbare Textschicht: {name}')
         texts[name] = text.strip()
     notes = []
-    for (_, title), slug in zip(TOPICS, NEW_SLUGS, strict=True):
-        main, simple = f'{slug}_Neu.pdf', f'Einfach_{slug}.pdf'
+    for (_, title), (main, simple) in zip(TOPICS, pairs, strict=True):
         # Keep the original schema valid for deployed Workers and older clients.
         notes.append({'topic': title, 'short': texts[simple], 'balanced': texts[main],
                       'detailed': texts[main], 'formatVersion': 2,
