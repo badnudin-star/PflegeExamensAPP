@@ -23,10 +23,14 @@ async function allowRate(limiter, key) {
 }
 async function protectRequest(request, env, path) {
   let limiter, needsAccountLimit = false;
-  if (request.method === 'POST' && path === '/participants') limiter = env.REGISTRATION_RATE;
+  if (request.method === 'POST' && path === '/participants') {
+    limiter = env.REGISTRATION_RATE;
+    needsAccountLimit = true;
+  }
   else if (request.method === 'GET' && (path === '/quiz/today' || path === '/leaderboard')) limiter = env.READ_RATE;
   else if ((request.method === 'POST' && path === '/quiz/attempt') ||
            (request.method === 'GET' && path === '/quiz/attempt/result') ||
+           (request.method === 'GET' && path === '/participants/me') ||
            (request.method === 'DELETE' && path === '/participants/me')) {
     limiter = env.AUTH_RATE;
     needsAccountLimit = true;
@@ -104,10 +108,13 @@ export function scoreAnswers(questions, answers) {
   if (questions.some(q => !selected.has(q.id))) throw new Error('invalid answers');
   return questions.reduce((score, q) => score + Number(selected.get(q.id) === q.correctIndex), 0);
 }
+function bearer(request) {
+  return request.headers.get('Authorization')?.match(/^Bearer ([0-9a-f]{64})$/)?.[1] || null;
+}
 async function participant(request, env) {
-  const token = request.headers.get('Authorization')?.match(/^Bearer ([0-9a-f]{64})$/)?.[1];
+  const token = bearer(request);
   if (!token) return null;
-  return env.DB.prepare('SELECT id FROM quiz_participants WHERE token_hash = ?').bind(await digest(token)).first();
+  return env.DB.prepare('SELECT id, username FROM quiz_participants WHERE token_hash = ?').bind(await digest(token)).first();
 }
 async function snapshot(env, now = Date.now()) {
   // If deletion overlaps aggregation, never persist or return a stale snapshot.
@@ -140,13 +147,24 @@ export default {
     try {
       if (!await protectRequest(request, env, path)) return json({error:'Zu viele Anfragen. Bitte später erneut versuchen.'}, 429);
       if (request.method === 'POST' && path === '/participants') {
+        const token = bearer(request);
+        if (!token) return json({error:'Nicht autorisiert.'}, 401);
         let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
         if (!validUsername(data?.username) || Object.keys(data).length !== 1) return json({error:'Pseudonym ungültig.'}, 400);
-        const token = hex(crypto.getRandomValues(new Uint8Array(32)));
-        const id = crypto.randomUUID();
-        await env.DB.prepare('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES(?, ?, ?, ?)')
-          .bind(id, await digest(token), data.username, Date.now()).run();
-        return json({token}, 201);
+        const saved = await env.DB.prepare(`INSERT INTO quiz_participants(id, token_hash, username, created_at)
+          VALUES(?, ?, ?, ?) ON CONFLICT(token_hash) DO NOTHING`)
+          .bind(crypto.randomUUID(), await digest(token), data.username, Date.now()).run();
+        if (saved.meta?.changes) return json({username:data.username}, 201);
+        const existing = await participant(request, env);
+        if (!existing || existing.username !== data.username) return json({error:'Zugang bereits mit anderem Pseudonym registriert.'}, 409);
+        return json({username:existing.username}, 200);
+      }
+      if (request.method === 'GET' && path === '/participants/me') {
+        const token = bearer(request);
+        if (!token) return json({error:'Nicht autorisiert.'}, 401);
+        const user = await participant(request, env);
+        if (!user) return json({error:'Noch kein Konto registriert.'}, 404);
+        return json({username:user.username});
       }
       if (request.method === 'DELETE' && path === '/participants/me') {
         const user = await participant(request, env);
