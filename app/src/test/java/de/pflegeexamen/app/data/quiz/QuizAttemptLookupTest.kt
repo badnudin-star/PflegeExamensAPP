@@ -25,7 +25,7 @@ class QuizAttemptLookupTest {
     }
 
     @Test fun `not found is different from network failure and invalid token`() = runTest {
-        assertEquals(AttemptLookup.NotFound, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(404, """{"date":"2026-11-13","error":"Noch kein gewerteter Versuch."}""") }.lookup(date, token))
+        assertEquals(AttemptLookup.NotFound, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(404, """{"date":"2026-11-13","error":"Noch kein gewerteter Versuch."}""") }).lookup(date, token))
         assertEquals(AttemptLookup.InvalidToken, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(401, "") }).lookup(date, token))
         for (code in listOf(300, 302, 400, 403, 429, 500, 503)) {
             assertEquals(AttemptLookup.Unavailable, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(code, "") }).lookup(date, token))
