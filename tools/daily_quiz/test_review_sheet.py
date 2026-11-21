@@ -104,6 +104,19 @@ class ConfigTests(unittest.TestCase):
         self.assertIn('noch nicht geprüft', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
+    def test_manual_draft_requires_confirmation_and_does_not_enable_schedule(self):
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        result, output, _ = self.config(configured, '--manual-draft')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output, 'ready=false\n')
+        result, output, summary = self.config({**configured, 'CONFIRMED':'true', 'ENABLED':'false'}, '--manual-draft')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output, 'ready=true\n')
+        self.assertIn('Manueller Entwurf', summary)
+        self.assertNotIn('secret', result.stdout + result.stderr + summary)
+        result, _, _ = self.config({'CONFIRMED':'true'}, '--manual-draft')
+        self.assertNotEqual(result.returncode, 0)
+
     def test_manual_workflow_is_separate_from_publish_and_scheduled_generation(self):
         workflows = ROOT.parents[1] / '.github' / 'workflows'
         manual = (workflows / 'quiz-manual-test.yml').read_text()

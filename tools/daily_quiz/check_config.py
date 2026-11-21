@@ -9,21 +9,22 @@ REQUIRED = ('FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')
 
 def main():
     args = sys.argv[1:]
-    if args not in ([], ['--manual-test']):
+    if args not in ([], ['--manual-test'], ['--manual-draft']):
         print('Ungültiger Prüfmodus.')
         return 1
-    manual = args == ['--manual-test']
+    manual = bool(args)
+    manual_label = 'Manueller Test' if args == ['--manual-test'] else 'Manueller Entwurf'
     enabled = os.environ.get('ENABLED', '').strip()
     confirmed = os.environ.get('CONFIRMED', '').strip()
     if manual and confirmed != 'true':
-        ready, message, code = False, 'Manueller Test nicht bestätigt; keine Daten übertragen.', 1
+        ready, message, code = False, manual_label + ' nicht bestätigt; keine Daten übertragen.', 1
     elif not manual and enabled in ('', 'false'):
         ready, message, code = False, 'Quizgenerierung deaktiviert; kein Entwurf erstellt.', 0
     elif not manual and enabled != 'true':
         ready, message, code = False, 'QUIZ_GENERATION_ENABLED muss true oder false sein.', 1
     else:
         missing = [name for name in REQUIRED if not os.environ.get(name, '').strip()]
-        label = 'Manueller Quiztest' if manual else 'Quizgenerierung'
+        label = manual_label if manual else 'Quizgenerierung'
         if missing:
             ready, message, code = False, label + ': Konfiguration unvollständig: ' + ', '.join(missing), 1
         else:

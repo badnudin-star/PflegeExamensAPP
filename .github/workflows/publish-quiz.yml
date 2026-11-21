@@ -10,6 +10,11 @@ on:
         description: SHA-256 der fachlich geprüften quiz-draft.json
         required: true
         type: string
+      review_confirmed:
+        description: Alle 50 Fragen, Antworten, Erklärungen und Belege fachlich geprüft
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -21,6 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Fachliche Prüfung und Eingaben bestätigen
+        env:
+          CONFIRMED: ${{ inputs.review_confirmed }}
+          RUN_ID: ${{ inputs.run_id }}
+          HASH: ${{ inputs.sha256 }}
+        run: python tools/daily_quiz/check_review_approval.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
