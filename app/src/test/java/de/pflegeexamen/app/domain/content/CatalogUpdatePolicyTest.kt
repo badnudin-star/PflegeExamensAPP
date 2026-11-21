@@ -40,6 +40,14 @@ class CatalogUpdatePolicyTest {
         assertFalse(CatalogUpdatePolicy.canRefresh(base, base.copy(revision = 4)))
     }
 
+    @Test fun `refresh decisions distinguish unchanged older conflicting and incomplete snapshots`() {
+        assertEquals(RefreshDecision.UP_TO_DATE, CatalogUpdatePolicy.decideRefresh(base, base.copy()))
+        assertEquals(RefreshDecision.SERVER_OLDER, CatalogUpdatePolicy.decideRefresh(base, base.copy(revision = 4)))
+        assertEquals(RefreshDecision.REJECTED, CatalogUpdatePolicy.decideRefresh(base, base.copy(cards = emptyList())))
+        assertEquals(RefreshDecision.REJECTED, CatalogUpdatePolicy.decideRefresh(base, base.copy(revision = 6, cases = emptyList())))
+        assertEquals(RefreshDecision.UPDATE, CatalogUpdatePolicy.decideRefresh(base, base.copy(revision = 6)))
+    }
+
     @Test fun `policy checks identity not medical correctness or text equality`() {
         val corrected = base.copy(revision = 6, cards = listOf(base.cards[0].copy(back = "anderer Text")))
         assertTrue(CatalogUpdatePolicy.canRefresh(base, corrected))

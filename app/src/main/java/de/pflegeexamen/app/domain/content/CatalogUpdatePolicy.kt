@@ -1,5 +1,7 @@
 package de.pflegeexamen.app.domain.content
 
+enum class RefreshDecision { UPDATE, UP_TO_DATE, SERVER_OLDER, REJECTED }
+
 /**
  * A higher revision alone does not prove a snapshot is complete. Preserve the
  * installed notes, cards and cases by stable key; quizzes may be archived.
@@ -22,6 +24,14 @@ object CatalogUpdatePolicy {
             else -> preservesLearningItems(base, candidate)
         }
 
+    fun decideRefresh(base: LearningCatalog, candidate: LearningCatalog): RefreshDecision = when {
+        candidate.revision < base.revision -> RefreshDecision.SERVER_OLDER
+        candidate.revision == base.revision && candidate == base -> RefreshDecision.UP_TO_DATE
+        candidate.revision == base.revision -> RefreshDecision.REJECTED
+        preservesLearningItems(base, candidate) -> RefreshDecision.UPDATE
+        else -> RefreshDecision.REJECTED
+    }
+
     fun canRefresh(base: LearningCatalog, candidate: LearningCatalog): Boolean =
-        candidate.revision > base.revision && preservesLearningItems(base, candidate)
+        decideRefresh(base, candidate) == RefreshDecision.UPDATE
 }
