@@ -15,7 +15,7 @@ data class LearningCatalog(
 )
 
 @Serializable
-data class PublishedNote(val topic: String, val short: String, val balanced: String, val detailed: String, val sources: List<String>)
+data class PublishedNote(val topic: String, val short: String, val balanced: String, val detailed: String, val sources: List<String>, val formatVersion: Int = 1)
 @Serializable
 data class PublishedCard(val id: String, val topic: String, val front: String, val back: String, val sources: List<String>)
 @Serializable

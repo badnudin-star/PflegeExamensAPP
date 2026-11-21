@@ -65,7 +65,7 @@ def sync(http, url, bundled, folder, drive, token):
     before = list_folder(drive, folder)
     def extract(f):
         value = download_text(drive, f)
-        if 'Quellen und Einordnung' not in value:
+        if not re.search(r'(?im)^QUELLEN(?:\s+UND\s+GRENZEN)?\s*$', value):
             raise ValueError(f"Quellenabschnitt fehlt: {f['name']}")
         return value
     payload = assemble(base, before, extract)
