@@ -109,7 +109,13 @@ fun LearningApp(store: PublishedContentStore) {
             composable("cases") { CasePicker(catalog, completedCases, caseProgress::setCompleted) { nav.navigate("case/${Uri.encode(it)}") } }
             composable("case/{id}") { entry ->
                 val case = catalog.cases.firstOrNull { it.id == entry.arguments?.getString("id") }
-                if (case != null) CaseDetail(case, case.id in completedCases, { caseProgress.setCompleted(case.id, it) }) { nav.popBackStack() } else FullTextScreen("Fallbeispiel", "Nicht verfügbar.", emptyList()) { nav.popBackStack() }
+                if (case != null) CaseDetail(case, case.id in completedCases, { caseProgress.setCompleted(case.id, it) },
+                    openDayTopics = { day -> nav.navigate("case_topics/$day") }, back = { nav.popBackStack() })
+                else FullTextScreen("Fallbeispiel", "Nicht verfügbar.", emptyList()) { nav.popBackStack() }
+            }
+            composable("case_topics/{day}") { entry ->
+                val day = entry.arguments?.getString("day")?.toIntOrNull()
+                CaseDayTopics(catalog, day, open = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
             composable("quiz") { QuizScreen(catalog, quizProgress) }
             composable("ranking") { SimpleInfo("Quiz-Rangliste", "Das Cloudflare-Ranking ist noch nicht eingerichtet. Es werden keine alten Lernpunkte übertragen. Sobald die Quizwertung serverseitig bereitsteht, kann die Rangliste stündlich aktualisiert werden.") { nav.popBackStack() } }
@@ -460,7 +466,7 @@ private fun readableCaseText(text: String): String = text.trim().lines().fold(mu
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (Boolean) -> Unit, back: () -> Unit) {
+private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (Boolean) -> Unit, openDayTopics: (Int) -> Unit, back: () -> Unit) {
     val title = case.title.ifBlank { case.diseases.joinToString(" · ") }
     val sections = remember(case.text) { CasePresentation.sections(case.text) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
@@ -472,6 +478,13 @@ private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (B
                 }
             }
             item { CaseCompletionToggle(completed, setCompleted) }
+            case.examDay?.takeIf { it in 1..3 }?.let { day ->
+                item {
+                    OutlinedButton(onClick = { openDayTopics(day) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Lernzettel für Prüfungstag $day")
+                    }
+                }
+            }
             items(sections) { section ->
                 ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -485,7 +498,7 @@ private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (B
             if (case.answerNote.isNotBlank()) item { Text(readableCaseText(case.answerNote), style = MaterialTheme.typography.bodySmall) }
             items(case.questions.size) { i ->
                 val question = case.questions[i]
-                var expanded by remember(case.id, i) { mutableStateOf(false) }
+                var expanded by rememberSaveable(case.id, i) { mutableStateOf(false) }
                 ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) { Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Aufgabe ${i + 1}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text(readableCaseText(question.question), fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
@@ -498,6 +511,26 @@ private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (B
                         Text(readableCaseText(question.answer), fontSize = 17.sp, lineHeight = 27.sp)
                     }
                 } }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, String) -> Unit, back: () -> Unit) {
+    val indices = remember(day) { CasePresentation.topicIndicesForDay(day) }
+    Scaffold(topBar = { TopAppBar(title = { Text("Lernzettel · Prüfungstag ${day ?: "–"}") }, navigationIcon = {
+        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück zum Fall") }
+    }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("Themen dieses Prüfungstags", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+            item { Text("Die Liste zeigt alle festen Themen des Prüfungstags. Nicht jedes Thema muss zu diesem Fall passen.") }
+            if (indices.isEmpty()) item { Text("Für diesen Prüfungstag sind keine Themen verfügbar.") }
+            items(indices, key = { it }) { index ->
+                val title = DefaultCatalogs.defaultPreparations[index].title
+                val available = catalog.notes.any { it.topic == title && it.formatVersion == 2 }
+                TopicTile(title, available, mainMatch = false, simpleMatch = false) { depth -> open(index, depth) }
             }
         }
     }
