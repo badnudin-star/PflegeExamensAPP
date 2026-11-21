@@ -35,3 +35,16 @@ Tests ohne Zugangsdaten: `python -m unittest discover -s tools/daily_quiz -v`. D
 Eine Prüfansicht lässt sich auch lokal ohne Netzwerk aus einem bereits erstellten Entwurf erzeugen: `python tools/daily_quiz/review_sheet.py quiz-draft.json quiz-review.html`. Beide Dateien enthalten Lösungen und Belege und müssen entsprechend geschützt werden. Das Veröffentlichungsworkflow lädt weiterhin ausschließlich die unveränderte JSON-Datei aus dem Artifact; es übernimmt keine Änderungen an der HTML-Ansicht.
 
 Der manuelle Workflow `Quiz-Testentwurf technisch prüfen` kann ein vorhandenes Test-Artifact anhand seiner Laufnummer lesen. Er erstellt keine neuen Fragen, kontaktiert weder Gemini noch Drive und veröffentlicht keine Inhalte. Er meldet nur zusammengefasste Zahlen in den GitHub-Anmerkungen, nicht die Fragen oder Quellenauszüge. Auch diese Prüfung ersetzt keine fachliche Freigabe.
+
+## Offline-Sicherung der Quizfragen (Vorbereitung, keine Archivierung im Betrieb)
+
+Das Werkzeug `quiz_archive.py` erstellt aus einem **bereits lokal vorhandenen vollständigen Katalog** eine separate ZIP-Datei mit allen darin enthaltenen Quizfragen, nach Datum gruppiert, einschließlich Antworten und Belegen. Das Manifest enthält je Tagesdatei eine SHA-256-Prüfsumme sowie Revision und SHA-256 des unveränderten Ausgangskatalogs. Es werden keine Lernzettel, Karteikarten oder Fallbeispiele exportiert oder geändert. Das ZIP ersetzt deshalb keine vollständige Katalogsicherung. Es enthält Lösungen und Quellenauszüge und muss vor unbefugtem Zugriff geschützt werden; weder ZIP noch Katalog in ein öffentliches Repository einchecken.
+
+```sh
+python tools/daily_quiz/quiz_archive.py create katalog.json quiz-sicherung.zip
+python tools/daily_quiz/quiz_archive.py verify katalog.json quiz-sicherung.zip
+```
+
+Die Sicherung überschreibt keine vorhandene Datei. Für die spätere Verifikation muss der **exakt gleiche Ausgangskatalog** sicher aufbewahrt werden; bei der Prüfung werden alle Quizfragen bytegenau mit diesem Katalog verglichen. Die Befehle kontaktieren weder Drive noch Gemini oder Cloudflare und entfernen oder veröffentlichen nichts. Es werden auch unvollständige Tagesgruppen unverändert gesichert: Eine Sicherung ist keine fachliche Prüfung oder Freigabe.
+
+**Weiterhin offen:** Sichere dauerhafte Ablage, Wiederherstellung und App-Zugriff auf alte Quiztage sowie die Regeln für ein mögliches Entfernen aus dem aktiven Katalog. Erst wenn diese Schritte inklusive Konflikt- und Verlustschutz getestet und entschieden sind, kann der 8-MB-Grenze im laufenden Betrieb begegnet werden. Das Werkzeug allein schafft keinen Platz im aktiven Katalog und automatisiert keine Löschung.
