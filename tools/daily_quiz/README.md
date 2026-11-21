@@ -14,6 +14,6 @@
 
 Die App zeigt veröffentlichte Quizstände nach Datum. Das ist derzeit eine lokale Übung, **keine fälschungssichere Rangliste**. Ein altes Bundle ohne eingebaute URL synchronisiert nicht. Android-Hintergrundupdates und GitHub-Zeitpläne sind nicht minutengenau. Der Katalog wird täglich größer und ist auf 8 MB beschränkt; vor Erreichen dieser Grenze muss ein Archivierungs-/Pagination-Konzept implementiert werden, aktuell bricht die Veröffentlichung sicher ab. Auch die Fragengenerierung ist derzeit noch nicht mit echten Zugangsdaten bzw. echter API-Ausgabe getestet.
 
-Tests ohne Zugangsdaten: `python -m unittest discover -s tools/daily_quiz -v`.
+Tests ohne Zugangsdaten: `python -m unittest discover -s tools/daily_quiz -v`. Darin ist eine vollständig simulierte Kette aus fünf Gemini-Antworten, 50 Fragen, Prüfansicht und Veröffentlichung enthalten; es werden dabei keine externen Dienste kontaktiert und keine echten Quellen oder medizinischen Fragen geprüft.
 
 Eine Prüfansicht lässt sich auch lokal ohne Netzwerk aus einem bereits erstellten Entwurf erzeugen: `python tools/daily_quiz/review_sheet.py quiz-draft.json quiz-review.html`. Beide Dateien enthalten Lösungen und Belege und müssen entsprechend geschützt werden. Das Veröffentlichungsworkflow lädt weiterhin ausschließlich die unveränderte JSON-Datei aus dem Artifact; es übernimmt keine Änderungen an der HTML-Ansicht.
