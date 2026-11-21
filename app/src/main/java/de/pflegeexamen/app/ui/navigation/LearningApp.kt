@@ -353,8 +353,10 @@ private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearn
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
-    // Keep one stable order for the session when learned IDs change (especially in random mode).
-    val order = remember(cards, random) { if (random) cards.shuffled() else cards }
+    // Changing learned IDs never reshuffles the current session.
+    var shuffled by remember(cards, random) { mutableStateOf(random) }
+    var shuffleRound by remember(cards, random) { mutableIntStateOf(0) }
+    val order = remember(cards, shuffled, shuffleRound) { CardVisibility.order(cards, shuffled) }
     val session = remember(order, learned, showLearned) { CardVisibility.visible(order, learned, showLearned) }
     var index by remember(order, showLearned) { mutableIntStateOf(0) }
     val card = session.getOrNull(index)
@@ -368,13 +370,21 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
         } else Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(card.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("${index + 1} / ${session.size}" + if (card.id in learned) " · Gelernt" else "")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { shuffled = true; shuffleRound++; index = 0; flipped = false }, enabled = session.size > 1) {
+                    Text(if (shuffled) "Neu mischen" else "Karten mischen")
+                }
+                if (shuffled) TextButton(onClick = { shuffled = false; index = 0; flipped = false }) { Text("Ursprüngliche Reihenfolge") }
+            }
             ElevatedCard(onClick = { flipped = !flipped }, modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(24.dp)) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(if (flipped) "ANTWORT" else "FRAGE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(if (flipped) card.back else card.front, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-                        Text("Zum Umdrehen tippen", style = MaterialTheme.typography.bodySmall)
-                        if (flipped) Text("Quelle: ${card.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+                    key(card.id, flipped) {
+                        Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(if (flipped) "ANTWORT" else "FRAGE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(if (flipped) card.back else card.front, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                            Text("Zum Umdrehen tippen", style = MaterialTheme.typography.bodySmall)
+                            if (flipped) Text("Quelle: ${card.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
