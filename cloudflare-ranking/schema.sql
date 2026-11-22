@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS quiz_hourly_snapshot (
   generated_at INTEGER NOT NULL
 );
 
+-- Enforce mutual exclusion even for an older Worker still handling a request.
+CREATE TRIGGER IF NOT EXISTS quiz_attempt_reject_closed BEFORE INSERT ON quiz_attempts
+WHEN EXISTS (SELECT 1 FROM quiz_attempt_closures WHERE participant_id = NEW.participant_id AND quiz_date = NEW.quiz_date)
+BEGIN SELECT RAISE(ABORT, 'quiz day closed'); END;
+CREATE TRIGGER IF NOT EXISTS quiz_closure_reject_attempt BEFORE INSERT ON quiz_attempt_closures
+WHEN EXISTS (SELECT 1 FROM quiz_attempts WHERE participant_id = NEW.participant_id AND quiz_date = NEW.quiz_date)
+BEGIN SELECT RAISE(ABORT, 'quiz attempt already recorded'); END;
+
 -- Prevent a snapshot that raced with deletion from being published afterwards.
 CREATE TABLE IF NOT EXISTS quiz_snapshot_generation (
   id INTEGER PRIMARY KEY CHECK (id = 1),

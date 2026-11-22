@@ -40,6 +40,12 @@ class QuizSchemaTests(unittest.TestCase):
             self.db.execute('INSERT INTO quiz_attempt_closures VALUES(?,?,?)', ('p1', '2026-11-02', 3))
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute('INSERT INTO quiz_attempt_closures VALUES(?,?,?)', ('unknown', '2026-11-02', 3))
+        # Even a legacy worker using plain VALUES cannot bypass a confirmed closure.
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO quiz_attempts(participant_id,quiz_date,correct,total,submitted_at) VALUES(?,?,?,?,?)',
+                            ('p1', '2026-11-02', 50, 50, 3))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO quiz_attempt_closures VALUES(?,?,?)', ('p1', '2026-11-01', 4))
 
     def test_retry_registration_by_token_is_idempotent_and_never_renames(self):
         sql = ('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES (?, ?, ?, ?) '
