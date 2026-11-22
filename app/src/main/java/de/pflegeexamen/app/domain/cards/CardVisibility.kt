@@ -20,14 +20,19 @@ object CardVisibility {
         return TopicCardCounts(matching.size, if (showLearned) matching.size else matching.size - learnedCount, learnedCount)
     }
 
-    /** Search learned cards only; card texts and saved IDs are not changed. */
-    fun learnedMatching(cards: List<PublishedCard>, learned: Set<String>, query: String): List<PublishedCard> {
+    /** Search topic, front and back without changing content or revealing answers in the UI. */
+    fun matching(cards: List<PublishedCard>, query: String): List<PublishedCard> {
         val term = query.trim()
+        if (term.isEmpty()) return cards
         return cards.filter { card ->
-            card.id in learned && (term.isEmpty() || card.topic.contains(term, ignoreCase = true) ||
-                card.front.contains(term, ignoreCase = true) || card.back.contains(term, ignoreCase = true))
+            card.topic.contains(term, ignoreCase = true) || card.front.contains(term, ignoreCase = true) ||
+                card.back.contains(term, ignoreCase = true)
         }
     }
+
+    /** Search learned cards only; card texts and saved IDs are not changed. */
+    fun learnedMatching(cards: List<PublishedCard>, learned: Set<String>, query: String): List<PublishedCard> =
+        matching(cards.filter { it.id in learned }, query)
 
     /** Keep the same position if a following card exists; otherwise show the previous card. */
     fun indexAfterRemoval(index: Int, previousSize: Int): Int = index.coerceAtMost((previousSize - 2).coerceAtLeast(0))

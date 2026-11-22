@@ -128,7 +128,9 @@ fun LearningApp(store: PublishedContentStore) {
             }
             composable("cards") {
                 CardPicker(catalog, learnedCards, showLearned, { showLearned = it },
-                    manageLearned = { nav.navigate("learned_cards") }, open = { nav.navigate("card_session/$it") })
+                    manageLearned = { nav.navigate("learned_cards") }, open = { index, query ->
+                        nav.navigate("card_session/$index?query=${Uri.encode(query)}")
+                    })
             }
             composable("learned_cards") {
                 LearnedCardsScreen(catalog.cards, learnedCards, cardProgress::setLearned) { nav.popBackStack() }
@@ -139,11 +141,16 @@ fun LearningApp(store: PublishedContentStore) {
                 val scopedCards = remember(catalog.cards, topic) { catalog.cards.filter { topic != null && it.topic == topic } }
                 LearnedCardsScreen(scopedCards, learnedCards, cardProgress::setLearned, topic = topic) { nav.popBackStack() }
             }
-            composable("card_session/{index}") { entry ->
+            composable("card_session/{index}?query={query}", arguments = listOf(
+                androidx.navigation.navArgument("query") { defaultValue = "" }
+            )) { entry ->
                 val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
                 val topic = DefaultCatalogs.defaultPreparations.getOrNull(index)?.title
-                val available = if (index == -1) catalog.cards else catalog.cards.filter { it.topic == topic }
-                CardSession(available, index == -1, learnedCards, showLearned, cardProgress::setLearned) { nav.popBackStack() }
+                val query = entry.arguments?.getString("query").orEmpty()
+                val available = remember(catalog.cards, index, topic, query) {
+                    CardVisibility.matching(catalog.cards, query).filter { index == -1 || it.topic == topic }
+                }
+                CardSession(available, index == -1, learnedCards, showLearned, cardProgress::setLearned, query) { nav.popBackStack() }
             }
             composable("cases") { CasePicker(catalog, completedCases, caseProgress::setCompleted) { nav.navigate("case/${Uri.encode(it)}") } }
             composable("case/{id}") { entry ->
@@ -420,17 +427,29 @@ private fun DayHeader(title: String, summary: String, expanded: Boolean, toggle:
 }
 
 @Composable
-private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearned: Boolean, setShowLearned: (Boolean) -> Unit, manageLearned: () -> Unit, open: (Int) -> Unit) {
+internal fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearned: Boolean, setShowLearned: (Boolean) -> Unit, manageLearned: () -> Unit, open: (Int, String) -> Unit) {
     var expandedDays by rememberSaveable { mutableIntStateOf(0) }
-    val visible = remember(catalog.cards, learned, showLearned) { CardVisibility.visible(catalog.cards, learned, showLearned) }
+    var collapsedSearchDays by rememberSaveable { mutableIntStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val term = query.trim()
+    val searching = term.isNotEmpty()
+    val matching = remember(catalog.cards, term) { CardVisibility.matching(catalog.cards, term) }
+    val visible = remember(matching, learned, showLearned) { CardVisibility.visible(matching, learned, showLearned) }
     val counts = remember(visible) { visible.groupingBy { it.topic }.eachCount() }
-    val allCounts = remember(catalog.cards) { catalog.cards.groupingBy { it.topic }.eachCount() }
-    val learnedCounts = remember(catalog.cards, learned) { catalog.cards.filter { it.id in learned }.groupingBy { it.topic }.eachCount() }
+    val allCounts = remember(matching) { matching.groupingBy { it.topic }.eachCount() }
+    val learnedCounts = remember(matching, learned) { matching.filter { it.id in learned }.groupingBy { it.topic }.eachCount() }
     val topics = DefaultCatalogs.defaultPreparations.withIndex()
     val learnedCount = catalog.cards.count { it.id in learned }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("cardPickerList"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Karteikarten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text("Markiere Karten beim Lernen als gelernt. Sie werden ausgeblendet, bis du sie wieder einblendest.") }
+        item {
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text("Karteikarten durchsuchen") },
+                supportingText = { Text("Suche in Thema, Frage und Antwort · Lösungen bleiben verdeckt") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Kartensuche löschen") } })
+        }
         item {
             Row(Modifier.fillMaxWidth().toggleable(value = showLearned, role = Role.Switch, onValueChange = setShowLearned)
                 .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -446,23 +465,27 @@ private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearn
                 Text("Gelernte Karten einzeln wieder einblenden ($learnedCount)")
             }
         }
-        item { Button(onClick = { open(-1) }, enabled = visible.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Alle sichtbaren Karten zufällig mischen") } }
+        item { Button(onClick = { open(-1, term) }, enabled = visible.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+            Text(if (searching) "Passende sichtbare Karten zufällig mischen" else "Alle sichtbaren Karten zufällig mischen")
+        } }
         if (catalog.cards.isEmpty()) item { Text("Noch keine Karteikarten veröffentlicht.") }
-        else if (visible.isEmpty()) item { Text("Alle Karten sind ausgeblendet. Aktiviere „Gelernte Karten anzeigen“, um sie wiederzusehen.") }
+        else if (matching.isEmpty()) item { Text("Keine passenden Karteikarten gefunden.") }
+        else if (visible.isEmpty()) item { Text(if (searching) "Alle passenden Karten sind ausgeblendet. Aktiviere „Gelernte Karten anzeigen“, um sie wiederzusehen." else "Alle Karten sind ausgeblendet. Aktiviere „Gelernte Karten anzeigen“, um sie wiederzusehen.") }
+        if (searching && matching.isNotEmpty()) item { Text("${visible.size} passende ${if (visible.size == 1) "Karte" else "Karten"} sichtbar · ${matching.size - visible.size} ausgeblendet", style = MaterialTheme.typography.bodySmall) }
         (1..3).forEach { day ->
             val group = topics.filter { it.value.examDayTag == "Tag $day" && (allCounts[it.value.title] ?: 0) > 0 }
             if (group.isNotEmpty()) {
-                val expanded = expandedDays and (1 shl day) != 0
+                val expanded = if (searching) collapsedSearchDays and (1 shl day) == 0 else expandedDays and (1 shl day) != 0
                 item(key = "card-day-$day") {
-                    DayHeader("Prüfungstag $day", "${group.size} Themen · ${group.sumOf { counts[it.value.title] ?: 0 }} sichtbar", expanded) {
-                        expandedDays = expandedDays xor (1 shl day)
+                    DayHeader("Prüfungstag $day", "${group.size} Themen · ${group.sumOf { counts[it.value.title] ?: 0 }} ${if (searching) "passend und sichtbar" else "sichtbar"}", expanded) {
+                        if (searching) collapsedSearchDays = collapsedSearchDays xor (1 shl day) else expandedDays = expandedDays xor (1 shl day)
                     }
                 }
                 if (expanded) items(group, key = { "cards-${it.index}" }) { entry ->
                     val count = counts[entry.value.title] ?: 0
                     val learnedCountForTopic = learnedCounts[entry.value.title] ?: 0
-                    ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("$count sichtbar · $learnedCountForTopic gelernt") },
-                        modifier = Modifier.clickable(enabled = count > 0) { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
+                    ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("$count sichtbar · $learnedCountForTopic gelernt${if (searching) " · Suchergebnis" else ""}") },
+                        modifier = Modifier.clickable(enabled = count > 0) { open(entry.index, term) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
                 }
             }
         }
@@ -526,7 +549,7 @@ private val cardSessionSaver = Saver<CardSessionState, String>(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
+internal fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, searchQuery: String = "", back: () -> Unit) {
     val fingerprint = remember(cards) { cardDeckFingerprint(cards) }
     var saved by rememberSaveable(stateSaver = cardSessionSaver) {
         mutableStateOf(CardSessionState(fingerprint, random, Random.Default.nextLong()))
@@ -543,11 +566,12 @@ internal fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: S
     Scaffold(topBar = { TopAppBar(title = { Text("Karteikarten") }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
         if (card == null) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Keine sichtbaren Karten mehr. Du kannst gelernte Karten in der Übersicht wieder einblenden.", textAlign = TextAlign.Center)
+                Text(if (searchQuery.isNotBlank()) "Keine sichtbaren Karten für diese Suche mehr. Ändere die Suche oder blende gelernte Karten in der Übersicht wieder ein." else "Keine sichtbaren Karten mehr. Du kannst gelernte Karten in der Übersicht wieder einblenden.", textAlign = TextAlign.Center)
                 OutlinedButton(onClick = back) { Text("Zurück") }
             }
         } else Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(card.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (searchQuery.isNotBlank()) Text("Gefilterte Karten · Suche: $searchQuery", style = MaterialTheme.typography.bodySmall, maxLines = 2)
             Text("${index + 1} / ${session.size}" + if (card.id in learned) " · Gelernt" else "")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { saved = current.copy(shuffled = true, seed = Random.Default.nextLong(), cardId = null, showingAnswer = false) }, enabled = session.size > 1) {

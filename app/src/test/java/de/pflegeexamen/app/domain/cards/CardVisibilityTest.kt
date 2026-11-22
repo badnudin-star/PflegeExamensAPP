@@ -46,6 +46,24 @@ class CardVisibilityTest {
         assertEquals(listOf("2"), CardVisibility.learnedMatching(deck, learned - "1", "").map { it.id })
     }
 
+    @Test fun `card search finds topic front or back without changing visibility or order`() {
+        val deck = listOf(
+            PublishedCard("1", "Herz", "Frage eins", "Schlüsselwort", listOf("Quelle")),
+            PublishedCard("2", "Lunge", "Schlüsselwort vorne", "Andere Antwort", listOf("Quelle")),
+            PublishedCard("3", "Herz", "Sonstige Frage", "Antwort", listOf("Schlüsselwort"))
+        )
+        val learned = setOf("1")
+        assertEquals(deck, CardVisibility.matching(deck, "  "))
+        val matches = CardVisibility.matching(deck, "  SCHLÜSSELWORT ")
+        assertEquals(listOf("1", "2"), matches.map { it.id })
+        assertEquals(listOf("2"), CardVisibility.visible(matches, learned, false).map { it.id })
+        assertEquals(matches, CardVisibility.visible(matches, learned, true))
+        assertEquals(listOf("1", "3"), CardVisibility.matching(deck, "herz").map { it.id })
+        assertTrue(CardVisibility.matching(deck, "fehlt").isEmpty())
+        assertEquals(setOf("1"), learned)
+        assertEquals(3, deck.size)
+    }
+
     @Test fun `shuffle remains within deck and learned filtering preserves its order`() {
         val deck = (1..20).map { PublishedCard("$it", "Thema", "Frage $it", "Antwort", listOf("Quelle")) }
         val mixed = CardVisibility.order(deck, shuffled = true, random = Random(42))
