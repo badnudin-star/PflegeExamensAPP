@@ -189,6 +189,46 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("EINLEITUNG").assertIsDisplayed()
     }
 
+    @Test fun noteSearchNavigatesBetweenMatchesAndKeepsSelectionAfterRestore() {
+        val filler = (1..35).joinToString("\n\n") { "Füllabsatz $it." }
+        val note = "Erste Nadelwort-Fundstelle.\n\n$filler\n\nZweite Nadelwort-Fundstelle.\n\n$filler\n\nDritte Nadelwort-Fundstelle."
+        val restore = StateRestorationTester(compose)
+        restore.setContent { PflegeExamenTheme { NoteScreen("Testthema", "Lernzettel", note, "Nadelwort", null, {}, {}, {}) } }
+        compose.onNodeWithText("Erste Nadelwort-Fundstelle.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").performClick()
+        compose.onNodeWithText("Zweite Nadelwort-Fundstelle.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").performClick()
+        compose.onNodeWithText("Dritte Nadelwort-Fundstelle.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").assertIsNotEnabled()
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Dritte Nadelwort-Fundstelle.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Vorheriger Suchtreffer").performClick()
+        compose.onNodeWithText("Zweite Nadelwort-Fundstelle.").assertIsDisplayed()
+    }
+
+    @Test fun noteSearchNavigatesToDifferentOccurrencesInsideLongParagraph() {
+        val paragraph = "Beginn Nadelwort " + (1..160).joinToString(" ") { "langer Übungstext $it" } + " Ende Nadelwort."
+        val note = paragraph + "\n\n" + (1..20).joinToString("\n\n") { "Nachfolgender Absatz $it." }
+        compose.setContent { PflegeExamenTheme { NoteScreen("Testthema", "Lernzettel", note, "Nadelwort", null, {}, {}, {}) } }
+        val initialTop = compose.onNodeWithText(paragraph).getUnclippedBoundsInRoot().top.value
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").performClick()
+        val laterTop = compose.onNodeWithText(paragraph).getUnclippedBoundsInRoot().top.value
+        assertTrue("Der zweite Treffer soll weiter unten im selben Absatz liegen", laterTop < initialTop - 200f)
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Vorheriger Suchtreffer").performClick()
+        val restoredTop = compose.onNodeWithText(paragraph).getUnclippedBoundsInRoot().top.value
+        assertTrue("Zurück zum ersten Treffer im Absatz", restoredTop > laterTop + 200f)
+    }
+
+    @Test fun noteSearchWithoutTextMatchDoesNotOfferNavigation() {
+        compose.setContent { PflegeExamenTheme { NoteScreen("Titel gefunden", "Vereinfacht", "Anderer Text.", "Titel gefunden", null, {}, {}, {}) } }
+        compose.onNodeWithText("Kein Treffer in dieser Lernzettelversion").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Nächster Suchtreffer").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertDoesNotExist()
+    }
+
     @Test fun androidPreferencesKeepSeparateLearningProgress() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "ui_test_" + UUID.randomUUID().toString() + "_"
