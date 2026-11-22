@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -59,11 +60,16 @@ import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.cases.CaseSearchIndex
 import de.pflegeexamen.app.domain.cards.CardVisibility
+import de.pflegeexamen.app.domain.cards.CardSessionState
+import de.pflegeexamen.app.domain.cards.cardDeckFingerprint
 import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 import de.pflegeexamen.app.domain.notes.NoteHeading
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlin.random.Random
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -490,17 +496,27 @@ private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>,
     }
 }
 
+private val cardSessionSaver = Saver<CardSessionState, String>(
+    save = { Json.encodeToString(it) },
+    restore = { raw -> runCatching { Json.decodeFromString<CardSessionState>(raw) }.getOrNull() }
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
-    // Changing learned IDs never reshuffles the current session.
-    var shuffled by remember(cards, random) { mutableStateOf(random) }
-    var shuffleRound by remember(cards, random) { mutableIntStateOf(0) }
-    val order = remember(cards, shuffled, shuffleRound) { CardVisibility.order(cards, shuffled) }
+    val fingerprint = remember(cards) { cardDeckFingerprint(cards) }
+    var saved by rememberSaveable(stateSaver = cardSessionSaver) {
+        mutableStateOf(CardSessionState(fingerprint, random, Random.Default.nextLong()))
+    }
+    val prepared = saved.forDeck(fingerprint, random)
+    // A seeded order survives Activity recreation, and never depends on learned IDs.
+    val order = remember(cards, prepared.shuffled, prepared.seed) { prepared.ordered(cards) }
     val session = remember(order, learned, showLearned) { CardVisibility.visible(order, learned, showLearned) }
-    var index by remember(order, showLearned) { mutableIntStateOf(0) }
+    val current = prepared.forVisible(session)
+    SideEffect { if (saved != current) saved = current }
+    val index = session.indexOfFirst { it.id == current.cardId }
     val card = session.getOrNull(index)
-    var flipped by remember(card?.id) { mutableStateOf(false) }
+    val flipped = current.showingAnswer
     Scaffold(topBar = { TopAppBar(title = { Text("Karteikarten") }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
         if (card == null) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -511,12 +527,12 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
             Text(card.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("${index + 1} / ${session.size}" + if (card.id in learned) " · Gelernt" else "")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { shuffled = true; shuffleRound++; index = 0; flipped = false }, enabled = session.size > 1) {
-                    Text(if (shuffled) "Neu mischen" else "Karten mischen")
+                TextButton(onClick = { saved = current.copy(shuffled = true, seed = Random.Default.nextLong(), cardId = null, showingAnswer = false) }, enabled = session.size > 1) {
+                    Text(if (current.shuffled) "Neu mischen" else "Karten mischen")
                 }
-                if (shuffled) TextButton(onClick = { shuffled = false; index = 0; flipped = false }) { Text("Ursprüngliche Reihenfolge") }
+                if (current.shuffled) TextButton(onClick = { saved = current.copy(shuffled = false, cardId = null, showingAnswer = false) }) { Text("Ursprüngliche Reihenfolge") }
             }
-            ElevatedCard(onClick = { flipped = !flipped }, modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(24.dp)) {
+            ElevatedCard(onClick = { saved = current.copy(showingAnswer = !flipped) }, modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(24.dp)) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     key(card.id, flipped) {
                         Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -530,14 +546,14 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
             }
             OutlinedButton(onClick = {
                 val markLearned = card.id !in learned
-                if (markLearned && !showLearned) index = CardVisibility.indexAfterRemoval(index, session.size)
+                if (markLearned && !showLearned) saved = current.afterHide(session, index)
                 setLearned(card.id, markLearned)
             }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (card.id in learned) "Wieder lernen · einblenden" else if (showLearned) "Als gelernt markieren" else "Gelernt · Karte ausblenden")
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                IconButton(onClick = { index-- }, enabled = index > 0) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Vorherige Karte") }
-                IconButton(onClick = { index++ }, enabled = index < session.lastIndex) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Nächste Karte") }
+                IconButton(onClick = { saved = current.select(session[index - 1]) }, enabled = index > 0) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Vorherige Karte") }
+                IconButton(onClick = { saved = current.select(session[index + 1]) }, enabled = index < session.lastIndex) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Nächste Karte") }
             }
         }
     }
