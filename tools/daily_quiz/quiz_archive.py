@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or verify an offline, read-only backup of a catalog's quiz questions.
+"""Create, verify or prepare an offline restore of quiz questions.
 
 No network access, publication, pruning or changes to the input snapshot.
 The resulting archive contains solutions and source excerpts; protect it.
@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'learning_import'))
@@ -86,17 +87,109 @@ def verify(raw, archive_path):
     return len(files) - 1
 
 
+def strict_catalog(raw):
+    """Reject ambiguous JSON before producing a replacement catalog."""
+    if len(raw) > MAX_CATALOG:
+        raise ValueError('Katalog überschreitet das Größenlimit')
+
+    def no_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Doppelter JSON-Schlüssel')
+            result[key] = value
+        return result
+
+    def no_nonfinite(_):
+        raise ValueError('Ungültige JSON-Zahl')
+
+    catalog = validate_base(json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_nonfinite))
+    for question in catalog['quizzes']:
+        day = question['published']
+        try:
+            if date.fromisoformat(day).isoformat() != day:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise ValueError('Quizdatum muss JJJJ-MM-TT entsprechen') from None
+    return catalog
+
+
+def restore(original_raw, archive_path, target_raw, destination):
+    """Prepare a new offline candidate, never edit input files or contact a server.
+
+    Require the exact source snapshot and archive, reject conflicting quiz days/IDs,
+    preserve all target learning content and do not overwrite an existing destination.
+    """
+    verify(original_raw, archive_path)
+    original = strict_catalog(original_raw)
+    target = strict_catalog(target_raw)
+    if target['revision'] < original['revision'] or (target['revision'] == original['revision'] and target != original):
+        raise ValueError('Zielkatalog ist älter oder widerspricht dem Ausgangskatalog gleicher Revision')
+
+    old_days, current_days = defaultdict(list), defaultdict(list)
+    for question in original['quizzes']:
+        old_days[question['published']].append(question)
+    for question in target['quizzes']:
+        current_days[question['published']].append(question)
+    current_ids = {question['id'] for question in target['quizzes']}
+    recovered = []
+    for day, questions in sorted(old_days.items()):
+        if day in current_days:
+            if {q['id']: q for q in questions} != {q['id']: q for q in current_days[day]}:
+                raise ValueError(f'Quiztag {day} unterscheidet sich im Zielkatalog')
+            continue
+        if any(question['id'] in current_ids for question in questions):
+            raise ValueError(f'Frage-ID aus {day} ist bereits einem anderen Quiztag zugeordnet')
+        recovered.extend(questions)
+    if not recovered:
+        raise ValueError('Keine fehlenden Quizfragen wiederherzustellen')
+
+    candidate = dict(target)
+    candidate['quizzes'] = target['quizzes'] + recovered
+    candidate['revision'] = target['revision'] + 1
+    validate_base(candidate)
+    output = encode(candidate)
+    if len(output) > MAX_CATALOG:
+        raise ValueError('Wiederhergestellter Katalog überschreitet das Größenlimit')
+
+    # A complete private temporary file is linked into place without overwriting.
+    # A sudden crash can leave only a temporary file; it is not a published candidate.
+    path = Path(destination)
+    fd, temporary = tempfile.mkstemp(prefix='.quiz-restore-', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as file:
+            file.write(output)
+            file.flush()
+            os.fsync(file.fileno())
+        os.link(temporary, path)  # atomic and fails if destination already exists
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return len(recovered)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['create', 'verify'])
+    parser.add_argument('operation', choices=['create', 'verify', 'restore'])
     parser.add_argument('catalog', type=Path, help='Unveränderter vollständiger JSON-Katalog')
     parser.add_argument('archive', type=Path, help='ZIP-Datei (create überschreibt nichts)')
+    parser.add_argument('--target', type=Path, help='Aktueller vollständiger Katalog für restore')
+    parser.add_argument('--output', type=Path, help='Neue Ausgabedatei für restore; darf nicht existieren')
     args = parser.parse_args()
+    if args.operation == 'restore' and (not args.target or not args.output):
+        parser.error('restore benötigt --target und --output')
+    if args.operation != 'restore' and (args.target or args.output):
+        parser.error('--target und --output sind nur für restore erlaubt')
     with args.catalog.open('rb') as f:
         raw = f.read(MAX_CATALOG + 1)
-    count = create(raw, args.archive) if args.operation == 'create' else verify(raw, args.archive)
-    print(f'{count} Quiz-Tage ' + ('gesichert.' if args.operation == 'create' else 'mit dem Katalog verglichen.'))
-    print('Keine Veröffentlichung oder Entfernung. Archiv enthält Lösungen und Quellenbelege.')
+    if args.operation == 'restore':
+        with args.target.open('rb') as f:
+            target_raw = f.read(MAX_CATALOG + 1)
+        count = restore(raw, args.archive, target_raw, args.output)
+        print(f'{count} Quizfragen in einem neuen lokalen Kandidaten ergänzt. Nicht veröffentlicht.')
+    else:
+        count = create(raw, args.archive) if args.operation == 'create' else verify(raw, args.archive)
+        print(f'{count} Quiz-Tage ' + ('gesichert.' if args.operation == 'create' else 'mit dem Katalog verglichen.'))
+    print('Keine Veröffentlichung oder Entfernung. Dateien enthalten Lösungen und Quellenbelege.')
 
 
 if __name__ == '__main__':
