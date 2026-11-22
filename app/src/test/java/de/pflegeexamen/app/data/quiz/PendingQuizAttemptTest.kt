@@ -41,8 +41,9 @@ class PendingQuizAttemptTest {
     private fun recorded(correct: Int) = SubmissionResponse(201, """{"date":"2026-11-13","correct":$correct,"total":50}""".toByteArray())
 
     @Test fun `lost response remains blocked across restart until server result confirmed`() = runTest {
-        val disk = PendingMemory(); val vault = vault(); var sends = 0
-        val first = client(vault, PendingAttemptStore(disk), QuizSubmissionTransport { _,_,_ ->
+        val disk = PendingMemory(); val vault = vault(); var sends = 0; var sentHash = ""
+        val first = client(vault, PendingAttemptStore(disk), QuizSubmissionTransport { _,_,body ->
+            sentHash = sha256(body)
             sends++
             val stored = disk.data!!.toString(Charsets.UTF_8)
             assertFalse(stored.contains(token)); assertFalse(stored.contains("question-")); assertFalse(stored.contains("option"))
@@ -57,7 +58,7 @@ class PendingQuizAttemptTest {
         assertEquals(PendingQuizState.Waiting(date), notFound.reconcile())
         assertFalse(notFound.acknowledgeRecorded())
         val recover = PendingQuizReconciliation(restartedStore, vault, PendingResultLookup { d,t ->
-            assertEquals(date,d); assertEquals(token,t); AttemptLookup.Found(date,40,50)
+            assertEquals(date,d); assertEquals(token,t); AttemptLookup.Found(date,40,50, sentHash)
         })
         assertEquals(PendingQuizState.Recorded(date,40), recover.reconcile())
         val again = PendingQuizReconciliation(PendingAttemptStore(disk), vault, PendingResultLookup { _,_ -> fail("recorded result is local"); AttemptLookup.Unavailable })
@@ -88,7 +89,7 @@ class PendingQuizAttemptTest {
         assertEquals(SubmissionResult.Uncertain,client.submit(date,fingerprint,answers))
         assertNotNull(disk.data)
         disk.failWrite=0
-        val recovery=PendingQuizReconciliation(store,vault,PendingResultLookup { _,_ -> AttemptLookup.Found(date,42,50) })
+        val recovery=PendingQuizReconciliation(store,vault,PendingResultLookup { _,_ -> AttemptLookup.Found(date,42,50, store.read()!!.payloadHash) })
         assertEquals(PendingQuizState.Recorded(date,42),recovery.reconcile())
     }
 
@@ -97,12 +98,26 @@ class PendingQuizAttemptTest {
         val submitter=client(first,store,QuizSubmissionTransport { _,_,_ -> throw IllegalStateException() })
         assertEquals(SubmissionResult.Uncertain,submitter.submit(date,fingerprint,answers))
         val other=vault("d".repeat(64)); var calls=0
-        val mismatch=PendingQuizReconciliation(store,other,PendingResultLookup { _,_ -> calls++; AttemptLookup.Found(date,10,50) })
+        val mismatch=PendingQuizReconciliation(store,other,PendingResultLookup { _,_ -> calls++; AttemptLookup.Found(date,10,50, null) })
         assertEquals(PendingQuizState.CredentialMismatch,mismatch.reconcile())
         assertFalse(mismatch.acknowledgeRecorded()); assertEquals(0,calls)
-        val wrongDate=PendingQuizReconciliation(store,first,PendingResultLookup { _,_ -> AttemptLookup.Found("2026-11-14",10,50) })
+        val wrongDate=PendingQuizReconciliation(store,first,PendingResultLookup { _,_ -> AttemptLookup.Found("2026-11-14",10,50, null) })
         assertEquals(PendingQuizState.Waiting(date),wrongDate.reconcile())
         assertFalse(wrongDate.acknowledgeRecorded())
+    }
+
+    @Test fun `another or unverified attempt never confirms or clears pending submission`() = runTest {
+        val disk = PendingMemory(); val vault = vault(); val store = PendingAttemptStore(disk)
+        val submitter = client(vault, store, QuizSubmissionTransport { _,_,_ -> throw IllegalStateException() })
+        assertEquals(SubmissionResult.Uncertain, submitter.submit(date, fingerprint, answers))
+        val original = disk.data!!.clone()
+        for (hash in listOf(null, "d".repeat(64))) {
+            val recovery = PendingQuizReconciliation(store, vault, PendingResultLookup { _,_ -> AttemptLookup.Found(date, 25, 50, hash) })
+            assertEquals(PendingQuizState.DifferentOrUnverifiedAttempt(date), recovery.reconcile())
+            assertFalse(recovery.acknowledgeRecorded())
+            assertArrayEquals(original, disk.data)
+        }
+        assertEquals(SubmissionResult.AnotherAttemptPending, submitter.submit(date, fingerprint, answers))
     }
 
     @Test fun `two concurrent submitters sharing file cannot both send`() = runTest {

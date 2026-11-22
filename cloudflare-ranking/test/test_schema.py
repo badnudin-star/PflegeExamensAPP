@@ -12,6 +12,21 @@ class QuizSchemaTests(unittest.TestCase):
         self.db.execute('INSERT INTO scores VALUES (?, ?)', ('legacy', 500000))
         self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p1', 'hash1', 'Name', 1))
 
+    def test_payload_hash_validation_and_old_database_migration(self):
+        sql = 'INSERT INTO quiz_attempts(participant_id,quiz_date,correct,total,submitted_at,payload_hash) VALUES(?,?,?,?,?,?)'
+        self.db.execute(sql, ('p1', '2026-01-01', 1, 50, 1, 'a' * 64))
+        for value in ('b' * 63, 'g' * 64, 'A' * 64):
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.execute(sql, ('p1', '2026-01-02', 1, 50, 1, value))
+        old = sqlite3.connect(':memory:')
+        old.execute('CREATE TABLE quiz_attempts(participant_id TEXT, quiz_date TEXT, correct INTEGER, total INTEGER, submitted_at INTEGER)')
+        old.execute("INSERT INTO quiz_attempts VALUES('p1','2026-01-01',1,50,1)")
+        old.executescript((Path(__file__).resolve().parents[1] / 'migrations/0001_attempt_payload_hash.sql').read_text())
+        self.assertIsNone(old.execute('SELECT payload_hash FROM quiz_attempts').fetchone()[0])
+        with self.assertRaises(sqlite3.IntegrityError):
+            old.execute("UPDATE quiz_attempts SET payload_hash = 'bad'")
+        old.close()
+
     def test_retry_registration_by_token_is_idempotent_and_never_renames(self):
         sql = ('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES (?, ?, ?, ?) '
                'ON CONFLICT(token_hash) DO NOTHING')
@@ -22,15 +37,15 @@ class QuizSchemaTests(unittest.TestCase):
 
     def test_result_query_uses_both_account_and_quiz_date(self):
         self.db.execute('INSERT INTO quiz_participants VALUES (?, ?, ?, ?)', ('p2', 'hash2', 'Other', 2))
-        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
-        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p2', '2026-11-01', 40, 50, 2))
+        self.db.execute('INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at) VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
+        self.db.execute('INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at) VALUES (?, ?, ?, ?, ?)', ('p2', '2026-11-01', 40, 50, 2))
         query = 'SELECT correct, total FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?'
         self.assertEqual(self.db.execute(query, ('p1', '2026-11-01')).fetchone(), (10, 50))
         self.assertEqual(self.db.execute(query, ('p2', '2026-11-01')).fetchone(), (40, 50))
         self.assertIsNone(self.db.execute(query, ('p1', '2026-11-02')).fetchone())
 
     def test_generation_blocks_snapshot_that_started_before_deletion(self):
-        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
+        self.db.execute('INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at) VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
         self.db.execute('INSERT INTO quiz_hourly_snapshot VALUES (1, ?, ?)', ('old', 1))
         generation = self.db.execute('SELECT generation FROM quiz_snapshot_generation WHERE id=1').fetchone()[0]
         with self.db:
@@ -51,7 +66,7 @@ class QuizSchemaTests(unittest.TestCase):
 
     def test_deletion_transaction_rolls_back_if_generation_update_fails(self):
         self.db.commit()
-        self.db.execute('INSERT INTO quiz_attempts VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
+        self.db.execute('INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at) VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
         self.db.commit()
         with self.assertRaises(sqlite3.IntegrityError):
             with self.db:

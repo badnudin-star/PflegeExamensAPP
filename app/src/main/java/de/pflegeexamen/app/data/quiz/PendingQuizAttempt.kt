@@ -90,6 +90,8 @@ sealed interface PendingQuizState {
     data object CredentialMismatch : PendingQuizState
     /** No result has been confirmed. A prior request may still be running or already committed. */
     data class Waiting(val date: String) : PendingQuizState
+    /** A result exists but cannot be proven to be this exact request. The marker remains blocked. */
+    data class DifferentOrUnverifiedAttempt(val date: String) : PendingQuizState
     data class Recorded(val date: String, val correct: Int, val total: Int = 50) : PendingQuizState
 }
 
@@ -114,6 +116,7 @@ class PendingQuizReconciliation(
             catch (_: Exception) { return PendingQuizState.Waiting(marker.date) }
         if (found !is AttemptLookup.Found || found.date != marker.date || found.total != 50 || found.correct !in 0..50)
             return PendingQuizState.Waiting(marker.date)
+        if (found.payloadHash != marker.payloadHash) return PendingQuizState.DifferentOrUnverifiedAttempt(marker.date)
         return try {
             if (store.record(marker, found.correct)) PendingQuizState.Recorded(marker.date, found.correct)
             else PendingQuizState.StorageUnavailable

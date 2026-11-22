@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
   correct INTEGER NOT NULL CHECK(correct >= 0),
   total INTEGER NOT NULL CHECK(total = 50 AND correct <= total),
   submitted_at INTEGER NOT NULL,
+  -- Null is reserved for legacy records whose request bytes cannot be recovered.
+  payload_hash TEXT CHECK(payload_hash IS NULL OR (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*')),
   PRIMARY KEY(participant_id, quiz_date)
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_participant ON quiz_attempts(participant_id);

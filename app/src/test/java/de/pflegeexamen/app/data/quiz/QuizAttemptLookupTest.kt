@@ -18,10 +18,24 @@ class QuizAttemptLookupTest {
             capturedUrl = u; capturedToken = t
             response(200, """{"date":"2026-11-13","correct":38,"total":50}""")
         })
-        assertEquals(AttemptLookup.Found(date, 38, 50), client.lookup(date, token))
+        assertEquals(AttemptLookup.Found(date, 38, 50, null), client.lookup(date, token))
         assertEquals("https://ranking.example/quiz/attempt/result?date=2026-11-13", capturedUrl)
         assertEquals(token, capturedToken)
         assertFalse(capturedUrl.contains(token))
+    }
+
+    @Test fun `payload hash is validated and returned without inventing one for legacy results`() = runTest {
+        val hash = "e".repeat(64)
+        val client = QuizAttemptLookup(url, AttemptLookupTransport { _,_ ->
+            response(200, """{"date":"2026-11-13","correct":38,"total":50,"payloadHash":"$hash"}""")
+        })
+        assertEquals(AttemptLookup.Found(date, 38, 50, hash), client.lookup(date, token))
+        for (invalid in listOf("x".repeat(64), "E".repeat(64), "123")) {
+            val invalidClient = QuizAttemptLookup(url, AttemptLookupTransport { _,_ ->
+                response(200, """{"date":"2026-11-13","correct":38,"total":50,"payloadHash":"$invalid"}""")
+            })
+            assertEquals(AttemptLookup.Unavailable, invalidClient.lookup(date, token))
+        }
     }
 
     @Test fun `not found is different from network failure and invalid token`() = runTest {
