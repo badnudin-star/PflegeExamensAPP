@@ -29,7 +29,7 @@ async function protectRequest(request, env, path) {
     needsAccountLimit = true;
   }
   else if (request.method === 'GET' && (path === '/quiz/today' || path === '/leaderboard')) limiter = env.READ_RATE;
-  else if ((request.method === 'POST' && path === '/quiz/attempt') ||
+  else if ((request.method === 'POST' && (path === '/quiz/attempt' || path === '/quiz/attempt/close')) ||
            (request.method === 'GET' && path === '/quiz/attempt/result') ||
            (request.method === 'GET' && path === '/participants/me') ||
            (request.method === 'DELETE' && path === '/participants/me')) {
@@ -175,6 +175,7 @@ export default {
         // the generation in the same transaction as deleting the account.
         await env.DB.batch([
           env.DB.prepare('DELETE FROM quiz_attempts WHERE participant_id = ?').bind(user.id),
+          env.DB.prepare('DELETE FROM quiz_attempt_closures WHERE participant_id = ?').bind(user.id),
           env.DB.prepare('DELETE FROM quiz_participants WHERE id = ?').bind(user.id),
           env.DB.prepare('DELETE FROM quiz_hourly_snapshot WHERE id = 1'),
           env.DB.prepare('UPDATE quiz_snapshot_generation SET generation = generation + 1 WHERE id = 1')
@@ -201,6 +202,31 @@ export default {
           throw new Error('invalid stored hash');
         return json({date:day, correct:attempt.correct, total:attempt.total, payloadHash:attempt.payload_hash});
       }
+      if (request.method === 'POST' && path === '/quiz/attempt/close') {
+        const user = await participant(request, env);
+        if (!user) return json({error:'Nicht autorisiert.'}, 401);
+        let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
+        const day = data?.date;
+        const parsed = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(day) : NaN;
+        if (!data || Object.keys(data).join(',') !== 'date' || !Number.isFinite(parsed) ||
+            new Date(parsed).toISOString().slice(0,10) !== day || day > today())
+          return json({error:'Ungültiges Quizdatum.'}, 400);
+        // One conditional INSERT arbitrates against the conditional attempt INSERT.
+        // Once closed, even a previously delayed submission cannot be recorded.
+        await env.DB.prepare(`INSERT INTO quiz_attempt_closures(participant_id, quiz_date, closed_at)
+          SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?)
+          ON CONFLICT(participant_id, quiz_date) DO NOTHING`).bind(user.id, day, Date.now(), user.id, day).run();
+        const attempt = await env.DB.prepare('SELECT correct, total, payload_hash FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?')
+          .bind(user.id, day).first();
+        if (attempt) {
+          if (!Number.isInteger(attempt.correct) || attempt.total !== QUIZ_SIZE || attempt.correct < 0 || attempt.correct > QUIZ_SIZE ||
+              (attempt.payload_hash !== null && !/^[0-9a-f]{64}$/.test(attempt.payload_hash))) throw new Error('invalid attempt');
+          return json({date:day, status:'recorded', correct:attempt.correct, total:QUIZ_SIZE, payloadHash:attempt.payload_hash});
+        }
+        const closed = await env.DB.prepare('SELECT participant_id FROM quiz_attempt_closures WHERE participant_id = ? AND quiz_date = ?').bind(user.id, day).first();
+        if (!closed) throw new Error('closure not confirmed');
+        return json({date:day, status:'closed'});
+      }
       if (request.method === 'GET' && path === '/quiz/today') {
         const day = today(), quiz = await loadQuiz(env, day);
         if (!quiz) return json({error:'Heute ist noch kein Quiz veröffentlicht.'}, 404);
@@ -220,8 +246,9 @@ export default {
         if (quiz.fingerprint !== data.fingerprint) return json({error:'Quiz wurde geändert. Bitte neu laden.'}, 409);
         let score; try { score = scoreAnswers(quiz.questions, data.answers); } catch { return json({error:'Antworten unvollständig oder ungültig.'}, 400); }
         const saved = await env.DB.prepare(`INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at, payload_hash)
-          VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(participant_id, quiz_date) DO NOTHING`)
-          .bind(user.id, day, score, quiz.questions.length, Date.now(), bodyHash).run();
+          SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM quiz_attempt_closures WHERE participant_id = ? AND quiz_date = ?)
+          ON CONFLICT(participant_id, quiz_date) DO NOTHING`)
+          .bind(user.id, day, score, quiz.questions.length, Date.now(), bodyHash, user.id, day).run();
         if (!saved.meta?.changes) return json({error:'Dieses Tagesquiz wurde bereits gewertet.'}, 409);
         return json({date:day, correct:score, total:quiz.questions.length}, 201);
       }

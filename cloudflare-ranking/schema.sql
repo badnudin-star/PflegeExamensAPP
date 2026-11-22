@@ -18,11 +18,27 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_participant ON quiz_attempts(participant_id);
 
+-- A closed day permanently rejects a delayed or subsequent submission for that account.
+CREATE TABLE IF NOT EXISTS quiz_attempt_closures (
+  participant_id TEXT NOT NULL REFERENCES quiz_participants(id),
+  quiz_date TEXT NOT NULL,
+  closed_at INTEGER NOT NULL,
+  PRIMARY KEY(participant_id, quiz_date)
+);
+
 CREATE TABLE IF NOT EXISTS quiz_hourly_snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   payload_json TEXT NOT NULL,
   generated_at INTEGER NOT NULL
 );
+
+-- Enforce mutual exclusion even for an older Worker still handling a request.
+CREATE TRIGGER IF NOT EXISTS quiz_attempt_reject_closed BEFORE INSERT ON quiz_attempts
+WHEN EXISTS (SELECT 1 FROM quiz_attempt_closures WHERE participant_id = NEW.participant_id AND quiz_date = NEW.quiz_date)
+BEGIN SELECT RAISE(ABORT, 'quiz day closed'); END;
+CREATE TRIGGER IF NOT EXISTS quiz_closure_reject_attempt BEFORE INSERT ON quiz_attempt_closures
+WHEN EXISTS (SELECT 1 FROM quiz_attempts WHERE participant_id = NEW.participant_id AND quiz_date = NEW.quiz_date)
+BEGIN SELECT RAISE(ABORT, 'quiz attempt already recorded'); END;
 
 -- Prevent a snapshot that raced with deletion from being published afterwards.
 CREATE TABLE IF NOT EXISTS quiz_snapshot_generation (
