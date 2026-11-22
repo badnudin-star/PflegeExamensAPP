@@ -113,7 +113,8 @@ class LearningFlowsUiTest {
         )
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = PublishedContentStore(context)
-        compose.setContent { PflegeExamenTheme { LearningAppContent(LearningCatalog(cards = deck), store) } }
+        val note = PublishedNote(title, "Einfache Testnotiz", "Nicht angezeigt", "Ausführliche Testnotiz", listOf("Test"), 2)
+        compose.setContent { PflegeExamenTheme { LearningAppContent(LearningCatalog(notes = listOf(note), cards = deck), store) } }
         compose.onNodeWithText("Karten", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Karteikarten durchsuchen").performTextInput(query)
         compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText(title))
@@ -123,6 +124,15 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Gefilterte Karten · Suche: $query").assertExists()
         compose.onNodeWithContentDescription("Zurück").performClick()
         compose.onNodeWithText(query).assertExists()
+
+        // The existing note-to-cards route omits the optional query and must stay unfiltered.
+        compose.onNodeWithText("Themen", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("topicList").performScrollToNode(hasText(title))
+        compose.onNodeWithText(title).performClick()
+        compose.onNodeWithText("Karteikarten zu diesem Thema lernen").performScrollTo().performClick()
+        compose.onNodeWithText("Erste Navigationsfrage").assertIsDisplayed()
+        compose.onNodeWithText("1 / 2").assertExists()
+        compose.onNodeWithText("Gefilterte Karten · Suche: $query").assertDoesNotExist()
     }
 
     @Test fun filteredCardSessionOnlyShowsMatchingVisibleCards() {

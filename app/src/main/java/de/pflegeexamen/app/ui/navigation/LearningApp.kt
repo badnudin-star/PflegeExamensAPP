@@ -228,7 +228,7 @@ internal fun Topics(catalog: LearningCatalog, open: (Int, String, String) -> Uni
     val notesByTopic = remember(catalog.notes) { catalog.notes.filter { it.formatVersion == 2 }.associateBy { it.topic } }
     fun matches(entry: de.pflegeexamen.app.domain.model.DefaultPreparationTemplate): Boolean =
         !searching || entry.title.contains(term, true) || entry.keywordsCsv.contains(term, true) || hits?.containsKey(entry.title) == true
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("topicList"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Deine Themen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text("Tippe auf ein Thema für den Lernzettel oder auf den Bereich darunter für die vereinfachte Version.", style = MaterialTheme.typography.bodyMedium) }
         item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Themen und Lernzettel durchsuchen") }, singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) }) }
