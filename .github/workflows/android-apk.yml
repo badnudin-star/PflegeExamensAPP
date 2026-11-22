@@ -68,6 +68,30 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: chmod +x ./gradlew && ./gradlew connectedDebugAndroidTest --no-daemon -PcontentUrl= -PrankingUrl=
+      - name: Ausführung aller Oberflächentests überprüfen
+        run: |
+          python - <<'PYCODE'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          expected = {
+              'shuffledCardAndAnswerSurviveSavedStateRecreation',
+              'individualCardCanBeHiddenWithoutHidingOtherCards',
+              'noteOutlineJumpsToSelectedHeading',
+              'caseSearchShowsMatchingDayWithoutOpeningAnswers',
+          }
+          found = set()
+          for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):
+              for case in ET.parse(report).iter('testcase'):
+                  if case.get('classname', '').endswith('.LearningFlowsUiTest') and case.get('name') in expected:
+                      if any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped')):
+                          raise SystemExit('Ein Oberflächentest ist fehlgeschlagen oder wurde übersprungen.')
+                      found.add(case.get('name'))
+          missing = expected - found
+          if missing:
+              raise SystemExit('Oberflächentests fehlen im Emulatorbericht: ' + ', '.join(sorted(missing)))
+          print(f'{len(found)} Oberflächentests tatsächlich ausgeführt.')
+          PYCODE
       - name: Emulator-Testberichte bereitstellen
         if: always()
         uses: actions/upload-artifact@v7
