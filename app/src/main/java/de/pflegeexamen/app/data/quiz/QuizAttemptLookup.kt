@@ -17,7 +17,7 @@ sealed interface AttemptLookup {
     /** No saved attempt was found at lookup time; a concurrent submission may still be in flight. */
     data object NotFound : AttemptLookup
     data object Unavailable : AttemptLookup
-    data class Found(val date: String, val correct: Int, val total: Int) : AttemptLookup
+    data class Found(val date: String, val correct: Int, val total: Int, val payloadHash: String?) : AttemptLookup
 }
 
 class AttemptResponse(val status: Int, val body: ByteArray)
@@ -26,7 +26,7 @@ fun interface AttemptLookupTransport {
 }
 
 @Serializable
-private data class ResultBody(val date: String, val correct: Int? = null, val total: Int? = null)
+private data class ResultBody(val date: String, val correct: Int? = null, val total: Int? = null, val payloadHash: String? = null)
 
 /** Read-only reconciliation; never retries or submits an attempt, and does not store credentials. */
 class QuizAttemptLookup(private val leaderboardUrl: String, private val transport: AttemptLookupTransport) {
@@ -59,7 +59,8 @@ class QuizAttemptLookup(private val leaderboardUrl: String, private val transpor
             if (response.status == 404) return AttemptLookup.NotFound
             val correct = body.correct ?: return AttemptLookup.Unavailable
             if (body.total != 50 || correct !in 0..50) return AttemptLookup.Unavailable
-            AttemptLookup.Found(date, correct, 50)
+            if (body.payloadHash != null && !Regex("^[0-9a-f]{64}$").matches(body.payloadHash)) return AttemptLookup.Unavailable
+            AttemptLookup.Found(date, correct, 50, body.payloadHash)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

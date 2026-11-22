@@ -16,7 +16,7 @@ function database() {
       }
       if (sql.includes('INSERT INTO quiz_attempts')) {
         if (attempts.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
-        attempts.push({id:args[0], date:args[1], points:args[2], total:args[3]}); return {meta:{changes:1}};
+        attempts.push({id:args[0], date:args[1], points:args[2], total:args[3], payloadHash:args[5]}); return {meta:{changes:1}};
       }
       if (sql.includes('INSERT INTO quiz_hourly_snapshot')) {
         if (state.onSnapshotWrite) { const hook=state.onSnapshotWrite; state.onSnapshotWrite=null; await hook(); }
@@ -33,7 +33,7 @@ function database() {
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
       if (sql.includes('FROM quiz_attempts WHERE participant_id')) {
         const attempt=attempts.find(a => a.id===args[0] && a.date===args[1]);
-        return attempt ? {correct:attempt.points, total:attempt.total} : null;
+        return attempt ? {correct:attempt.points, total:attempt.total, payload_hash:attempt.payloadHash ?? null} : null;
       }
       if (sql.includes('COUNT(DISTINCT participant_id)')) return {count:new Set(attempts.map(a => a.id)).size};
       if (sql.includes('FROM quiz_hourly_snapshot')) return state.snapshot ? {payload_json:state.snapshot} : null;
@@ -271,7 +271,8 @@ test('after a lost submission response only the owner can retrieve today’s sav
     const recovered=await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,alice),e);
     assert.equal(recovered.status,200);
     assert.equal(recovered.headers.get('Cache-Control'),'no-store');
-    assert.deepEqual(await recovered.json(),{date:day(), correct:50, total:50});
+    const expectedHash=Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(body)))).toString('hex');
+    assert.deepEqual(await recovered.json(),{date:day(), correct:50, total:50, payloadHash:expectedHash});
     assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,bob),e)).status,404);
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,409);
     assert.equal(e.DB.state.attempts.length,1);
@@ -285,7 +286,7 @@ test('score lookup supports past dates and rejects malformed or ambiguous querie
   e.DB.state.attempts.push({id,date:'2026-01-31',points:33,total:50});
   const previous=await worker.fetch(request('GET','/quiz/attempt/result?date=2026-01-31',undefined,token),e);
   assert.equal(previous.status,200);
-  assert.deepEqual(await previous.json(),{date:'2026-01-31',correct:33,total:50});
+  assert.deepEqual(await previous.json(),{date:'2026-01-31',correct:33,total:50,payloadHash:null});
   for (const query of ['', '?date=2026-02-30', '?date=20260131', '?date=2026-01-31&date=2026-02-01', '?date=2026-01-31&other=1']) {
     assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result${query}`,undefined,token),e)).status,400);
   }
@@ -319,4 +320,26 @@ test('concurrent retries with one token cannot create more than one participant'
   const statuses=await Promise.all([1,2,3].map(async()=> (await worker.fetch(request('POST','/participants',{username:'Name'},token),e)).status));
   assert.deepEqual(statuses.sort(),[200,200,201]);
   assert.equal(e.DB.state.participants.length,1);
+});
+
+test('result receipt hashes exact UTF-8 bytes of winning request, not a later conflicting attempt', async () => {
+  const original=globalThis.fetch, quiz=questions(), e=env();
+  quiz[0].id='frage-ä';
+  globalThis.fetch=async () => new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
+  try {
+    const token=await register(e,'Alice');
+    const visible=await (await worker.fetch(request('GET','/quiz/today'),e)).json();
+    const body={date:visible.date,fingerprint:visible.fingerprint,answers:answerSet(quiz)};
+    const raw=JSON.stringify(body, null, 2);
+    const req=new Request('https://rank.test/quiz/attempt', {method:'POST', headers:{'CF-Connecting-IP':'192.0.2.1', Authorization:`Bearer ${token}`}, body:raw});
+    assert.equal((await worker.fetch(req,e)).status,201);
+    const expected=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw))).toString('hex');
+    assert.notEqual(expected,Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(body)))).toString('hex'));
+    const changed={...body,answers:body.answers.map((a,i)=>i===0?{...a,option:1}:a)};
+    assert.equal((await worker.fetch(request('POST','/quiz/attempt',changed,token),e)).status,409);
+    const result=await (await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,token),e)).json();
+    assert.equal(result.payloadHash,expected);
+    e.DB.state.attempts[0].payloadHash='bad';
+    assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,token),e)).status,503);
+  } finally { globalThis.fetch=original; }
 });

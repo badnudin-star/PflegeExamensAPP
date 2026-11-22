@@ -10,9 +10,10 @@ const headers = {
 };
 const json = (value, status = 200) => new Response(JSON.stringify(value), {status, headers});
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-async function digest(value) {
-  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))));
+async function digestBytes(bytes) {
+  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
 }
+async function digest(value) { return digestBytes(new TextEncoder().encode(value)); }
 // Approximate, per-Cloudflare-location limits; not identity verification.
 // Only Cloudflare's connecting-IP header is used, never client forwarding headers.
 async function allowRate(limiter, key) {
@@ -54,7 +55,7 @@ function validUsername(value) {
   return typeof value === 'string' && value === value.trim() && value.length >= 2 && value.length <= 24 &&
     /^[\p{L}\p{N}_ .-]+$/u.test(value) && !/\s{2}/u.test(value);
 }
-async function limited(request, max) {
+async function limited(request, max, includeHash = false) {
   const declared = Number(request.headers.get('content-length') || 0);
   if (declared > max || !request.body) throw new Error('invalid body');
   const reader = request.body.getReader(), chunks = [];
@@ -68,7 +69,8 @@ async function limited(request, max) {
   }
   const bytes = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+  const value = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+  return includeHash ? {value, bodyHash:await digestBytes(bytes)} : value;
 }
 function catalogUrl(raw) {
   try {
@@ -189,13 +191,15 @@ export default {
         if ([...query.keys()].some(key => key !== 'date') || dates.length !== 1 ||
             !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== day)
           return json({error:'Ungültiges Quizdatum.'}, 400);
-        const attempt = await env.DB.prepare('SELECT correct, total FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?')
+        const attempt = await env.DB.prepare('SELECT correct, total, payload_hash FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?')
           .bind(user.id, day).first();
         if (!attempt) return json({date:day, error:'Noch kein gewerteter Versuch.'}, 404);
         if (!Number.isInteger(attempt.correct) || !Number.isInteger(attempt.total) ||
             attempt.total !== QUIZ_SIZE || attempt.correct < 0 || attempt.correct > attempt.total)
           throw new Error('invalid stored attempt');
-        return json({date:day, correct:attempt.correct, total:attempt.total});
+        if (attempt.payload_hash !== null && !/^[0-9a-f]{64}$/.test(attempt.payload_hash))
+          throw new Error('invalid stored hash');
+        return json({date:day, correct:attempt.correct, total:attempt.total, payloadHash:attempt.payload_hash});
       }
       if (request.method === 'GET' && path === '/quiz/today') {
         const day = today(), quiz = await loadQuiz(env, day);
@@ -205,7 +209,9 @@ export default {
       if (request.method === 'POST' && path === '/quiz/attempt') {
         const user = await participant(request, env);
         if (!user) return json({error:'Nicht autorisiert.'}, 401);
-        let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
+        let data, bodyHash;
+        try { ({value:data, bodyHash} = await limited(request, MAX_BODY, true)); }
+        catch { return json({error:'Ungültige Anfrage.'}, 400); }
         const day = today();
         if (!data || data.date !== day || typeof data.fingerprint !== 'string' || Object.keys(data).sort().join(',') !== 'answers,date,fingerprint')
           return json({error:'Nur das aktuelle Tagesquiz kann gewertet werden.'}, 400);
@@ -213,9 +219,9 @@ export default {
         if (!quiz) return json({error:'Heute ist noch kein Quiz veröffentlicht.'}, 404);
         if (quiz.fingerprint !== data.fingerprint) return json({error:'Quiz wurde geändert. Bitte neu laden.'}, 409);
         let score; try { score = scoreAnswers(quiz.questions, data.answers); } catch { return json({error:'Antworten unvollständig oder ungültig.'}, 400); }
-        const saved = await env.DB.prepare(`INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at)
-          VALUES(?, ?, ?, ?, ?) ON CONFLICT(participant_id, quiz_date) DO NOTHING`)
-          .bind(user.id, day, score, quiz.questions.length, Date.now()).run();
+        const saved = await env.DB.prepare(`INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at, payload_hash)
+          VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(participant_id, quiz_date) DO NOTHING`)
+          .bind(user.id, day, score, quiz.questions.length, Date.now(), bodyHash).run();
         if (!saved.meta?.changes) return json({error:'Dieses Tagesquiz wurde bereits gewertet.'}, 409);
         return json({date:day, correct:score, total:quiz.questions.length}, 201);
       }
