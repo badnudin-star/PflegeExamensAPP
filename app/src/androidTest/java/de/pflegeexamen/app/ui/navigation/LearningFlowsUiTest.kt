@@ -25,6 +25,20 @@ import de.pflegeexamen.app.data.quiz.ArchiveDaySummary
 import de.pflegeexamen.app.data.quiz.ArchiveTransport
 import de.pflegeexamen.app.data.quiz.QuizArchiveClient
 import de.pflegeexamen.app.data.quiz.FileArchiveCache
+import de.pflegeexamen.app.data.quiz.KeystoreTokenCipher
+import de.pflegeexamen.app.data.quiz.NoBackupTokenStorage
+import de.pflegeexamen.app.data.quiz.NoBackupPendingStorage
+import de.pflegeexamen.app.data.quiz.RankingTokenVault
+import de.pflegeexamen.app.data.quiz.TokenLoad
+import de.pflegeexamen.app.data.quiz.TokenSave
+import de.pflegeexamen.app.data.quiz.PendingAttemptStore
+import de.pflegeexamen.app.data.quiz.PendingMarker
+import de.pflegeexamen.app.data.quiz.PendingQuizReconciliation
+import de.pflegeexamen.app.data.quiz.PendingQuizState
+import de.pflegeexamen.app.data.quiz.AttemptLookup
+import de.pflegeexamen.app.data.quiz.sha256
+import kotlinx.coroutines.runBlocking
+import java.security.KeyStore
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -239,6 +253,66 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Kein Treffer in dieser Lernzettelversion").assertIsDisplayed()
         compose.onNodeWithContentDescription("Nächster Suchtreffer").assertDoesNotExist()
         compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertDoesNotExist()
+    }
+
+    @Test fun androidKeystoreProtectsTokenAndDetectsLostKey() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString()
+        val folder = File(base.cacheDir, "ranking-key-test-$unique")
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folder }
+        val alias = "ranking-test-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        check(!keystore.containsAlias(alias))
+        val token = "ab".repeat(32) // synthetic credential, never used with a real service
+        try {
+            val vault = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(TokenSave.SAVED, vault.saveNew(token))
+            val file = File(folder, "quiz-ranking-token.bin")
+            assertTrue(file.exists())
+            assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains(token))
+            val reopened = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(token, (reopened.load() as TokenLoad.Available).token)
+            keystore.deleteEntry(alias)
+            assertEquals(TokenLoad.Unavailable, reopened.load())
+            assertEquals(TokenSave.ALREADY_EXISTS, reopened.saveNew("cd".repeat(32)))
+            assertFalse(keystore.containsAlias(alias))
+            assertTrue(file.exists())
+        } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
+    }
+
+    @Test fun androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString()
+        val folder = File(base.cacheDir, "ranking-pending-test-$unique")
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folder }
+        val alias = "ranking-test-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        check(!keystore.containsAlias(alias))
+        val token = "ab".repeat(32)
+        val marker = PendingMarker(date = "2020-01-01", quizHash = "1".repeat(64),
+            accountHash = sha256(token.toByteArray(Charsets.US_ASCII)), payloadHash = "2".repeat(64))
+        try {
+            val vault = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(TokenSave.SAVED, vault.saveNew(token))
+            assertTrue(PendingAttemptStore(NoBackupPendingStorage(isolated)).begin(marker))
+            val file = File(folder, "quiz-ranking-pending.json")
+            assertFalse(file.readText().contains(token))
+            val reopened = PendingAttemptStore(NoBackupPendingStorage(isolated))
+            assertFalse(reopened.begin(marker))
+            val waiting = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.NotFound }
+            assertEquals(PendingQuizState.Waiting(marker.date), waiting.reconcile())
+            assertFalse(waiting.acknowledgeRecorded())
+            val mismatch = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.Found(marker.date, 42, 50, "3".repeat(64)) }
+            assertEquals(PendingQuizState.DifferentOrUnverifiedAttempt(marker.date), mismatch.reconcile())
+            assertTrue(file.exists())
+            val confirmed = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.Found(marker.date, 42, 50, marker.payloadHash) }
+            assertEquals(PendingQuizState.Recorded(marker.date, 42), confirmed.reconcile())
+            assertTrue(confirmed.acknowledgeRecorded())
+            assertFalse(file.exists())
+            assertEquals(token, (vault.load() as TokenLoad.Available).token)
+        } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
     }
 
     @Test fun androidPreferencesKeepSeparateLearningProgress() {

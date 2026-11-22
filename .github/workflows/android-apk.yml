@@ -33,7 +33,7 @@ jobs:
           python -m unittest discover -s tools/case_import -v
           python -m unittest discover -s tools/daily_quiz -v
       - name: Node.js für Worker- und SQLite-Tests einrichten
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
       - name: Worker testen
@@ -96,6 +96,8 @@ jobs:
               'noteSearchWithoutTextMatchDoesNotOfferNavigation',
               'topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange',
               'androidPreferencesKeepSeparateLearningProgress',
+              'androidKeystoreProtectsTokenAndDetectsLostKey',
+              'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):
