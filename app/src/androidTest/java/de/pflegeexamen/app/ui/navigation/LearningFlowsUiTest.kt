@@ -1,5 +1,9 @@
 package de.pflegeexamen.app.ui.navigation
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -11,6 +15,12 @@ import de.pflegeexamen.app.domain.content.PublishedCaseQuestion
 import de.pflegeexamen.app.domain.content.PublishedQuiz
 import de.pflegeexamen.app.data.progress.QuizProgressPersistence
 import de.pflegeexamen.app.data.progress.QuizProgressStore
+import de.pflegeexamen.app.data.progress.CardProgressStore
+import de.pflegeexamen.app.data.progress.CaseProgressStore
+import de.pflegeexamen.app.data.progress.SharedPreferencesCardProgress
+import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
+import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
+import java.util.UUID
 import de.pflegeexamen.app.ui.theme.PflegeExamenTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -76,6 +86,59 @@ class LearningFlowsUiTest {
         compose.onNodeWithContentDescription("Überschriften öffnen").performClick()
         compose.onNode(hasText("ZWEITER ABSCHNITT") and hasClickAction()).performClick()
         compose.onNodeWithText("ZWEITER ABSCHNITT").assertIsDisplayed()
+    }
+
+    @Test fun noteSearchJumpsToMatchAndRespectsLaterHeadingChoice() {
+        val filler = (1..35).joinToString("\n\n") { "Langer Übungsabsatz Nummer $it mit etwas Text." }
+        val note = "EXAMENSVORBEREITUNG · LERNZETTEL\n1\nEINLEITUNG\n$filler\n\nABSCHLUSS\nHier steht das Nadelwort als Fundstelle."
+        val restore = StateRestorationTester(compose)
+        restore.setContent {
+            PflegeExamenTheme { NoteScreen("Testthema", "Lernzettel", note, "Nadelwort", null, {}, {}, {}) }
+        }
+        compose.onNodeWithText("Hier steht das Nadelwort als Fundstelle.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Überschriften öffnen").performClick()
+        compose.onNode(hasText("EINLEITUNG") and hasClickAction()).performClick()
+        compose.onNodeWithText("EINLEITUNG").assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("EINLEITUNG").assertIsDisplayed()
+    }
+
+    @Test fun androidPreferencesKeepSeparateLearningProgress() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefix = "ui_test_" + UUID.randomUUID().toString() + "_"
+        val isolated = object : ContextWrapper(base) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences = base.getSharedPreferences(prefix + name, mode)
+        }
+        val quizA = listOf(PublishedQuiz("q1", "2026-01-01", "Test", "Frage?", listOf("A", "B", "C", "D"), 1, "Erklärung", listOf("Test")))
+        val quizB = listOf(quizA[0].copy(id = "q2", published = "2026-01-02"))
+        try {
+            CardProgressStore(SharedPreferencesCardProgress(isolated)).apply { setLearned("c1", true); setLearned("c2", true) }
+            CaseProgressStore(SharedPreferencesCaseProgress(isolated)).setCompleted("case1", true)
+            val quizzes = QuizProgressStore(SharedPreferencesQuizProgress(isolated))
+            quizzes.save("2026-01-01", quizA, quizzes.load("2026-01-01", quizA).answer(1, quizA))
+            quizzes.save("2026-01-02", quizB, quizzes.load("2026-01-02", quizB).answer(0, quizB))
+
+            val cardsAgain = CardProgressStore(SharedPreferencesCardProgress(isolated))
+            val casesAgain = CaseProgressStore(SharedPreferencesCaseProgress(isolated))
+            val quizAgain = QuizProgressStore(SharedPreferencesQuizProgress(isolated))
+            assertEquals(setOf("c1", "c2"), cardsAgain.learned.value)
+            assertEquals(setOf("case1"), casesAgain.completed.value)
+            assertEquals(listOf(1), quizAgain.load("2026-01-01", quizA).answers)
+            assertEquals(listOf(0), quizAgain.load("2026-01-02", quizB).answers)
+            cardsAgain.setLearned("c1", false)
+            quizAgain.reset("2026-01-01")
+            assertEquals(setOf("c2"), CardProgressStore(SharedPreferencesCardProgress(isolated)).learned.value)
+            assertEquals(setOf("case1"), CaseProgressStore(SharedPreferencesCaseProgress(isolated)).completed.value)
+            assertTrue(QuizProgressStore(SharedPreferencesQuizProgress(isolated)).load("2026-01-01", quizA).answers.isEmpty())
+            assertEquals(listOf(0), QuizProgressStore(SharedPreferencesQuizProgress(isolated)).load("2026-01-02", quizB).answers)
+        } finally {
+            // The UUID namespace ensures no existing app preferences are touched, even on a real device.
+            for (name in listOf("card_progress", "case_progress", "quiz_practice")) {
+                base.getSharedPreferences(prefix + name, Context.MODE_PRIVATE).edit().clear().commit()
+                base.deleteSharedPreferences(prefix + name)
+            }
+        }
     }
 
     @Test fun caseAnswerOnlyAppearsWhenExplicitlyExpanded() {
