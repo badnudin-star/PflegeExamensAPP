@@ -36,6 +36,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Testabhängigkeiten für Ranking-Worker installieren
+        run: npm ci --prefix cloudflare-ranking --no-audit --no-fund
       - name: Worker testen
         run: |
           npm test --prefix cloudflare-content
