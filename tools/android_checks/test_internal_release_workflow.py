@@ -13,6 +13,11 @@ class InternalReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('  pull_request:', workflow)
         self.assertIn("github.ref == 'refs/heads/main' && inputs.confirm == true", workflow)
         self.assertIn('environment: internal-release', workflow)
+        self.assertIn('needs: preflight', workflow)
+        self.assertIn('tools/android_checks/check_release_request.py', workflow)
+        # Secrets must only be available in the protected release job, never in preflight.
+        preflight = workflow.split('  preflight:', 1)[1].split('  release:', 1)[0]
+        self.assertNotIn('secrets.', preflight)
         self.assertIn('persist-credentials: false', workflow)
         self.assertIn('contents: read', workflow)
         self.assertIn('if: always()', workflow)
