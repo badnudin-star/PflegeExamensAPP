@@ -58,6 +58,7 @@ import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
 import de.pflegeexamen.app.domain.cards.CardVisibility
+import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 import kotlinx.coroutines.launch
@@ -103,7 +104,14 @@ fun LearningApp(store: PublishedContentStore) {
                 val note = catalog.notes.firstOrNull { it.topic == topic && it.formatVersion == 2 }
                 val content = if (depth == "simple") note?.short else note?.detailed
                 val depthLabel = if (depth == "simple") "Vereinfacht" else "Lernzettel"
-                NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty(), entry.arguments?.getString("query").orEmpty()) { nav.popBackStack() }
+                val counts = remember(catalog.cards, topic, learnedCards, showLearned) {
+                    topic?.let { CardVisibility.topicCounts(catalog.cards, it, learnedCards, showLearned) }
+                }
+                NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty(), entry.arguments?.getString("query").orEmpty(),
+                    counts = counts,
+                    openCards = { nav.navigate("card_session/$index") },
+                    manageLearned = { nav.navigate("learned_cards/topic/$index") },
+                    back = { nav.popBackStack() })
             }
             composable("cards") {
                 CardPicker(catalog, learnedCards, showLearned, { showLearned = it },
@@ -111,6 +119,12 @@ fun LearningApp(store: PublishedContentStore) {
             }
             composable("learned_cards") {
                 LearnedCardsScreen(catalog.cards, learnedCards, cardProgress::setLearned) { nav.popBackStack() }
+            }
+            composable("learned_cards/topic/{index}") { entry ->
+                val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
+                val topic = DefaultCatalogs.defaultPreparations.getOrNull(index)?.title
+                val scopedCards = remember(catalog.cards, topic) { catalog.cards.filter { topic != null && it.topic == topic } }
+                LearnedCardsScreen(scopedCards, learnedCards, cardProgress::setLearned, topic = topic) { nav.popBackStack() }
             }
             composable("card_session/{index}") { entry ->
                 val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
@@ -238,13 +252,14 @@ private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, sim
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteScreen(title: String, depth: String, body: String, query: String, back: () -> Unit) {
+private fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
+    openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit) {
     val blocks = remember(body) { NotePresentation.blocks(body) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var positioned by remember(body, query) { mutableStateOf(false) }
+    var positioned by rememberSaveable(body, query) { mutableStateOf(false) }
     val match = remember(blocks, query) { NotePresentation.firstMatch(blocks, query) }
-    LaunchedEffect(match, body, query) { if (match != null) listState.scrollToItem(match + 1) }
+    LaunchedEffect(match, body, query) { if (match != null && !positioned) listState.scrollToItem(match + 1) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
     }) }) { padding ->
@@ -256,6 +271,21 @@ private fun NoteScreen(title: String, depth: String, body: String, query: String
                         style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text("Inhalte und aktuelle Vorgaben vor der Anwendung prüfen.", style = MaterialTheme.typography.bodySmall)
+                    if (counts != null) {
+                        if (counts.total == 0) {
+                            Text("Für dieses Thema sind keine Karteikarten verfügbar.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text("Karteikarten: ${counts.visible} sichtbar · ${counts.learned} gelernt", style = MaterialTheme.typography.bodyMedium)
+                            if (counts.visible > 0) {
+                                OutlinedButton(onClick = openCards, modifier = Modifier.fillMaxWidth()) { Text("Karteikarten zu diesem Thema lernen") }
+                            } else {
+                                Text("Alle Karten dieses Themas sind ausgeblendet.", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (counts.learned > 0) {
+                                TextButton(onClick = manageLearned) { Text("Gelernte Karten dieses Themas verwalten") }
+                            }
+                        }
+                    }
                 }
             }
             itemsIndexed(blocks) { blockIndex, block ->
@@ -375,7 +405,7 @@ private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
+private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>, setLearned: (String, Boolean) -> Unit, topic: String? = null, back: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     val matches = remember(cards, learned, query) { CardVisibility.learnedMatching(cards, learned, query) }
     val count = remember(cards, learned) { cards.count { it.id in learned } }
@@ -383,7 +413,7 @@ private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>,
     val scope = rememberCoroutineScope()
     Scaffold(
         topBar = { TopAppBar(title = { Text("Gelernte Karten") }, navigationIcon = {
-            IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück zur Kartenübersicht") }
+            IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
         }) },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
@@ -391,6 +421,7 @@ private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>,
             item {
                 Text("Karten wieder einblenden", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             }
+            topic?.let { item { Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) } }
             item { Text("Wähle einzelne Karten aus, die du wieder lernen möchtest. Die Inhalte bleiben unverändert.") }
             item {
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
@@ -437,7 +468,7 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
         if (card == null) Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Keine sichtbaren Karten mehr. Du kannst gelernte Karten in der Übersicht wieder einblenden.", textAlign = TextAlign.Center)
-                OutlinedButton(onClick = back) { Text("Zur Kartenübersicht") }
+                OutlinedButton(onClick = back) { Text("Zurück") }
             }
         } else Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(card.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
