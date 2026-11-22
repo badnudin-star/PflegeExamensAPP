@@ -2,6 +2,7 @@ import copy
 import datetime as dt
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import quiz_pipeline as qp
@@ -11,6 +12,12 @@ DATE=dt.date(2026,11,18)
 def gen(topic,source):
     return [{'question':f'{topic} Frage {n}', 'options':['A','B','C','D'], 'correctIndex':1, 'explanation':'Erklärung', 'evidenceId':1} for n in range(10)]
 class QuizTests(unittest.TestCase):
+    def setUp(self):
+        # Synthetic catalog sizes must never be written to a real Actions summary.
+        env = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
+        env.start()
+        self.addCleanup(env.stop)
+
     def draft(self):
         from import_notes import topic_candidates
         index={name:{'name':name} for t in qp.select_topics(DATE) for name in topic_candidates(qp.TOPICS.index(t))[0]}
@@ -47,6 +54,24 @@ class QuizTests(unittest.TestCase):
         for error in (ValueError('secret or prompt'), RuntimeError('secret or prompt'),
                       ValueError('Gemini-Anfrage fehlgeschlagen (HTTP 429); secret')):
             self.assertNotIn('secret', qp.diagnostic(error))
+
+    def test_quiz_candidate_size_is_exact_and_oversize_still_prevents_network_write(self):
+        base={'schemaVersion':1,'revision':3,'notes':[],'cards':[],'cases':[],'quizzes':[]}
+        draft=self.draft()
+        class Response: status_code=200
+        class Http:
+            def __init__(self): self.requests=[]
+            def put(self,url,**kwargs): self.requests.append((url,kwargs)); return Response()
+        http=Http()
+        with patch.object(qp, 'read_remote', return_value=copy.deepcopy(base)), patch.object(qp, 'report_capacity') as report:
+            qp.publish(http,'https://example.org','x'*32,draft,base)
+            report.assert_called_once_with(len(http.requests[0][1]['data']), 'quiz_candidate')
+        blocked=Http()
+        with patch.object(qp, 'read_remote', return_value=copy.deepcopy(base)), patch.object(qp, 'MAX_CATALOG', 100), patch.object(qp, 'report_capacity') as report:
+            with self.assertRaisesRegex(ValueError, 'Größenlimit'):
+                qp.publish(blocked,'https://example.org','x'*32,draft,base)
+            self.assertEqual(len(blocked.requests),0)
+            self.assertGreater(report.call_args.args[0],100)
 
     def test_publication_preserves_catalog_and_rejects_conflicts(self):
         base={'schemaVersion':1,'revision':3,'notes':[],'cards':[],'cases':[],'quizzes':[]}; draft=self.draft()

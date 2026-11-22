@@ -40,6 +40,12 @@ class FakeHttp:
 
 
 class OfflineFlowTests(unittest.TestCase):
+    def setUp(self):
+        # Synthetic catalog sizes must never be written to a real Actions summary.
+        env = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
+        env.start()
+        self.addCleanup(env.stop)
+
     def index(self):
         from import_notes import topic_candidates
         return {name: {'name': name} for topic in qp.select_topics(DATE)

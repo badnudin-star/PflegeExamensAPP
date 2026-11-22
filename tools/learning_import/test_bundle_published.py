@@ -1,5 +1,9 @@
 import json
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
+import bundle_published
 from import_notes import MAX_CATALOG, TOPICS
 from bundle_published import validate_endpoint, validate_snapshot
 
@@ -36,6 +40,26 @@ class OfflineBundleTests(unittest.TestCase):
                 validate_snapshot(encode(value), baseline)
         with self.assertRaises(ValueError): validate_snapshot(b'{' , baseline)
         with self.assertRaises(ValueError): validate_snapshot(b'x' * (MAX_CATALOG + 1), baseline)
+
+    def test_bundle_reports_exact_downloaded_bytes_only_after_validation(self):
+        baseline, update = catalog(3), catalog(4)
+        with tempfile.TemporaryDirectory() as temp:
+            asset = Path(temp) / 'learning.json'
+            asset.write_bytes(encode(baseline))
+            raw = encode(update)
+            with patch.object(bundle_published, 'download', return_value=raw), \
+                 patch.object(bundle_published, 'report_capacity') as report, \
+                 patch('sys.argv', ['bundle_published.py', '--url', 'https://example.org/content', '--asset', str(asset)]):
+                bundle_published.main()
+                report.assert_called_once_with(len(raw), 'bundle')
+            self.assertEqual(asset.read_bytes(), raw)
+            bad = encode(dict(update, revision=2))
+            with patch.object(bundle_published, 'download', return_value=bad), \
+                 patch.object(bundle_published, 'report_capacity') as report, \
+                 patch('sys.argv', ['bundle_published.py', '--url', 'https://example.org/content', '--asset', str(asset)]):
+                with self.assertRaises(ValueError): bundle_published.main()
+                report.assert_not_called()
+            self.assertEqual(asset.read_bytes(), raw)
 
     def test_rejects_unsafe_urls(self):
         self.assertEqual(validate_endpoint('https://example.org/content'), 'https://example.org/content')

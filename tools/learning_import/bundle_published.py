@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 
 from import_notes import MAX_CATALOG, TOPICS, save_atomic
 from sync_drive import validate_base
+from catalog_capacity import report_capacity
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -59,6 +60,7 @@ def main():
     baseline = json.loads(args.asset.read_text(encoding='utf-8'))
     data = download(args.url)
     catalog = validate_snapshot(data, baseline)
+    report_capacity(len(data), 'bundle')
     # Atomic replacement in the CI workspace only. Never modify server or Drive.
     save_atomic(args.asset, data)
     print(f"Offline-Katalog Revision {catalog['revision']}: {len(catalog['notes'])} Themen, "
