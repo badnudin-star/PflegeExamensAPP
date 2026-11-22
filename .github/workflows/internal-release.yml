@@ -1,0 +1,71 @@
+name: Interne signierte APK erstellen
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Ich möchte eine interne APK mit dem hinterlegten Schlüssel erstellen
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Interne APK bauen und signieren
+    # Only the reviewed default branch, never arbitrary PR code or automatic pushes.
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    environment: internal-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ORG_GRADLE_PROJECT_contentUrl: ${{ vars.CONTENT_URL || 'https://pflegeexamen-content.badnudin.workers.dev/content' }}
+    steps:
+      - name: Geprüften Repository-Stand auschecken
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Geprüften öffentlichen Katalog für Offline-Nutzung einbinden
+        run: python tools/learning_import/bundle_published.py --url "$ORG_GRADLE_PROJECT_contentUrl"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Schlüsseldatei temporär und geschützt bereitstellen
+        env:
+          PFLEGE_RELEASE_KEYSTORE_BASE64: ${{ secrets.PFLEGE_RELEASE_KEYSTORE_BASE64 }}
+          PFLEGE_RELEASE_STORE_PASSWORD: ${{ secrets.PFLEGE_RELEASE_STORE_PASSWORD }}
+          PFLEGE_RELEASE_KEY_ALIAS: ${{ secrets.PFLEGE_RELEASE_KEY_ALIAS }}
+          PFLEGE_RELEASE_KEY_PASSWORD: ${{ secrets.PFLEGE_RELEASE_KEY_PASSWORD }}
+        run: python tools/android_checks/prepare_release_key.py
+      - name: Signierte interne APK bauen
+        env:
+          PFLEGE_RELEASE_STORE_PASSWORD: ${{ secrets.PFLEGE_RELEASE_STORE_PASSWORD }}
+          PFLEGE_RELEASE_KEY_ALIAS: ${{ secrets.PFLEGE_RELEASE_KEY_ALIAS }}
+          PFLEGE_RELEASE_KEY_PASSWORD: ${{ secrets.PFLEGE_RELEASE_KEY_PASSWORD }}
+        run: |
+          export PFLEGE_RELEASE_KEYSTORE="$RUNNER_TEMP/pflege-release-signing.keystore"
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon --quiet
+      - name: Temporäre Schlüsseldatei entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/pflege-release-signing.keystore"
+      - name: Signatur und Offline-Katalog prüfen
+        run: |
+          set -eu
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK"
+          python tools/android_checks/verify_release_apk.py "$APK" app/src/main/assets/learning_content.json
+      - name: Interne APK als zeitlich begrenztes Artifact bereitstellen
+        uses: actions/upload-artifact@v7
+        with:
+          name: PflegeExamen-intern-signiert
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -42,3 +42,5 @@ Ein Release-Build kann lokal mit den vier Umgebungsvariablen `PFLEGE_RELEASE_KEY
 Android kann lokale Lernfortschritte sichern oder auf ein neues Gerät übertragen, garantiert dies aber nicht; ein manueller vollständiger Fortschrittsexport und ein echter Wiederherstellungstest fehlen. Ältere Einstellungsdateien mit möglichen API-Schlüsseln oder Ranglistenkennungen werden für neue Android-Backups und Geräteübertragungen ausgeschlossen. Vorhandene ältere Sicherungen bleiben davon unberührt. Ranglistentoken und ausstehende Ranglistenaktionen liegen im No-Backup-Speicher. Details und Warnungen stehen in der [Gerätetest-Anleitung](docs/geraetetest.md).
 
 Die schreibgeschützte Cloudflare-Bereitschaftsprüfung und die Voraussetzungen für Archiv und Rangliste sind unter [Cloudflare-Bereitschaft](docs/cloudflare-bereitschaft.md) dokumentiert.
+
+Ein manuell bestätigter GitHub-Actions-Build für eine signierte interne APK ist vorbereitet. Einrichtung, Zugriffsschutz und Grenzen: [Interne Release-APK](docs/interne-release-apk.md).
