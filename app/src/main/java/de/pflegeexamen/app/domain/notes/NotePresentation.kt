@@ -3,6 +3,8 @@ package de.pflegeexamen.app.domain.notes
 /** Display-only transformation. The stored source text is never modified. */
 data class NoteSection(val heading: String?, val paragraphs: List<String>)
 data class NoteBlock(val text: String, val isHeading: Boolean = false)
+/** Index refers to the display blocks, not a source PDF page. */
+data class NoteHeading(val blockIndex: Int, val text: String)
 
 object NotePresentation {
     private val oldHeader = Regex("(?m)^EXAMEN 2027 \\| LERNZETTEL[ \\t]*\\r?\\n[0-9]+[ \\t]*(?:\\r?\\n|$)")
@@ -70,6 +72,11 @@ object NotePresentation {
     fun blocks(raw: String): List<NoteBlock> = sections(raw).flatMap { section ->
         listOfNotNull(section.heading?.let { NoteBlock(it, true) }) + section.paragraphs.map { NoteBlock(it) }
     }
+    /** Use the already displayed headings; preserve order and duplicate labels. */
+    fun headings(blocks: List<NoteBlock>): List<NoteHeading> = blocks.mapIndexedNotNull { index, block ->
+        if (block.isHeading && block.text.isNotBlank()) NoteHeading(index, block.text) else null
+    }
+
     fun firstMatch(blocks: List<NoteBlock>, query: String): Int? {
         val term = query.trim()
         if (term.isEmpty()) return null

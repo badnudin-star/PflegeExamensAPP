@@ -61,6 +61,7 @@ import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
+import de.pflegeexamen.app.domain.notes.NoteHeading
 import kotlinx.coroutines.launch
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
@@ -255,13 +256,27 @@ private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, sim
 private fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
     openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit) {
     val blocks = remember(body) { NotePresentation.blocks(body) }
+    val headings = remember(blocks) { NotePresentation.headings(blocks) }
+    var showContents by rememberSaveable(body) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var positioned by rememberSaveable(body, query) { mutableStateOf(false) }
     val match = remember(blocks, query) { NotePresentation.firstMatch(blocks, query) }
     LaunchedEffect(match, body, query) { if (match != null && !positioned) listState.scrollToItem(match + 1) }
+    if (showContents && headings.isNotEmpty()) {
+        NoteContentsDialog(headings, onDismiss = { showContents = false }) { blockIndex ->
+            showContents = false
+            // An explicit choice must not be overridden by the initial search jump.
+            positioned = true
+            scope.launch { listState.scrollToItem(blockIndex + 1) }
+        }
+    }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
+    }, actions = {
+        if (headings.isNotEmpty()) IconButton(onClick = { showContents = true }) {
+            Icon(Icons.Default.List, contentDescription = "Überschriften öffnen")
+        }
     }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -325,6 +340,27 @@ private fun NoteScreen(title: String, depth: String, body: String, query: String
             if (blocks.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }
         }
     }
+}
+
+@Composable
+private fun NoteContentsDialog(headings: List<NoteHeading>, onDismiss: () -> Unit, open: (Int) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Überschriften") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Automatisch erkannte Überschriften; die Liste kann unvollständig sein.", style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    headings.forEach { heading ->
+                        TextButton(onClick = { open(heading.blockIndex) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(heading.text, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Schließen") } }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

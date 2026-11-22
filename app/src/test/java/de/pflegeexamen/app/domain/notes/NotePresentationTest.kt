@@ -37,6 +37,38 @@ class NotePresentationTest {
         assertTrue(NotePresentation.sections(text).flatMap { it.paragraphs }.joinToString().contains("Quellen und Einordnung"))
         assertTrue(NotePresentation.sections("").isEmpty())
     }
+    @Test fun `outline uses display block indices and preserves repeated headings`() {
+        val blocks = listOf(
+            NoteBlock("Einleitung"), NoteBlock("Grundlagen", true), NoteBlock("Text"),
+            NoteBlock("Grundlagen", true), NoteBlock("  ", true), NoteBlock("Weiterer Text"), NoteBlock("Maßnahmen", true)
+        )
+        assertEquals(listOf(NoteHeading(1, "Grundlagen"), NoteHeading(3, "Grundlagen"), NoteHeading(6, "Maßnahmen")),
+            NotePresentation.headings(blocks))
+        assertEquals("Grundlagen", blocks[NotePresentation.headings(blocks)[1].blockIndex].text)
+        assertTrue(NotePresentation.headings(listOf(NoteBlock("Nur Text"))).isEmpty())
+        assertTrue(NotePresentation.headings(emptyList()).isEmpty())
+    }
+
+    @Test fun `outline uses rendered headings without changing or adding source text`() {
+        val raw = """
+            EXAMENSVORBEREITUNG · LERNZETTEL
+            1
+            GRUNDLAGEN
+            Text bleibt sichtbar.
+            MASSNAHMEN
+            Weiterer Text.
+            QUELLEN UND GRENZEN
+            Interne Referenzen nicht anzeigen.
+        """.trimIndent()
+        val before = raw.toString()
+        val blocks = NotePresentation.blocks(raw)
+        val headings = NotePresentation.headings(blocks)
+        assertEquals(listOf("GRUNDLAGEN", "MASSNAHMEN"), headings.map { it.text })
+        assertTrue(headings.all { blocks[it.blockIndex].isHeading && blocks[it.blockIndex].text == it.text })
+        assertFalse(headings.toString().contains("QUELLEN"))
+        assertEquals(before, raw)
+    }
+
     @Test fun `new PDFs present headings and hide end references`() {
         val text = """
             EXAMENSVORBEREITUNG · LERNZETTEL
