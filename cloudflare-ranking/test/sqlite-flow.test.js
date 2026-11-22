@@ -1,0 +1,80 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {webcrypto, createHash} from 'node:crypto';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import worker from '../src/worker.js';
+
+globalThis.crypto ??= webcrypto;
+const day = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const token = 'ac'.repeat(32);
+function db() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  sqlite.exec(readFileSync(new URL('../schema.sql', import.meta.url),'utf8'));
+  return {
+    sqlite, failBatch: false,
+    prepare(sql) {
+      let args = [];
+      return {
+        bind(...values) {args = values; return this;},
+        async first() {return sqlite.prepare(sql).get(...args) ?? null;},
+        async all() {return {results:sqlite.prepare(sql).all(...args)};},
+        async run() {return {meta:{changes:Number(sqlite.prepare(sql).run(...args).changes)}};}
+      };
+    },
+    async batch(statements) {
+      sqlite.exec('BEGIN');
+      try {
+        for (let i=0; i<statements.length; i++) {
+          if (this.failBatch && i === 1) throw new Error('simulated failure');
+          await statements[i].run();
+        }
+        sqlite.exec('COMMIT');
+      } catch (e) { sqlite.exec('ROLLBACK'); throw e; }
+    }
+  };
+}
+const req = (method, path, body, auth = token) => new Request('https://rank.test'+path, {
+  method, headers:{'Content-Type':'application/json', 'CF-Connecting-IP':'192.0.2.1', Authorization:'Bearer '+auth},
+  ...(body === undefined ? {} : {body:JSON.stringify(body)})
+});
+function environment() {
+  const allowed = {async limit() {return {success:true};}};
+  return {DB:db(), QUIZ_CATALOG_URL:'https://catalog.test/content', REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
+}
+
+test('real SQLite schema scores and deletes an account atomically; no old XP involved', async () => {
+  const e = environment(), originalFetch = globalThis.fetch;
+  const questions = Array.from({length:50}, (_,i) => ({id:`q-${i}`, published:day(), topic:'Test', question:`Frage ${i}`,
+    options:['A','B','C','D'], correctIndex:i%4, explanation:'Test'}));
+  globalThis.fetch = async () => new Response(JSON.stringify({schemaVersion:1, quizzes:questions}));
+  try {
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+    const quiz = await (await worker.fetch(req('GET','/quiz/today'),e)).json();
+    const answers = questions.map((q,i) => ({id:q.id, option:i===0 ? 1 : i%4}));
+    const body = {date:quiz.date, fingerprint:quiz.fingerprint, answers};
+    const score = await worker.fetch(req('POST','/quiz/attempt',body),e);
+    assert.equal(score.status,201);
+    assert.deepEqual(await score.json(),{date:quiz.date, correct:49, total:50});
+    assert.equal((await worker.fetch(req('POST','/quiz/attempt',body),e)).status,409);
+    const result = await (await worker.fetch(req('GET',`/quiz/attempt/result?date=${quiz.date}`),e)).json();
+    assert.equal(result.payloadHash,createHash('sha256').update(JSON.stringify(body)).digest('hex'));
+    const board = await (await worker.fetch(req('GET','/leaderboard'),e)).json();
+    assert.deepEqual(board.entries.map(x=>[x.username,x.points]),[['Testperson',49]]);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n,1);
+    // Simulate D1 batch failure after deleting attempts; no half-deletion survives rollback.
+    e.DB.failBatch = true;
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,503);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n,1);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_hourly_snapshot').get().n,1);
+    e.DB.failBatch = false;
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_hourly_snapshot').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT generation FROM quiz_snapshot_generation').get().generation,1);
+    assert.deepEqual((await (await worker.fetch(req('GET','/leaderboard'),e)).json()).entries,[]);
+  } finally { globalThis.fetch = originalFetch; }
+});
