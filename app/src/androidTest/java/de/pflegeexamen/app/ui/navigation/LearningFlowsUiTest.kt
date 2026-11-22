@@ -39,7 +39,7 @@ import de.pflegeexamen.app.data.quiz.AttemptLookup
 import de.pflegeexamen.app.data.quiz.RankedAnswer
 import de.pflegeexamen.app.data.quiz.RankedQuiz
 import de.pflegeexamen.app.data.quiz.RankedQuizQuestion
-import de.pflegeexamen.app.data.quiz.RankedQuizLoad
+import de.pflegeexamen.app.data.quiz.RankedQuizStart
 import de.pflegeexamen.app.data.quiz.RegistrationState
 import de.pflegeexamen.app.data.quiz.SubmissionResult
 import de.pflegeexamen.app.data.quiz.sha256
@@ -71,6 +71,30 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun rankedParticipationDoesNotReuseAnswersForChangedQuiz() {
+        var fingerprint = "a".repeat(64)
+        val service = object : RankedParticipationService {
+            override suspend fun status(): RegistrationState = RegistrationState.Registered("Test")
+            override suspend fun register(name: String): RegistrationState = RegistrationState.Registered(name)
+            override suspend fun load(): RankedQuizStart = RankedQuizStart.Ready(RankedQuiz("2026-11-13", fingerprint,
+                (1..50).map { RankedQuizQuestion("q-$it", "Test", "Frage $it", listOf("A", "B", "C", "D"), 0, "Erklärung") }))
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
+        }
+        val restore = StateRestorationTester(compose)
+        restore.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("B").performScrollTo().performClick()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: A").performScrollTo().assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        fingerprint = "c".repeat(64)
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("Quiztag oder Quizversion hat sich geändert. Die vorherigen Antworten können nicht übertragen werden.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: A").assertDoesNotExist()
+        compose.onNodeWithText("B").performScrollTo().assertIsEnabled()
+    }
+
     @Test fun rankedParticipationRequiresConfirmationAndRestoresAnswers() {
         val date = "2026-11-13"
         val quiz = RankedQuiz(date, "a".repeat(64), (1..50).map {
@@ -80,7 +104,7 @@ class LearningFlowsUiTest {
         val fake = object : RankedParticipationService {
             override suspend fun status(): RegistrationState = if (registered) RegistrationState.Registered("LernFuchs") else RegistrationState.NotPrepared
             override suspend fun register(name: String): RegistrationState { registrations++; registered = true; return RegistrationState.Registered(name) }
-            override suspend fun load(): RankedQuizLoad = RankedQuizLoad.Ready(quiz)
+            override suspend fun load(): RankedQuizStart = RankedQuizStart.Ready(quiz)
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult {
                 submissions++; submitted = answers; return SubmissionResult.Recorded(date, 49, 50)
             }

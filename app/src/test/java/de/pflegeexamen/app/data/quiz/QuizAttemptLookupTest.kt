@@ -46,6 +46,12 @@ class QuizAttemptLookupTest {
         }
     }
 
+    @Test fun `closed response is distinct from a missing attempt`() = runTest {
+        assertEquals(AttemptLookup.Closed(date), QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(410, """{"date":"2026-11-13","status":"closed"}""") }).lookup(date,token))
+        for (body in listOf("{}", """{"date":"2026-11-14","status":"closed"}""", """{"date":"2026-11-13","status":"other"}""", """{"date":"2026-11-13","status":"closed","correct":5}"""))
+            assertEquals(AttemptLookup.Unavailable, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(410,body) }).lookup(date,token))
+    }
+
     @Test fun `unsafe inputs do not contact server`() = runTest {
         var calls = 0
         val transport = AttemptLookupTransport { _,_ -> calls++; response(500, "") }

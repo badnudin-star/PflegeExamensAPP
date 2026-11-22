@@ -106,7 +106,11 @@ test('closing an uncertain attempt blocks a delayed submission, remains idempote
     assert.equal((await delayed).status,409);
     blockFetch = false;
     assert.equal((await worker.fetch(req('POST','/quiz/attempt',body,second),e)).status,201);
-    assert.equal((await worker.fetch(req('GET',`/quiz/attempt/result?date=${quiz.date}`),e)).status,404);
+    const closedStatus = await worker.fetch(req('GET',`/quiz/attempt/result?date=${quiz.date}`),e);
+    assert.equal(closedStatus.status,410);
+    assert.deepEqual(await closedStatus.json(),{date:quiz.date,status:'closed'});
+    const otherStatus = await worker.fetch(req('GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,second),e);
+    assert.equal(otherStatus.status,200);
     assert.deepEqual(await (await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date}),e)).json(),{date:quiz.date,status:'closed'});
     assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempt_closures').get().n,1);
     assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);

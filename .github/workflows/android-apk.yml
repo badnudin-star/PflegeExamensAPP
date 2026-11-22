@@ -124,6 +124,7 @@ jobs:
               'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
               'pendingQuizClosureRequiresExplicitConfirmation',
               'rankedParticipationRequiresConfirmationAndRestoresAnswers',
+              'rankedParticipationDoesNotReuseAnswersForChangedQuiz',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):

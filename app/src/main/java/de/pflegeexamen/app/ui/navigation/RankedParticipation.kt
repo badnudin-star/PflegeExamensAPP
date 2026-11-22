@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 internal interface RankedParticipationService {
     suspend fun status(): RegistrationState
     suspend fun register(name: String): RegistrationState
-    suspend fun load(): RankedQuizLoad
+    suspend fun load(): RankedQuizStart
     suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult
 }
 
@@ -52,10 +52,14 @@ internal fun RankedParticipation(url: String, back: () -> Unit) {
         val registration = QuizRegistration(url, vault, SecureRankingTokenGenerator(), HttpsRegistrationTransport())
         val quiz = RankedQuizClient(url, HttpsRankedQuizTransport())
         val submit = QuizAttemptSubmit(url, vault, pending, HttpsQuizSubmissionTransport())
+        val lookup = QuizAttemptLookup(url, HttpsAttemptLookupTransport())
+        val reconciliation = PendingQuizReconciliation(pending, vault, PendingResultLookup { date, token -> lookup.lookup(date, token) })
+        val start = RankedQuizStartCheck(StartPendingCheck { reconciliation.reconcile() }, StartQuizLoader { quiz.load() },
+            vault, StartResultLookup { date, token -> lookup.lookup(date, token) })
         object : RankedParticipationService {
             override suspend fun status() = registration.status()
             override suspend fun register(name: String) = registration.register(name)
-            override suspend fun load() = quiz.load()
+            override suspend fun load() = start.start()
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>) = submit.submit(quiz.date, quiz.fingerprint, answers)
         }
     }
@@ -86,7 +90,7 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
         scope.launch {
             try {
                 when (val loaded = service.load()) {
-                    is RankedQuizLoad.Ready -> {
+                    is RankedQuizStart.Ready -> {
                         val next = loaded.quiz
                         val resume = savedDate == next.date && savedFingerprint == next.fingerprint &&
                             index in 0..next.questions.size && selections.length <= next.questions.size &&
@@ -98,7 +102,10 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
                         }
                         quiz = next; submission = null
                     }
-                    else -> message = "Das Wertungsquiz ist nicht verfügbar. Lokales Üben ist weiterhin möglich."
+                    is RankedQuizStart.Closed -> message = "Der Wertungstag ${loaded.date} ist für dieses Konto gesperrt. Lokales Üben bleibt möglich."
+                    RankedQuizStart.Pending -> message = "Es gibt eine ungeklärte oder unbestätigte Abgabe. Bitte zuerst den Abgabestatus in der Ranglistenansicht prüfen."
+                    is RankedQuizStart.AlreadyRecorded -> message = "Für ${loaded.date} ist bereits ein Ergebnis gespeichert: ${loaded.correct} von ${loaded.total} richtig. Ein weiterer Wertungsversuch ist nicht möglich."
+                    RankedQuizStart.Unavailable -> message = "Das Wertungsquiz oder der Ergebnisstatus ist nicht verfügbar. Lokales Üben ist weiterhin möglich."
                 }
             } finally { busy = false }
         }

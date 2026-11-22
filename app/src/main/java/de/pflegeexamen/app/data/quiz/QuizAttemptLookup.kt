@@ -16,6 +16,7 @@ sealed interface AttemptLookup {
     data object InvalidToken : AttemptLookup
     /** No saved attempt was found at lookup time; a concurrent submission may still be in flight. */
     data object NotFound : AttemptLookup
+    data class Closed(val date: String) : AttemptLookup
     data object Unavailable : AttemptLookup
     data class Found(val date: String, val correct: Int, val total: Int, val payloadHash: String?) : AttemptLookup
 }
@@ -26,7 +27,7 @@ fun interface AttemptLookupTransport {
 }
 
 @Serializable
-private data class ResultBody(val date: String, val correct: Int? = null, val total: Int? = null, val payloadHash: String? = null)
+private data class ResultBody(val date: String, val correct: Int? = null, val total: Int? = null, val payloadHash: String? = null, val status: String? = null)
 
 /** Read-only reconciliation; never retries or submits an attempt, and does not store credentials. */
 class QuizAttemptLookup(private val leaderboardUrl: String, private val transport: AttemptLookupTransport) {
@@ -49,7 +50,7 @@ class QuizAttemptLookup(private val leaderboardUrl: String, private val transpor
         return try {
             val response = transport.fetch(url, token)
             if (response.status == 401) return AttemptLookup.InvalidToken
-            if (response.status != 200 && response.status != 404) return AttemptLookup.Unavailable
+            if (response.status != 200 && response.status != 404 && response.status != 410) return AttemptLookup.Unavailable
             if (response.body.size > MAX_RESPONSE_BYTES) return AttemptLookup.Unavailable
             val body = runCatching {
                 val text = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(response.body)).toString()
@@ -57,6 +58,8 @@ class QuizAttemptLookup(private val leaderboardUrl: String, private val transpor
             }.getOrNull() ?: return AttemptLookup.Unavailable
             if (body.date != date) return AttemptLookup.Unavailable
             if (response.status == 404) return AttemptLookup.NotFound
+            if (response.status == 410) return if (body.status == "closed" && body.correct == null && body.total == null && body.payloadHash == null)
+                AttemptLookup.Closed(date) else AttemptLookup.Unavailable
             val correct = body.correct ?: return AttemptLookup.Unavailable
             if (body.total != 50 || correct !in 0..50) return AttemptLookup.Unavailable
             if (body.payloadHash != null && !Regex("^[0-9a-f]{64}$").matches(body.payloadHash)) return AttemptLookup.Unavailable
@@ -89,7 +92,7 @@ class HttpsAttemptLookupTransport : AttemptLookupTransport {
             connection.useCaches = false
             connection.setRequestProperty("Authorization", "Bearer $token")
             val status = connection.responseCode
-            if (status != 200 && status != 404) return@withContext AttemptResponse(status, byteArrayOf())
+            if (status != 200 && status != 404 && status != 410) return@withContext AttemptResponse(status, byteArrayOf())
             val stream = if (status == 200) connection.inputStream else connection.errorStream
             if (stream == null) return@withContext AttemptResponse(status, byteArrayOf())
             stream.use { input ->
