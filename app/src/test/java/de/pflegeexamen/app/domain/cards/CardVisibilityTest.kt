@@ -17,6 +17,17 @@ class CardVisibilityTest {
         assertEquals(3, cards.size) // no content is deleted
     }
 
+    @Test fun `topic counts are exact and reflect visibility without modifying learned state`() {
+        val deck = listOf(cards[0].copy(topic="Herz"), cards[1].copy(topic="Herz"), cards[2].copy(topic="Lunge"))
+        val learned = setOf("b", "c", "unrelated")
+        assertEquals(TopicCardCounts(2, 1, 1), CardVisibility.topicCounts(deck, "Herz", learned, false))
+        assertEquals(TopicCardCounts(2, 2, 1), CardVisibility.topicCounts(deck, "Herz", learned, true))
+        assertEquals(TopicCardCounts(1, 0, 1), CardVisibility.topicCounts(deck, "Lunge", learned, false))
+        assertEquals(TopicCardCounts(0, 0, 0), CardVisibility.topicCounts(deck, "herz", learned, false))
+        assertEquals(TopicCardCounts(0, 0, 0), CardVisibility.topicCounts(emptyList(), "Herz", learned, true))
+        assertEquals(setOf("b", "c", "unrelated"), learned)
+    }
+
     @Test fun `search only learned cards by topic question or answer without changing saved ids`() {
         val deck = listOf(
             PublishedCard("1", "Herz", "Puls prüfen", "Am Handgelenk", listOf("Quelle")),
