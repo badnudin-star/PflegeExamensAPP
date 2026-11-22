@@ -81,6 +81,8 @@ jobs:
               'caseSearchShowsMatchingDayWithoutOpeningAnswers',
               'caseAnswerOnlyAppearsWhenExplicitlyExpanded',
               'localQuizResumesAndReviewsWithoutRanking',
+              'noteSearchJumpsToMatchAndRespectsLaterHeadingChoice',
+              'androidPreferencesKeepSeparateLearningProgress',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):

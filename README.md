@@ -21,12 +21,14 @@ Der zuletzt importierte Bestand umfasste 523 Karten und 30 Fallbeispiele mit 494
 ## Installation und Build
 
 - Eine Debug-APK ist im erfolgreichen GitHub-Actions-Lauf **Build Android APK** als Artifact `PflegeExamenLokal-debug-apk` verfügbar, solange das Artifact aufbewahrt wird. Releases können ebenfalls APKs enthalten.
-- Für einen lokalen Build werden Android Studio bzw. JDK 17 und Android SDK Platform 35 benötigt (`minSdk = 26`):
+- Für einen lokalen Build werden Android Studio bzw. JDK 17 und Android SDK Platform 36 benötigt (`minSdk = 26`):
 
   ```sh
   ./gradlew testDebugUnitTest assembleDebug
   ```
 
   Die APK liegt danach unter `app/build/outputs/apk/debug/app-debug.apk`.
+
+Eine Anleitung für den freiwilligen Smartphone-Test steht unter [Gerätetest](docs/geraetetest.md).
 
 Der Build kann je nach Konfiguration einen öffentlichen Katalog laden; Zugangsschlüssel gehören weder in die App noch ins Repository.
