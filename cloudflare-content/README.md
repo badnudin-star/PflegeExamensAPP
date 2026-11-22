@@ -21,3 +21,9 @@ Der vorbereitete Operator-Ablauf mit unabhängiger Sicherung und Konfliktprüfun
 ## Tests
 
 `npm test --prefix cloudflare-content` benötigt Node 22 und testet Archivierung und Revisionen auch gegen lokales SQLite. Dazu kommen Android-JVM-/Emulator- und Python-Tests. Diese Tests ersetzen keine echte D1-/Cloudflare-Prüfung, Backup-Wiederherstellung, fachliche Freigabe oder Tests aller installierten App-Versionen.
+
+## Cloudflare-nahe Archivtests
+
+Mit Node.js 22: `npm ci --prefix cloudflare-content` und `npm test --prefix cloudflare-content`. Miniflare/workerd führt den tatsächlichen Inhalts-Worker mit synthetischem Token und einer isolierten, nicht persistierten D1-Emulation aus. Das Test-Hilfsmodul mit SQL-Endpunkt ist nur für lokale Tests und darf **nicht** deployt werden; ausgehende Worker-Anfragen werden im Test an einen blockierenden internen Dienst geleitet. Die Tests prüfen unter anderem frisches Schema, Migration einer bestehenden Momentaufnahme, Zugriffsschutz, Archivierung, unveränderte Kopien, Seitennavigation, sichere Entfernung und konkurrierende Veröffentlichungen/Archivierungen.
+
+Die fest gepinnte Miniflare-5-Betaversion wird für das in `wrangler.toml` eingetragene Kompatibilitätsdatum `2026-11-01` benötigt; sie kann selbst Fehler oder spätere API-Änderungen enthalten. Die Emulation ist keine echte Cloudflare-D1-Datenbank und ersetzt insbesondere keine Tests von Deployment, Migration, Restore, Produktionsparallelität und Cache-Verhalten im separaten Testkonto. Hier werden keine produktiven Daten oder Dienste verändert.
