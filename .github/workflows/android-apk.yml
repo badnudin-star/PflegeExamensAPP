@@ -82,6 +82,7 @@ jobs:
               'caseAnswerOnlyAppearsWhenExplicitlyExpanded',
               'localQuizResumesAndReviewsWithoutRanking',
               'noteSearchJumpsToMatchAndRespectsLaterHeadingChoice',
+              'topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange',
               'androidPreferencesKeepSeparateLearningProgress',
           }
           found = set()

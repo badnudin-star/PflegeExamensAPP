@@ -67,6 +67,10 @@ import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 import de.pflegeexamen.app.domain.notes.NoteHeading
+import de.pflegeexamen.app.domain.notes.NoteSearchIndex
+import de.pflegeexamen.app.domain.notes.NoteSearchHit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -184,22 +188,39 @@ private fun HomeCard(title: String, body: String, action: String, click: () -> U
 }
 
 @Composable
-private fun Topics(catalog: LearningCatalog, open: (Int, String, String) -> Unit) {
+internal fun Topics(catalog: LearningCatalog, open: (Int, String, String) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     val topics = DefaultCatalogs.defaultPreparations
     val term = query.trim()
-    fun contentMatch(text: String): Boolean = term.isNotEmpty() && NotePresentation.firstMatch(NotePresentation.blocks(text), term) != null
-    fun matches(entry: de.pflegeexamen.app.domain.model.DefaultPreparationTemplate): Boolean {
-        val note = catalog.notes.firstOrNull { it.topic == entry.title && it.formatVersion == 2 }
-        return entry.title.contains(term, true) || entry.keywordsCsv.contains(term, true) ||
-            (note != null && (contentMatch(note.detailed) || contentMatch(note.short)))
+    // Parsing PDF-derived display blocks is expensive: build the index once per
+    // catalog off the UI thread, and discard results for superseded catalogs/queries.
+    val indexed by produceState<Pair<List<PublishedNote>, NoteSearchIndex>?>(null, catalog.notes) {
+        val notes = catalog.notes
+        value = null
+        val index = withContext(Dispatchers.Default) { NoteSearchIndex(notes) }
+        value = notes to index
     }
+    val index = indexed?.takeIf { it.first == catalog.notes }?.second
+    val searched by produceState<Triple<NoteSearchIndex, String, Map<String, NoteSearchHit>>?>(null, index, term) {
+        value = null
+        if (index != null && term.isNotEmpty()) {
+            val hits = withContext(Dispatchers.Default) { index.search(term) }
+            value = Triple(index, term, hits)
+        }
+    }
+    val hits = searched?.takeIf { it.first === index && it.second == term }?.third
+    val searching = term.isNotEmpty()
+    val waiting = searching && hits == null
+    val notesByTopic = remember(catalog.notes) { catalog.notes.filter { it.formatVersion == 2 }.associateBy { it.topic } }
+    fun matches(entry: de.pflegeexamen.app.domain.model.DefaultPreparationTemplate): Boolean =
+        !searching || entry.title.contains(term, true) || entry.keywordsCsv.contains(term, true) || hits?.containsKey(entry.title) == true
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Deine Themen", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text("Tippe auf ein Thema für den Lernzettel oder auf den Bereich darunter für die vereinfachte Version.", style = MaterialTheme.typography.bodyMedium) }
         item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Themen und Lernzettel durchsuchen") }, singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) }) }
-        listOf("Tag 1", "Tag 2", "Tag 3").forEach { day ->
+        if (waiting) item { Text("Lernzettel werden durchsucht …") }
+        if (!waiting) listOf("Tag 1", "Tag 2", "Tag 3").forEach { day ->
             val group = topics.withIndex().filter { it.value.examDayTag == day && matches(it.value) }
             if (group.isNotEmpty()) {
                 item(key = "heading-$day") {
@@ -211,14 +232,15 @@ private fun Topics(catalog: LearningCatalog, open: (Int, String, String) -> Unit
                     }
                 }
                 if (collapsed[day] != true || term.isNotEmpty()) items(group, key = { "topic-${it.index}" }) { entry ->
-                    val note = catalog.notes.firstOrNull { it.topic == entry.value.title && it.formatVersion == 2 }
-                    TopicTile(entry.value.title, note != null, note != null && contentMatch(note.detailed), note != null && contentMatch(note.short)) {
+                    val note = notesByTopic[entry.value.title]
+                    val hit = hits?.get(entry.value.title)
+                    TopicTile(entry.value.title, note != null, hit?.main == true, hit?.simple == true) {
                         open(entry.index, it, term)
                     }
                 }
             }
         }
-        if (topics.none { matches(it) }) item { Text("Keine passenden Themen oder Lernzettel gefunden.") }
+        if (!waiting && topics.none { matches(it) }) item { Text("Keine passenden Themen oder Lernzettel gefunden.") }
     }
 }
 
