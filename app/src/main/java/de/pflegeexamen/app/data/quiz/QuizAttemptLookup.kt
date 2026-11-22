@@ -57,7 +57,8 @@ class QuizAttemptLookup(private val leaderboardUrl: String, private val transpor
                 json.decodeFromString<ResultBody>(text)
             }.getOrNull() ?: return AttemptLookup.Unavailable
             if (body.date != date) return AttemptLookup.Unavailable
-            if (response.status == 404) return AttemptLookup.NotFound
+            if (response.status == 404) return if (body.status == null && body.correct == null && body.total == null && body.payloadHash == null)
+                AttemptLookup.NotFound else AttemptLookup.Unavailable
             if (response.status == 410) return if (body.status == "closed" && body.correct == null && body.total == null && body.payloadHash == null)
                 AttemptLookup.Closed(date) else AttemptLookup.Unavailable
             val correct = body.correct ?: return AttemptLookup.Unavailable
