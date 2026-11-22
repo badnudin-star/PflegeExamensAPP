@@ -224,6 +224,29 @@ jobs:
         run: |
           ./gradlew assembleRelease --no-daemon --stacktrace
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
+          if PFLEGE_RELEASE_KEY_ALIAS=incomplete ./gradlew help --no-daemon >/dev/null 2>&1; then
+            echo 'Unvollständige Release-Signatur wurde nicht abgelehnt.'
+            exit 1
+          fi
+
+      - name: Release-Signierung mit temporärem Testschlüssel prüfen
+        run: |
+          set -eu
+          KEYSTORE="$RUNNER_TEMP/synthetic-release.p12"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          keytool -genkeypair -keystore "$KEYSTORE" -storetype PKCS12 -alias test-only \
+            -storepass synthetic-test -keypass synthetic-test -keyalg RSA -keysize 2048 \
+            -validity 1 -dname 'CN=Synthetic CI Test' >/dev/null 2>&1
+          PFLEGE_RELEASE_KEYSTORE="$KEYSTORE" \
+          PFLEGE_RELEASE_STORE_PASSWORD=synthetic-test \
+          PFLEGE_RELEASE_KEY_ALIAS=test-only \
+          PFLEGE_RELEASE_KEY_PASSWORD=synthetic-test \
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify "$APK"
 
       - name: Offline-Katalog in der APK prüfen
         run: |
@@ -236,7 +259,11 @@ jobs:
           with zipfile.ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
               packaged = apk.read('assets/learning_content.json')
           if packaged != original:
-              raise SystemExit('Die APK enthält nicht den geprüften Offline-Katalog.')
+              raise SystemExit('Die Debug-APK enthält nicht den geprüften Offline-Katalog.')
+          with zipfile.ZipFile('app/build/outputs/apk/release/app-release.apk') as apk:
+              release_packaged = apk.read('assets/learning_content.json')
+          if release_packaged != original:
+              raise SystemExit('Die Release-Test-APK enthält nicht den geprüften Offline-Katalog.')
           print('Offline-Katalog in APK geprüft: SHA-256 ' + hashlib.sha256(packaged).hexdigest())
           PYCODE
 

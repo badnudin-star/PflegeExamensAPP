@@ -42,8 +42,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Optional, explicitly supplied release credentials. Never embed them in source.
+    // A partial configuration is an error rather than silently producing an unsigned APK.
+    val releaseKeyNames = listOf("PFLEGE_RELEASE_KEYSTORE", "PFLEGE_RELEASE_STORE_PASSWORD", "PFLEGE_RELEASE_KEY_ALIAS", "PFLEGE_RELEASE_KEY_PASSWORD")
+    val releaseKeys = releaseKeyNames.associateWith { providers.environmentVariable(it).orNull?.takeIf(String::isNotBlank) }
+    val hasReleaseKeys = releaseKeys.values.any { it != null }
+    if (hasReleaseKeys) {
+        require(releaseKeys.values.all { it != null }) { "Release-Signatur ist unvollständig konfiguriert." }
+        require(file(releaseKeys.getValue("PFLEGE_RELEASE_KEYSTORE")!!).isFile) { "Release-Keystore nicht gefunden." }
+        signingConfigs.create("configuredRelease") {
+            storeFile = file(releaseKeys.getValue("PFLEGE_RELEASE_KEYSTORE")!!)
+            storePassword = releaseKeys.getValue("PFLEGE_RELEASE_STORE_PASSWORD")
+            keyAlias = releaseKeys.getValue("PFLEGE_RELEASE_KEY_ALIAS")
+            keyPassword = releaseKeys.getValue("PFLEGE_RELEASE_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseKeys) signingConfig = signingConfigs.getByName("configuredRelease")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
