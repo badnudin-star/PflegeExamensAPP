@@ -41,9 +41,16 @@ class QuizAttemptLookupTest {
     @Test fun `not found is different from network failure and invalid token`() = runTest {
         assertEquals(AttemptLookup.NotFound, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(404, """{"date":"2026-11-13","error":"Noch kein gewerteter Versuch."}""") }).lookup(date, token))
         assertEquals(AttemptLookup.InvalidToken, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(401, "") }).lookup(date, token))
+        assertEquals(AttemptLookup.Unavailable, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(404, """{"date":"2026-11-13","status":"closed"}""") }).lookup(date, token))
         for (code in listOf(300, 302, 400, 403, 429, 500, 503)) {
             assertEquals(AttemptLookup.Unavailable, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(code, "") }).lookup(date, token))
         }
+    }
+
+    @Test fun `closed response is distinct from a missing attempt`() = runTest {
+        assertEquals(AttemptLookup.Closed(date), QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(410, """{"date":"2026-11-13","status":"closed"}""") }).lookup(date,token))
+        for (body in listOf("{}", """{"date":"2026-11-14","status":"closed"}""", """{"date":"2026-11-13","status":"other"}""", """{"date":"2026-11-13","status":"closed","correct":5}"""))
+            assertEquals(AttemptLookup.Unavailable, QuizAttemptLookup(url, AttemptLookupTransport { _,_ -> response(410,body) }).lookup(date,token))
     }
 
     @Test fun `unsafe inputs do not contact server`() = runTest {

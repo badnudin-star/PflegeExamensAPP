@@ -194,7 +194,10 @@ export default {
           return json({error:'Ungültiges Quizdatum.'}, 400);
         const attempt = await env.DB.prepare('SELECT correct, total, payload_hash FROM quiz_attempts WHERE participant_id = ? AND quiz_date = ?')
           .bind(user.id, day).first();
-        if (!attempt) return json({date:day, error:'Noch kein gewerteter Versuch.'}, 404);
+        if (!attempt) {
+          const closed = await env.DB.prepare('SELECT participant_id FROM quiz_attempt_closures WHERE participant_id = ? AND quiz_date = ?').bind(user.id, day).first();
+          return closed ? json({date:day, status:'closed'}, 410) : json({date:day, error:'Noch kein gewerteter Versuch.'}, 404);
+        }
         if (!Number.isInteger(attempt.correct) || !Number.isInteger(attempt.total) ||
             attempt.total !== QUIZ_SIZE || attempt.correct < 0 || attempt.correct > attempt.total)
           throw new Error('invalid stored attempt');

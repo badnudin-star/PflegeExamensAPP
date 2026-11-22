@@ -36,6 +36,12 @@ import de.pflegeexamen.app.data.quiz.PendingMarker
 import de.pflegeexamen.app.data.quiz.PendingQuizReconciliation
 import de.pflegeexamen.app.data.quiz.PendingQuizState
 import de.pflegeexamen.app.data.quiz.AttemptLookup
+import de.pflegeexamen.app.data.quiz.RankedAnswer
+import de.pflegeexamen.app.data.quiz.RankedQuiz
+import de.pflegeexamen.app.data.quiz.RankedQuizQuestion
+import de.pflegeexamen.app.data.quiz.RankedQuizStart
+import de.pflegeexamen.app.data.quiz.RegistrationState
+import de.pflegeexamen.app.data.quiz.SubmissionResult
 import de.pflegeexamen.app.data.quiz.sha256
 import kotlinx.coroutines.runBlocking
 import java.security.KeyStore
@@ -63,6 +69,77 @@ class LearningFlowsUiTest {
 
     private fun visibleQuestion(): PublishedCard = cards.single { card ->
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    @Test fun rankedParticipationDoesNotReuseAnswersForChangedQuiz() {
+        var fingerprint = "a".repeat(64)
+        val service = object : RankedParticipationService {
+            override suspend fun status(): RegistrationState = RegistrationState.Registered("Test")
+            override suspend fun register(name: String): RegistrationState = RegistrationState.Registered(name)
+            override suspend fun load(): RankedQuizStart = RankedQuizStart.Ready(RankedQuiz("2026-11-13", fingerprint,
+                (1..50).map { RankedQuizQuestion("q-$it", "Test", "Frage $it", listOf("A", "B", "C", "D"), 0, "Erklärung") }))
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
+        }
+        val restore = StateRestorationTester(compose)
+        restore.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("B").performScrollTo().performClick()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: A").performScrollTo().assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        fingerprint = "c".repeat(64)
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("Quiztag oder Quizversion hat sich geändert. Die vorherigen Antworten können nicht übertragen werden.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: A").assertDoesNotExist()
+        compose.onNodeWithText("B").performScrollTo().assertIsEnabled()
+    }
+
+    @Test fun rankedParticipationRequiresConfirmationAndRestoresAnswers() {
+        val date = "2026-11-13"
+        val quiz = RankedQuiz(date, "a".repeat(64), (1..50).map {
+            RankedQuizQuestion("q-$it", "Testthema", "Frage $it", listOf("Antwort A", "Antwort B", "Antwort C", "Antwort D"), 0, "Erklärung $it")
+        })
+        var registered = false; var registrations = 0; var submissions = 0; var submitted = emptyList<RankedAnswer>()
+        val fake = object : RankedParticipationService {
+            override suspend fun status(): RegistrationState = if (registered) RegistrationState.Registered("LernFuchs") else RegistrationState.NotPrepared
+            override suspend fun register(name: String): RegistrationState { registrations++; registered = true; return RegistrationState.Registered(name) }
+            override suspend fun load(): RankedQuizStart = RankedQuizStart.Ready(quiz)
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult {
+                submissions++; submitted = answers; return SubmissionResult.Recorded(date, 49, 50)
+            }
+        }
+        val restore = StateRestorationTester(compose)
+        restore.setContent { PflegeExamenTheme { RankedParticipationScreen(fake, {}) } }
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Pseudonym").performTextInput("LernFuchs")
+        compose.onNodeWithText("Anmelden").performScrollTo().performClick()
+        compose.onNodeWithText("Abbrechen").performClick()
+        compose.runOnIdle { assertEquals(0, registrations) }
+        compose.onNodeWithText("Anmelden").performScrollTo().performClick()
+        compose.onNodeWithText("Anmeldung senden").performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("Antwort B").performScrollTo().performClick()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: Antwort A").performScrollTo().assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Kontostatus prüfen").performScrollTo().performClick()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").performScrollTo().performClick()
+        compose.onNodeWithText("Nicht richtig. Richtig ist: Antwort A").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Nächste Frage").performScrollTo().performClick()
+        repeat(49) {
+            compose.onNodeWithText("Antwort A").performScrollTo().performClick()
+            compose.onNodeWithText("Nächste Frage").performScrollTo().performClick()
+        }
+        compose.onNodeWithText("Gewertet abgeben").performScrollTo().performClick()
+        compose.onNodeWithText("Abbrechen").performClick()
+        compose.runOnIdle { assertEquals(0, submissions) }
+        compose.onNodeWithText("Gewertet abgeben").performScrollTo().performClick()
+        compose.onNodeWithText("Einmalig abgeben").performClick()
+        compose.onNodeWithText("Serverergebnis: 49 von 50 richtig. Bitte in der Ranglistenansicht das Ergebnis bestätigen.").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(1, registrations); assertEquals(1, submissions); assertEquals(50, submitted.size)
+            assertEquals(RankedAnswer("q-1", 1), submitted.first()); assertEquals(RankedAnswer("q-50", 0), submitted.last())
+        }
     }
 
     @Test fun pendingQuizClosureRequiresExplicitConfirmation() {

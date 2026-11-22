@@ -183,7 +183,14 @@ internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedConten
                 ArchivedQuizScreen(entry.arguments?.getString("date").orEmpty(), quizArchive, catalog, quizProgress,
                     openNote = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
-            composable("ranking") { QuizRankingScreen { nav.popBackStack() } }
+            composable("ranking") { QuizRankingScreen(openParticipation = { nav.navigate("ranked_quiz") }) { nav.popBackStack() } }
+            composable("ranked_quiz") {
+                if (BuildConfig.ENABLE_RANKED_PARTICIPATION && BuildConfig.RANKING_URL.isNotBlank()) {
+                    RankedParticipation(BuildConfig.RANKING_URL) { nav.popBackStack() }
+                } else {
+                    Text("Die Wertungsteilnahme ist noch nicht eingerichtet.")
+                }
+            }
             composable("settings") { AppSettings(store) { nav.popBackStack() } }
         }
     }
@@ -947,7 +954,7 @@ private fun QuizTopicNoteLinks(catalog: LearningCatalog, topic: String, openNote
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuizRankingScreen(back: () -> Unit) {
+private fun QuizRankingScreen(openParticipation: () -> Unit, back: () -> Unit) {
     val client = remember { QuizRankingClient(BuildConfig.RANKING_URL, HttpsRankingTransport()) }
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
@@ -962,7 +969,10 @@ private fun QuizRankingScreen(back: () -> Unit) {
     }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Quiz-Rangliste", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-            item { Text("Nur gewertete Multiple-Choice-Quiz zählen. Deine lokale Übung wird derzeit nicht an eine Rangliste übertragen.") }
+            item { Text("Nur gewertete Multiple-Choice-Quiz zählen. Deine lokale Übung wird nicht an eine Rangliste übertragen.") }
+            if (BuildConfig.ENABLE_RANKED_PARTICIPATION && BuildConfig.RANKING_URL.isNotBlank()) item {
+                Button(onClick = openParticipation) { Text("Am Wertungsquiz teilnehmen") }
+            }
             if (BuildConfig.RANKING_URL.isNotBlank()) item { PendingQuizRecovery(BuildConfig.RANKING_URL) }
             if (loading) item { Text("Rangliste wird geladen …") }
             else when (val state = result) {
