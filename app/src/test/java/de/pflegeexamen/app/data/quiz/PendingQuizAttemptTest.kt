@@ -141,4 +141,67 @@ class PendingQuizAttemptTest {
         val recovery=PendingQuizReconciliation(PendingAttemptStore(disk),vault,PendingResultLookup { _,_ -> AttemptLookup.NotFound })
         assertEquals(PendingQuizState.Waiting(date),recovery.reconcile())
     }
+
+    @Test fun `explicit closure clears only confirmed unresolved marker`() = runTest {
+        val disk=PendingMemory(); val vault=vault(); val store=PendingAttemptStore(disk)
+        val submitter=client(vault,store,QuizSubmissionTransport { _,_,_ -> throw IllegalStateException() })
+        assertEquals(SubmissionResult.Uncertain,submitter.submit(date,fingerprint,answers))
+        val original=disk.data!!.clone()
+        val unavailable=PendingQuizClosure(store,vault,QuizAttemptClose("https://rank.example/leaderboard", ClosureTransport { _,_,_ -> throw IllegalStateException() }))
+        assertEquals(PendingClosureState.Uncertain(date),unavailable.close())
+        assertArrayEquals(original,disk.data)
+        val close=PendingQuizClosure(store,vault,QuizAttemptClose("https://rank.example/leaderboard", ClosureTransport { url,t,body ->
+            assertEquals("https://rank.example/quiz/attempt/close",url); assertEquals(token,t)
+            assertEquals("""{"date":"2026-11-13"}""",body.toString(Charsets.UTF_8))
+            ClosureResponse(200,"""{"date":"2026-11-13","status":"closed"}""".toByteArray())
+        }))
+        assertEquals(PendingClosureState.Closed(date),close.close()); assertNull(disk.data)
+        assertEquals(PendingClosureState.None,close.close())
+    }
+
+    @Test fun `closure with recorded result requires matching payload and acknowledgement`() = runTest {
+        val disk=PendingMemory(); val vault=vault(); val store=PendingAttemptStore(disk)
+        assertEquals(SubmissionResult.Uncertain,client(vault,store,QuizSubmissionTransport { _,_,_ -> throw IllegalStateException() }).submit(date,fingerprint,answers))
+        val hash=store.read()!!.payloadHash
+        fun closing(h: String?) = PendingQuizClosure(store,vault,QuizAttemptClose("https://rank.example/leaderboard", ClosureTransport { _,_,_ ->
+            val payload = if (h == null) "null" else "\"$h\""
+            ClosureResponse(200,"""{"date":"2026-11-13","status":"recorded","correct":30,"total":50,"payloadHash":$payload}""".toByteArray())
+        }))
+        assertEquals(PendingClosureState.DifferentOrUnverifiedAttempt(date),closing(null).close())
+        assertEquals(PendingClosureState.DifferentOrUnverifiedAttempt(date),closing("d".repeat(64)).close())
+        assertEquals(PendingClosureState.Recorded(date,30),closing(hash).close())
+        assertNotNull(disk.data)
+        val reconcile=PendingQuizReconciliation(store,vault,PendingResultLookup { _,_ -> AttemptLookup.NotFound })
+        assertTrue(reconcile.acknowledgeRecorded()); assertNull(disk.data)
+    }
+
+    @Test fun `closing with wrong account or storage failure never clears marker`() = runTest {
+        val disk=PendingMemory(); val vault=vault(); val store=PendingAttemptStore(disk)
+        assertEquals(SubmissionResult.Uncertain,client(vault,store,QuizSubmissionTransport { _,_,_ -> throw IllegalStateException() }).submit(date,fingerprint,answers))
+        var calls=0
+        val closer=QuizAttemptClose("https://rank.example/leaderboard", ClosureTransport { _,_,_ -> calls++; ClosureResponse(200,"""{"date":"2026-11-13","status":"closed"}""".toByteArray()) })
+        assertEquals(PendingClosureState.CredentialMismatch,PendingQuizClosure(store,vault("d".repeat(64)),closer).close())
+        assertEquals(0,calls)
+        disk.failDelete=true
+        assertEquals(PendingClosureState.StorageUnavailable,PendingQuizClosure(store,vault,closer).close())
+        assertNotNull(disk.data)
+        disk.failDelete=false
+        assertEquals(PendingClosureState.Closed(date),PendingQuizClosure(store,vault,closer).close())
+    }
+
+    @Test fun `closing cannot erase a concurrently recorded result`() = runTest {
+        val disk=PendingMemory(); val vault=vault(); val store=PendingAttemptStore(disk)
+        val start=CompletableDeferred<Unit>(); val finish=CompletableDeferred<Unit>()
+        val submitter=client(vault,store,QuizSubmissionTransport { _,_,_ -> start.complete(Unit); finish.await(); recorded(12) })
+        val send=async { submitter.submit(date,fingerprint,answers) }; start.await()
+        val closureStart=CompletableDeferred<Unit>(); val closureFinish=CompletableDeferred<Unit>()
+        val closer=PendingQuizClosure(store,vault,QuizAttemptClose("https://rank.example/leaderboard", ClosureTransport { _,_,_ ->
+            closureStart.complete(Unit); closureFinish.await(); ClosureResponse(200,"""{"date":"2026-11-13","status":"closed"}""".toByteArray())
+        }))
+        val close=async { closer.close() }; closureStart.await()
+        finish.complete(Unit); assertEquals(SubmissionResult.Recorded(date,12,50),send.await())
+        closureFinish.complete(Unit); assertEquals(PendingClosureState.StorageUnavailable,close.await())
+        assertEquals(12,store.read()!!.correct)
+    }
+
 }
