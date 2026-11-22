@@ -17,6 +17,24 @@ class CardVisibilityTest {
         assertEquals(3, cards.size) // no content is deleted
     }
 
+    @Test fun `search only learned cards by topic question or answer without changing saved ids`() {
+        val deck = listOf(
+            PublishedCard("1", "Herz", "Puls prüfen", "Am Handgelenk", listOf("Quelle")),
+            PublishedCard("2", "Lunge", "Atmung prüfen", "Atemfrequenz", listOf("Quelle")),
+            PublishedCard("3", "Herz", "Blutdruck", "Manschette", listOf("Quelle"))
+        )
+        val learned = setOf("1", "2", "unknown")
+        assertEquals(listOf("1", "2"), CardVisibility.learnedMatching(deck, learned, " ").map { it.id })
+        assertEquals(listOf("1"), CardVisibility.learnedMatching(deck, learned, " HERZ ").map { it.id })
+        assertEquals(listOf("2"), CardVisibility.learnedMatching(deck, learned, "AtMunG").map { it.id })
+        assertEquals(listOf("1"), CardVisibility.learnedMatching(deck, learned, "handgelenk").map { it.id })
+        assertTrue(CardVisibility.learnedMatching(deck, learned, "Manschette").isEmpty())
+        assertTrue(CardVisibility.learnedMatching(deck, emptySet(), "").isEmpty())
+        assertEquals(setOf("1", "2", "unknown"), learned)
+        assertEquals(3, deck.size)
+        assertEquals(listOf("2"), CardVisibility.learnedMatching(deck, learned - "1", "").map { it.id })
+    }
+
     @Test fun `shuffle remains within deck and learned filtering preserves its order`() {
         val deck = (1..20).map { PublishedCard("$it", "Thema", "Frage $it", "Antwort", listOf("Quelle")) }
         val mixed = CardVisibility.order(deck, shuffled = true, random = Random(42))
