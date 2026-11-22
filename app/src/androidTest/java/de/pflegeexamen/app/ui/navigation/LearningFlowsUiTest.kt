@@ -65,6 +65,28 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun pendingQuizClosureRequiresExplicitConfirmation() {
+        val state = mutableStateOf<PendingQuizState?>(PendingQuizState.Waiting("2026-11-13"))
+        var closed = 0; var checked = 0; var acknowledged = 0
+        compose.setContent {
+            PflegeExamenTheme {
+                PendingQuizRecoveryPanel(state.value, false, null, { checked++ }, { acknowledged++ }, { closed++ })
+            }
+        }
+        compose.onNodeWithText("Auf diesen Wertungstag verzichten").performClick()
+        compose.onNodeWithText("Wertungstag sperren?").assertIsDisplayed()
+        compose.onNodeWithText("Abbrechen").performClick()
+        compose.runOnIdle { assertEquals(0, closed) }
+        compose.onNodeWithText("Auf diesen Wertungstag verzichten").performClick()
+        compose.onNodeWithText("Ja, Wertungstag sperren").performClick()
+        compose.runOnIdle { assertEquals(1, closed); state.value = PendingQuizState.Recorded("2026-11-13", 32) }
+        compose.onNodeWithText("Bestätigtes Ergebnis vom 2026-11-13: 32 von 50 richtig.").assertIsDisplayed()
+        compose.onNodeWithText("Auf diesen Wertungstag verzichten").assertDoesNotExist()
+        compose.onNodeWithText("Ergebnis bestätigen").performClick()
+        compose.onNodeWithText("Abgabestatus prüfen").performClick()
+        compose.runOnIdle { assertEquals(1, acknowledged); assertEquals(1, checked) }
+    }
+
     @Test fun shuffledCardAndAnswerSurviveSavedStateRecreation() {
         val restore = StateRestorationTester(compose)
         restore.setContent {

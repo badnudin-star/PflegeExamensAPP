@@ -963,6 +963,7 @@ private fun QuizRankingScreen(back: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Quiz-Rangliste", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
             item { Text("Nur gewertete Multiple-Choice-Quiz zählen. Deine lokale Übung wird derzeit nicht an eine Rangliste übertragen.") }
+            if (BuildConfig.RANKING_URL.isNotBlank()) item { PendingQuizRecovery(BuildConfig.RANKING_URL) }
             if (loading) item { Text("Rangliste wird geladen …") }
             else when (val state = result) {
                 RankingLoad.NotConfigured -> item { Text("Die Rangliste ist noch nicht eingerichtet.") }
