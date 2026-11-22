@@ -35,6 +35,12 @@ import de.pflegeexamen.app.data.quiz.PendingAttemptStore
 import de.pflegeexamen.app.data.quiz.PendingMarker
 import de.pflegeexamen.app.data.quiz.PendingQuizReconciliation
 import de.pflegeexamen.app.data.quiz.PendingQuizState
+import de.pflegeexamen.app.data.quiz.NoBackupDeletionJournal
+import de.pflegeexamen.app.data.quiz.RankingOperationGate
+import de.pflegeexamen.app.data.quiz.RankingAccountDeletion
+import de.pflegeexamen.app.data.quiz.AccountDeletionTransport
+import de.pflegeexamen.app.data.quiz.DeletionResponse
+import de.pflegeexamen.app.data.quiz.AccountDeletionResult
 import de.pflegeexamen.app.data.quiz.AttemptLookup
 import de.pflegeexamen.app.data.quiz.RankedAnswer
 import de.pflegeexamen.app.data.quiz.RankedQuiz
@@ -71,6 +77,30 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun accountDeletionNeedsConfirmationAndUncertainResultBlocksActivity() {
+        var calls = 0
+        val service = object : RankedParticipationService {
+            override suspend fun status(): RegistrationState = RegistrationState.Registered("Test")
+            override suspend fun register(name: String): RegistrationState = throw AssertionError("No registration")
+            override suspend fun load(): RankedQuizStart = throw AssertionError("No quiz")
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
+            override suspend fun deleteAccount(): AccountDeletionResult { calls++; return if (calls == 1) AccountDeletionResult.Uncertain else AccountDeletionResult.Deleted }
+        }
+        compose.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
+        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        compose.onNodeWithText("Ranglistenkonto löschen").performScrollTo().performClick()
+        compose.onNodeWithText("Abbrechen").performClick()
+        compose.runOnIdle { assertEquals(0,calls) }
+        compose.onNodeWithText("Ranglistenkonto löschen").performScrollTo().performClick()
+        compose.onNodeWithText("Ja, Konto löschen").performClick()
+        compose.onNodeWithText("Eine Kontolöschung ist noch offen. Anmeldung und Abgabe sind gesperrt, bis sie abgeschlossen ist.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Heutiges Wertungsquiz laden").assertDoesNotExist()
+        compose.onNodeWithText("Kontolöschung fortsetzen").performScrollTo().performClick()
+        compose.onNodeWithText("Ja, Konto löschen").performClick()
+        compose.onNodeWithText("Die Löschung wurde vom Server bestätigt und der lokale Zugang entfernt.").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { assertEquals(2,calls) }
+    }
+
     @Test fun rankedParticipationDoesNotReuseAnswersForChangedQuiz() {
         var fingerprint = "a".repeat(64)
         val service = object : RankedParticipationService {
@@ -79,6 +109,7 @@ class LearningFlowsUiTest {
             override suspend fun load(): RankedQuizStart = RankedQuizStart.Ready(RankedQuiz("2026-11-13", fingerprint,
                 (1..50).map { RankedQuizQuestion("q-$it", "Test", "Frage $it", listOf("A", "B", "C", "D"), 0, "Erklärung") }))
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
+            override suspend fun deleteAccount(): AccountDeletionResult = throw AssertionError("No deletion")
         }
         val restore = StateRestorationTester(compose)
         restore.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
@@ -108,6 +139,7 @@ class LearningFlowsUiTest {
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult {
                 submissions++; submitted = answers; return SubmissionResult.Recorded(date, 49, 50)
             }
+            override suspend fun deleteAccount(): AccountDeletionResult = throw AssertionError("No deletion")
         }
         val restore = StateRestorationTester(compose)
         restore.setContent { PflegeExamenTheme { RankedParticipationScreen(fake, {}) } }
@@ -352,6 +384,33 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Kein Treffer in dieser Lernzettelversion").assertIsDisplayed()
         compose.onNodeWithContentDescription("Nächster Suchtreffer").assertDoesNotExist()
         compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertDoesNotExist()
+    }
+
+    @Test fun androidDeletionJournalSurvivesRestartAndRequiresReceipt() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString(); val folder = File(base.cacheDir, "deletion-test-$unique")
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folder }
+        val alias = "ranking-test-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val token = "ab".repeat(32)
+        try {
+            val vault = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(TokenSave.SAVED, vault.saveNew(token))
+            val pending = PendingAttemptStore(NoBackupPendingStorage(isolated))
+            assertTrue(pending.begin(PendingMarker(date="2020-01-01",quizHash="1".repeat(64),accountHash=sha256(token.toByteArray()),payloadHash="2".repeat(64))))
+            val gate = RankingOperationGate(NoBackupDeletionJournal(isolated))
+            val failed = RankingAccountDeletion("https://rank.example/leaderboard",vault,pending,gate,AccountDeletionTransport { _,_ -> throw IllegalStateException() })
+            assertEquals(AccountDeletionResult.Uncertain,failed.delete())
+            val journalFile = File(folder,"quiz-ranking-deletion.json")
+            assertTrue(journalFile.exists()); assertFalse(journalFile.readText().contains(token))
+            val reopened = RankingOperationGate(NoBackupDeletionJournal(isolated))
+            assertEquals("blocked",reopened.unlessDeleting("blocked") { "allowed" })
+            val retry = RankingAccountDeletion("https://rank.example/leaderboard",vault,pending,reopened,AccountDeletionTransport { _,_ -> DeletionResponse(204,"v1") })
+            assertEquals(AccountDeletionResult.Deleted,retry.delete())
+            assertFalse(journalFile.exists()); assertEquals(TokenLoad.Missing,vault.load())
+            assertFalse(File(folder,"quiz-ranking-pending.json").exists())
+        } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
     }
 
     @Test fun androidKeystoreProtectsTokenAndDetectsLostKey() = runBlocking {

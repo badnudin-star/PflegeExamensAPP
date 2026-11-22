@@ -9,6 +9,7 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 const json = (value, status = 200) => new Response(JSON.stringify(value), {status, headers});
+const deletedReceipt = () => new Response(null, {status:204, headers:{...headers, 'X-Quiz-Deletion-Receipt':'v1'}});
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 async function digestBytes(bytes) {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
@@ -153,10 +154,14 @@ export default {
         if (!token) return json({error:'Nicht autorisiert.'}, 401);
         let data; try { data = await limited(request, MAX_BODY); } catch { return json({error:'Ungültige Anfrage.'}, 400); }
         if (!validUsername(data?.username) || Object.keys(data).length !== 1) return json({error:'Pseudonym ungültig.'}, 400);
+        const tokenHash = await digest(token);
         const saved = await env.DB.prepare(`INSERT INTO quiz_participants(id, token_hash, username, created_at)
-          VALUES(?, ?, ?, ?) ON CONFLICT(token_hash) DO NOTHING`)
-          .bind(crypto.randomUUID(), await digest(token), data.username, Date.now()).run();
+          SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM quiz_deleted_tokens WHERE token_hash = ?)
+          ON CONFLICT(token_hash) DO NOTHING`)
+          .bind(crypto.randomUUID(), tokenHash, data.username, Date.now(), tokenHash).run();
         if (saved.meta?.changes) return json({username:data.username}, 201);
+        const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(tokenHash).first();
+        if (deleted) return json({error:'Dieser Zugang wurde gelöscht.'}, 410);
         const existing = await participant(request, env);
         if (!existing || existing.username !== data.username) return json({error:'Zugang bereits mit anderem Pseudonym registriert.'}, 409);
         return json({username:existing.username}, 200);
@@ -169,10 +174,18 @@ export default {
         return json({username:user.username});
       }
       if (request.method === 'DELETE' && path === '/participants/me') {
+        const token = bearer(request);
+        if (!token) return json({error:'Nicht autorisiert.'}, 401);
         const user = await participant(request, env);
-        if (!user) return json({error:'Nicht autorisiert.'}, 401);
-        // D1 batch is transactional. Invalidate the public snapshot and advance
-        // the generation in the same transaction as deleting the account.
+        if (!user) {
+          // Only a durable deletion barrier confirms a prior deletion. An unknown
+          // token could still have a registration in flight and is NOT a receipt.
+          const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(await digest(token)).first();
+          return deleted ? deletedReceipt() : json({error:'Nicht autorisiert.'}, 401);
+        }
+        // The participant DELETE trigger writes a permanent barrier within this
+        // D1 transaction. It also protects old worker versions during rollout.
+        // Invalidate the snapshot and advance its generation atomically.
         await env.DB.batch([
           env.DB.prepare('DELETE FROM quiz_attempts WHERE participant_id = ?').bind(user.id),
           env.DB.prepare('DELETE FROM quiz_attempt_closures WHERE participant_id = ?').bind(user.id),
@@ -180,7 +193,10 @@ export default {
           env.DB.prepare('DELETE FROM quiz_hourly_snapshot WHERE id = 1'),
           env.DB.prepare('UPDATE quiz_snapshot_generation SET generation = generation + 1 WHERE id = 1')
         ]);
-        return new Response(null, {status:204, headers});
+        // Verify the required migration/trigger before promising a durable receipt.
+        const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(await digest(token)).first();
+        if (!deleted) throw new Error('missing deletion barrier');
+        return deletedReceipt();
       }
       if (request.method === 'GET' && path === '/quiz/attempt/result') {
         const user = await participant(request, env);

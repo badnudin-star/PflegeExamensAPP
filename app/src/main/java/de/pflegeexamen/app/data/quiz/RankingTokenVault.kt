@@ -66,11 +66,20 @@ class RankingTokenVault(
         }
     }
 
-    /** Only call after the server has confirmed deletion of the matching account. */
-    suspend fun clearAfterConfirmedServerDeletion(): Boolean = withContext(Dispatchers.IO) {
+    /** Only call after a durable deletion receipt. Never remove a different account's token. */
+    internal suspend fun clearMatchingAfterDeletion(accountHash: String): Boolean = withContext(Dispatchers.IO) {
         lock.withLock {
-            try { storage.delete(); true }
-            catch (e: CancellationException) { throw e }
+            try {
+                val encrypted = storage.read() ?: return@withLock true
+                if (encrypted.isEmpty() || encrypted.size > MAX_ENCRYPTED_BYTES) return@withLock false
+                val plain = cipher.decrypt(encrypted)
+                try {
+                    val token = plain.toString(Charsets.US_ASCII)
+                    if (!TOKEN.matches(token) || sha256(token.toByteArray(Charsets.US_ASCII)) != accountHash) return@withLock false
+                } finally { plain.fill(0) }
+                storage.delete()
+                storage.read() == null
+            } catch (e: CancellationException) { throw e }
             catch (_: Exception) { false }
         }
     }

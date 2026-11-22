@@ -6,12 +6,12 @@ globalThis.crypto ??= webcrypto;
 const day = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
 const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4, explanation:`Erklärung ${i}`}));
 function database() {
-  const participants = [], attempts = [], closures = [], state = {participants, attempts, closures, snapshot:null, generation:0, onSnapshotWrite:null};
+  const participants = [], attempts = [], closures = [], deletedTokens = [], state = {participants, attempts, closures, deletedTokens, snapshot:null, generation:0, onSnapshotWrite:null};
   return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
     let args=[];
     return {bind(...values) {args=values; return this;}, async run() {
       if (sql.includes('INSERT INTO quiz_participants')) {
-        if (participants.some(p => p.hash === args[1])) return {meta:{changes:0}};
+        if (deletedTokens.includes(args[1]) || participants.some(p => p.hash === args[1])) return {meta:{changes:0}};
         participants.push({id:args[0], hash:args[1], username:args[2]}); return {meta:{changes:1}};
       }
       if (sql.includes('INSERT INTO quiz_attempt_closures')) {
@@ -29,11 +29,12 @@ function database() {
       }
       if (sql.includes('DELETE FROM quiz_attempt_closures')) { for (let i=closures.length-1; i>=0; i--) if (closures[i].id===args[0]) closures.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_attempts')) { for (let i=attempts.length-1; i>=0; i--) if (attempts[i].id===args[0]) attempts.splice(i,1); return {meta:{changes:1}}; }
-      if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) participants.splice(i,1); return {meta:{changes:1}}; }
+      if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) { deletedTokens.push(participants[i].hash); participants.splice(i,1); } return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_hourly_snapshot')) { state.snapshot=null; return {meta:{changes:1}}; }
       if (sql.includes('UPDATE quiz_snapshot_generation')) { state.generation++; return {meta:{changes:1}}; }
       throw Error('unexpected run');
     }, async first() {
+      if (sql.includes('FROM quiz_deleted_tokens WHERE')) return deletedTokens.includes(args[0]) ? {token_hash:args[0]} : null;
       if (sql.includes('FROM quiz_snapshot_generation')) return {generation:state.generation};
       if (sql.includes('FROM quiz_attempt_closures WHERE')) return closures.find(c => c.id===args[0] && c.date===args[1]) || null;
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
@@ -173,7 +174,8 @@ test('authenticated deletion removes only own account, attempts and cached ranki
     assert.equal(e.DB.state.snapshot,null);
     const board=await (await worker.fetch(request('GET','/leaderboard'),e)).json();
     assert.deepEqual(board.entries.map(x => x.username),['Bob']);
-    assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,alice),e)).status,401);
+    assert.equal((await worker.fetch(request('DELETE','/participants/me',undefined,alice),e)).status,204);
+    assert.equal((await worker.fetch(request('POST','/participants',{username:'Alice'},alice),e)).status,410);
     assert.equal((await worker.fetch(request('POST','/quiz/attempt',body,alice),e)).status,401);
     assert.match((await worker.fetch(request('OPTIONS','/participants/me'),e)).headers.get('Access-Control-Allow-Methods'),/DELETE/);
   } finally { globalThis.fetch=original; }

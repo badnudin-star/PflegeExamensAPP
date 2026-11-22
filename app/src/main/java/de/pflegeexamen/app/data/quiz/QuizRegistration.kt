@@ -21,6 +21,8 @@ sealed interface RegistrationState {
     /** May also mean a previous registration is still in flight. */
     data object NotRegistered : RegistrationState
     data object StorageUnavailable : RegistrationState
+    /** A previously requested deletion must be finished before account activity. */
+    data object DeletionPending : RegistrationState
     data object NameConflict : RegistrationState
     /** The request may or may not have succeeded; keep the existing token and check status. */
     data object Uncertain : RegistrationState
