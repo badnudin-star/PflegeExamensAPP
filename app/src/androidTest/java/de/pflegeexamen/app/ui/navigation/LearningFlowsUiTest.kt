@@ -15,7 +15,9 @@ import de.pflegeexamen.app.domain.content.PublishedCaseQuestion
 import de.pflegeexamen.app.domain.content.PublishedQuiz
 import de.pflegeexamen.app.domain.content.PublishedNote
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
+import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.data.progress.QuizProgressPersistence
+import de.pflegeexamen.app.data.content.PublishedContentStore
 import de.pflegeexamen.app.data.progress.QuizProgressStore
 import de.pflegeexamen.app.data.progress.CardProgressStore
 import de.pflegeexamen.app.data.progress.CaseProgressStore
@@ -40,7 +42,7 @@ class LearningFlowsUiTest {
     @Test fun shuffledCardAndAnswerSurviveSavedStateRecreation() {
         val restore = StateRestorationTester(compose)
         restore.setContent {
-            PflegeExamenTheme { CardSession(cards, true, emptySet(), false, { _, _ -> }, {}) }
+            PflegeExamenTheme { CardSession(cards, true, emptySet(), false, { _, _ -> }, back = {}) }
         }
         compose.onNodeWithContentDescription("Nächste Karte").performClick()
         val selected = visibleQuestion()
@@ -64,13 +66,95 @@ class LearningFlowsUiTest {
             PflegeExamenTheme {
                 CardSession(cards.take(2), false, learned.value, false, { id, value ->
                     learned.value = if (value) learned.value + id else learned.value - id
-                }, {})
+                }, back = {})
             }
         }
         compose.onNodeWithText(cards[0].front).assertIsDisplayed()
         compose.onNodeWithText("Gelernt · Karte ausblenden").performClick()
         compose.onNodeWithText(cards[1].front).assertIsDisplayed()
         compose.runOnIdle { assertEquals(setOf(cards[0].id), learned.value) }
+    }
+
+    @Test fun cardSearchFiltersWithoutRevealingAnswersOrUnhidingCards() {
+        val title = DefaultCatalogs.defaultPreparations.first().title
+        val deck = listOf(
+            PublishedCard("visible", title, "Sichtbare Frage", "Besonderes Suchwort", listOf("Test")),
+            PublishedCard("learned", title, "Gelernte Frage", "Besonderes Suchwort", listOf("Test")),
+            PublishedCard("other", title, "Andere Frage", "Andere Antwort", listOf("Test"))
+        )
+        val show = mutableStateOf(false)
+        var selected: Pair<Int, String>? = null
+        compose.setContent {
+            PflegeExamenTheme { CardPicker(LearningCatalog(cards = deck), setOf("learned"), show.value, { show.value = it }, {}) { index, query -> selected = index to query } }
+        }
+        compose.onNodeWithText("Karteikarten durchsuchen").performTextInput("Suchwort")
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText("1 passende Karte sichtbar · 1 ausgeblendet"))
+        compose.onNodeWithText("1 passende Karte sichtbar · 1 ausgeblendet").assertIsDisplayed()
+        compose.onNodeWithText("Besonderes Suchwort").assertDoesNotExist()
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText(title))
+        compose.onNodeWithText(title).performClick()
+        compose.runOnIdle { assertEquals(0 to "Suchwort", selected) }
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText("Gelernte Karten anzeigen"))
+        compose.onNodeWithText("Gelernte Karten anzeigen").performClick()
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText("2 passende Karten sichtbar · 0 ausgeblendet"))
+        compose.onNodeWithText("2 passende Karten sichtbar · 0 ausgeblendet").assertExists()
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText("Karteikarten durchsuchen"))
+        compose.onNodeWithContentDescription("Kartensuche löschen").performClick()
+        compose.onNodeWithText("Alle sichtbaren Karten zufällig mischen").assertExists()
+    }
+
+    @Test fun cardSearchNavigationCarriesSpecialCharactersAndRestoresPicker() {
+        val title = DefaultCatalogs.defaultPreparations.first().title
+        val unique = UUID.randomUUID().toString()
+        val query = "A&B/ä%z"
+        val deck = listOf(
+            PublishedCard("$unique-1", title, "Erste Navigationsfrage", "Antwort mit $query", listOf("Test")),
+            PublishedCard("$unique-2", title, "Zweite Navigationsfrage", "Andere Antwort", listOf("Test"))
+        )
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = PublishedContentStore(context)
+        val note = PublishedNote(title, "Einfache Testnotiz", "Nicht angezeigt", "Ausführliche Testnotiz", listOf("Test"), 2)
+        compose.setContent { PflegeExamenTheme { LearningAppContent(LearningCatalog(notes = listOf(note), cards = deck), store) } }
+        compose.onNodeWithText("Karten", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Karteikarten durchsuchen").performTextInput(query)
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText(title))
+        compose.onNodeWithText(title).performClick()
+        compose.onNodeWithText("Erste Navigationsfrage").assertIsDisplayed()
+        compose.onNodeWithText("1 / 1").assertExists()
+        compose.onNodeWithText("Gefilterte Karten · Suche: $query").assertExists()
+        compose.onNodeWithContentDescription("Zurück").performClick()
+        compose.onNodeWithText(query).assertExists()
+
+        // The existing note-to-cards route omits the optional query and must stay unfiltered.
+        compose.onNodeWithText("Themen", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("topicList").performScrollToNode(hasText(title))
+        compose.onNodeWithText(title).performClick()
+        compose.onNodeWithText("Karteikarten zu diesem Thema lernen").performScrollTo().performClick()
+        compose.onNodeWithText("Erste Navigationsfrage").assertIsDisplayed()
+        compose.onNodeWithText("1 / 2").assertExists()
+        compose.onNodeWithText("Gefilterte Karten · Suche: $query").assertDoesNotExist()
+    }
+
+    @Test fun filteredCardSessionOnlyShowsMatchingVisibleCards() {
+        val deck = listOf(
+            PublishedCard("one", "Thema", "Erste Frage", "Suchbegriff in Antwort", listOf("Test")),
+            PublishedCard("two", "Thema", "Zweite Frage", "Suchbegriff in Antwort", listOf("Test")),
+            PublishedCard("three", "Thema", "Dritte Frage", "Andere Antwort", listOf("Test"))
+        )
+        val learned = mutableStateOf(setOf("two"))
+        compose.setContent {
+            PflegeExamenTheme {
+                CardSession(CardVisibility.matching(deck, "Suchbegriff"), false, learned.value, false,
+                    { id, value -> learned.value = if (value) learned.value + id else learned.value - id }, "Suchbegriff", back = {})
+            }
+        }
+        compose.onNodeWithText("Gefilterte Karten · Suche: Suchbegriff").assertExists()
+        compose.onNodeWithText("Erste Frage").assertIsDisplayed()
+        compose.onNodeWithText("1 / 1").assertExists()
+        compose.onNodeWithText("Suchbegriff in Antwort").assertDoesNotExist()
+        compose.onNodeWithText("Gelernt · Karte ausblenden").performClick()
+        compose.onNodeWithText("Keine sichtbaren Karten für diese Suche mehr. Ändere die Suche oder blende gelernte Karten in der Übersicht wieder ein.").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(setOf("one", "two"), learned.value) }
     }
 
     @Test fun noteOutlineJumpsToSelectedHeading() {
