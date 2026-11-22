@@ -6,7 +6,7 @@ globalThis.crypto ??= webcrypto;
 const day = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
 const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4, explanation:`Erklärung ${i}`}));
 function database() {
-  const participants = [], attempts = [], state = {participants, attempts, snapshot:null, generation:0, onSnapshotWrite:null};
+  const participants = [], attempts = [], closures = [], state = {participants, attempts, closures, snapshot:null, generation:0, onSnapshotWrite:null};
   return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
     let args=[];
     return {bind(...values) {args=values; return this;}, async run() {
@@ -14,8 +14,12 @@ function database() {
         if (participants.some(p => p.hash === args[1])) return {meta:{changes:0}};
         participants.push({id:args[0], hash:args[1], username:args[2]}); return {meta:{changes:1}};
       }
+      if (sql.includes('INSERT INTO quiz_attempt_closures')) {
+        if (attempts.some(a => a.id === args[0] && a.date === args[1]) || closures.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
+        closures.push({id:args[0], date:args[1]}); return {meta:{changes:1}};
+      }
       if (sql.includes('INSERT INTO quiz_attempts')) {
-        if (attempts.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
+        if (closures.some(a => a.id === args[0] && a.date === args[1]) || attempts.some(a => a.id === args[0] && a.date === args[1])) return {meta:{changes:0}};
         attempts.push({id:args[0], date:args[1], points:args[2], total:args[3], payloadHash:args[5]}); return {meta:{changes:1}};
       }
       if (sql.includes('INSERT INTO quiz_hourly_snapshot')) {
@@ -23,6 +27,7 @@ function database() {
         if (args[2] !== state.generation) return {meta:{changes:0}};
         state.snapshot=args[0]; return {meta:{changes:1}};
       }
+      if (sql.includes('DELETE FROM quiz_attempt_closures')) { for (let i=closures.length-1; i>=0; i--) if (closures[i].id===args[0]) closures.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_attempts')) { for (let i=attempts.length-1; i>=0; i--) if (attempts[i].id===args[0]) attempts.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) participants.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_hourly_snapshot')) { state.snapshot=null; return {meta:{changes:1}}; }
@@ -30,6 +35,7 @@ function database() {
       throw Error('unexpected run');
     }, async first() {
       if (sql.includes('FROM quiz_snapshot_generation')) return {generation:state.generation};
+      if (sql.includes('FROM quiz_attempt_closures WHERE')) return closures.find(c => c.id===args[0] && c.date===args[1]) || null;
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
       if (sql.includes('FROM quiz_attempts WHERE participant_id')) {
         const attempt=attempts.find(a => a.id===args[0] && a.date===args[1]);

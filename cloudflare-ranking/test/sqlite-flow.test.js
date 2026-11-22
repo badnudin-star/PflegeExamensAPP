@@ -78,3 +78,59 @@ test('real SQLite schema scores and deletes an account atomically; no old XP inv
     assert.deepEqual((await (await worker.fetch(req('GET','/leaderboard'),e)).json()).entries,[]);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('closing an uncertain attempt blocks a delayed submission, remains idempotent, and is deleted with the account', async () => {
+  const e = environment(), originalFetch = globalThis.fetch;
+  const questions = Array.from({length:50}, (_,i) => ({id:`q-${i}`, published:day(), topic:'Test', question:`Frage ${i}`,
+    options:['A','B','C','D'], correctIndex:i%4, explanation:'Test'}));
+  let blockFetch = false, releaseFetch, signalFetch;
+  const gate = new Promise(resolve => { releaseFetch = resolve; });
+  const started = new Promise(resolve => { signalFetch = resolve; });
+  globalThis.fetch = async () => {
+    if (blockFetch) { signalFetch(); await gate; }
+    return new Response(JSON.stringify({schemaVersion:1, quizzes:questions}));
+  };
+  try {
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+    const second = 'bd'.repeat(32);
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Andere Person'},second),e)).status,201);
+    const quiz = await (await worker.fetch(req('GET','/quiz/today'),e)).json();
+    const body = {date:quiz.date, fingerprint:quiz.fingerprint, answers:questions.map((q,i)=>({id:q.id, option:i%4}))};
+    blockFetch = true;
+    const delayed = worker.fetch(req('POST','/quiz/attempt',body),e);
+    await started;
+    const close = await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date}),e);
+    assert.equal(close.status,200);
+    assert.deepEqual(await close.json(),{date:quiz.date,status:'closed'});
+    releaseFetch();
+    assert.equal((await delayed).status,409);
+    blockFetch = false;
+    assert.equal((await worker.fetch(req('POST','/quiz/attempt',body,second),e)).status,201);
+    assert.equal((await worker.fetch(req('GET',`/quiz/attempt/result?date=${quiz.date}`),e)).status,404);
+    assert.deepEqual(await (await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date}),e)).json(),{date:quiz.date,status:'closed'});
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempt_closures').get().n,1);
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempt_closures').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempts').get().n,1);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+  } finally { releaseFetch(); globalThis.fetch = originalFetch; }
+});
+
+test('closure returns an existing score and never closes a recorded attempt', async () => {
+  const e = environment(), originalFetch = globalThis.fetch;
+  const questions = Array.from({length:50}, (_,i) => ({id:`q-${i}`, published:day(), topic:'Test', question:`Frage ${i}`,
+    options:['A','B','C','D'], correctIndex:i%4, explanation:'Test'}));
+  globalThis.fetch = async () => new Response(JSON.stringify({schemaVersion:1,quizzes:questions}));
+  try {
+    await worker.fetch(req('POST','/participants',{username:'Testperson'}),e);
+    const quiz = await (await worker.fetch(req('GET','/quiz/today'),e)).json();
+    const body = {date:quiz.date,fingerprint:quiz.fingerprint,answers:questions.map((q,i)=>({id:q.id,option:i%4}))};
+    assert.equal((await worker.fetch(req('POST','/quiz/attempt',body),e)).status,201);
+    const result = await (await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date}),e)).json();
+    assert.deepEqual(result,{date:quiz.date,status:'recorded',correct:50,total:50,payloadHash:createHash('sha256').update(JSON.stringify(body)).digest('hex')});
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_attempt_closures').get().n,0);
+    for (const invalid of [{date:'2100-01-01'}, {date:'2020-02-30'}, {date:quiz.date, extra:true}, {}])
+      assert.equal((await worker.fetch(req('POST','/quiz/attempt/close',invalid),e)).status,400);
+    assert.equal((await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date},'f'.repeat(64)),e)).status,401);
+  } finally { globalThis.fetch = originalFetch; }
+});
