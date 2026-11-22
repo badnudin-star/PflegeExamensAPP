@@ -41,6 +41,7 @@ internal interface RankedParticipationService {
     suspend fun register(name: String): RegistrationState
     suspend fun load(): RankedQuizStart
     suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult
+    suspend fun deleteAccount(): AccountDeletionResult
 }
 
 @Composable
@@ -49,6 +50,7 @@ internal fun RankedParticipation(url: String, back: () -> Unit) {
     val service = remember(url, context.applicationContext) {
         val vault = AndroidRankingTokenVault.create(context)
         val pending = AndroidPendingQuizAttempt.create(context)
+        val gate = AndroidRankingOperationGate.get(context)
         val registration = QuizRegistration(url, vault, SecureRankingTokenGenerator(), HttpsRegistrationTransport())
         val quiz = RankedQuizClient(url, HttpsRankedQuizTransport())
         val submit = QuizAttemptSubmit(url, vault, pending, HttpsQuizSubmissionTransport())
@@ -56,11 +58,14 @@ internal fun RankedParticipation(url: String, back: () -> Unit) {
         val reconciliation = PendingQuizReconciliation(pending, vault, PendingResultLookup { date, token -> lookup.lookup(date, token) })
         val start = RankedQuizStartCheck(StartPendingCheck { reconciliation.reconcile() }, StartQuizLoader { quiz.load() },
             vault, StartResultLookup { date, token -> lookup.lookup(date, token) })
+        val deletion = RankingAccountDeletion(url, vault, pending, gate, HttpsAccountDeletionTransport())
         object : RankedParticipationService {
-            override suspend fun status() = registration.status()
-            override suspend fun register(name: String) = registration.register(name)
-            override suspend fun load() = start.start()
-            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>) = submit.submit(quiz.date, quiz.fingerprint, answers)
+            override suspend fun status(): RegistrationState = gate.unlessDeleting(RegistrationState.DeletionPending) { registration.status() }
+            override suspend fun register(name: String): RegistrationState = gate.unlessDeleting(RegistrationState.DeletionPending) { registration.register(name) }
+            override suspend fun load(): RankedQuizStart = gate.unlessDeleting(RankedQuizStart.Pending) { start.start() }
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult =
+                gate.unlessDeleting(SubmissionResult.DeletionPending) { submit.submit(quiz.date, quiz.fingerprint, answers) }
+            override suspend fun deleteAccount() = deletion.delete()
         }
     }
     RankedParticipationScreen(service, back)
@@ -84,6 +89,7 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
     var submission by remember { mutableStateOf<SubmissionResult?>(null) }
     var confirmRegister by remember { mutableStateOf(false) }
     var confirmSubmit by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     fun loadQuiz() {
         busy = true; message = null
@@ -112,12 +118,35 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
     }
     if (confirmRegister) AlertDialog(
         onDismissRequest = { confirmRegister = false }, title = { Text("Für die Rangliste anmelden?") },
-        text = { Text("Dein Pseudonym und deine späteren Quizpunkte können öffentlich erscheinen. Der Dienst verarbeitet Verbindungsdaten; das Gerät speichert einen Zugangsschlüssel. Bei Geräteverlust oder Neuinstallation kann der Zugang derzeit verloren gehen. Eine Kontolöschung in der App ist noch nicht verfügbar. Die Rangliste ist leicht manipulierbar und keine faire Prüfung. Nur mit einem Pseudonym ohne personenbezogene Angaben teilnehmen.") },
+        text = { Text("Dein Pseudonym und deine späteren Quizpunkte können öffentlich erscheinen. Der Dienst verarbeitet Verbindungsdaten; das Gerät speichert einen Zugangsschlüssel. Bei Geräteverlust oder Neuinstallation kann der Zugang derzeit verloren gehen. Bei Kontolöschung bleiben ein kryptografischer Token-Hash als Sperre und möglicherweise Daten in Sicherungen oder externen Kopien erhalten. Die Rangliste ist leicht manipulierbar und keine faire Prüfung. Nur mit einem Pseudonym ohne personenbezogene Angaben teilnehmen.") },
         confirmButton = { TextButton(onClick = {
             confirmRegister = false; busy = true; message = null
             scope.launch { try { account = service.register(username) } finally { busy = false } }
         }) { Text("Anmeldung senden") } },
         dismissButton = { TextButton(onClick = { confirmRegister = false }) { Text("Abbrechen") } }
+    )
+    if (confirmDelete) AlertDialog(
+        onDismissRequest = { confirmDelete = false }, title = { Text("Ranglistenkonto löschen?") },
+        text = { Text("Dein Pseudonym und deine Wertungen werden aus der aktiven Rangliste entfernt; die Löschung ist nicht rückgängig zu machen. Ein Hash des Zugangsschlüssels bleibt als Sperre gespeichert, damit eine verspätete Anmeldung das Konto nicht wiederherstellt. In Sicherungen und bereits verbreiteten Kopien können Daten verbleiben. Bei unklarer Antwort muss die Löschung erneut geprüft werden. Lokale Übungen bleiben erhalten.") },
+        confirmButton = { TextButton(onClick = {
+            confirmDelete = false; busy = true; message = null
+            scope.launch {
+                try {
+                    when (service.deleteAccount()) {
+                        AccountDeletionResult.Deleted -> {
+                            account = RegistrationState.NotPrepared; quiz = null; username = ""; savedDate = ""; savedFingerprint = ""; selections = ""; index = 0; submission = null
+                            message = "Die Löschung wurde vom Server bestätigt und der lokale Zugang entfernt."
+                        }
+                        AccountDeletionResult.Uncertain -> { account = RegistrationState.DeletionPending; message = "Die Löschung ist noch nicht bestätigt. Bitte erneut versuchen; der Zugang bleibt gesperrt." }
+                        AccountDeletionResult.LocalCleanupIncomplete -> { account = RegistrationState.DeletionPending; message = "Die Löschung oder lokale Bereinigung ist nicht abgeschlossen. Bitte erneut versuchen." }
+                        AccountDeletionResult.CredentialUnavailable -> { account = RegistrationState.DeletionPending; message = "Der Zugang ist nicht verfügbar. Die Löschung kann hier nicht bestätigt werden." }
+                        AccountDeletionResult.NoAccount -> { account = RegistrationState.NotPrepared; message = "Auf diesem Gerät ist kein Zugang vorhanden." }
+                        AccountDeletionResult.NotConfigured -> message = "Der Dienst ist nicht eingerichtet."
+                    }
+                } finally { busy = false }
+            }
+        }) { Text("Ja, Konto löschen") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Abbrechen") } }
     )
     if (confirmSubmit) AlertDialog(
         onDismissRequest = { confirmSubmit = false }, title = { Text("Quiz gewertet abgeben?") },
@@ -146,6 +175,7 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
                 RegistrationState.InvalidName -> Text("Pseudonym ungültig: 2 bis 24 Zeichen, Buchstaben, Zahlen, Leerzeichen oder _ . -.")
                 RegistrationState.NameConflict -> Text("Das Token ist bereits mit einem anderen Pseudonym registriert. Bitte Kontostatus prüfen.")
                 RegistrationState.StorageUnavailable -> Text("Der Zugangsspeicher ist nicht verfügbar. Es wurde kein neuer Zugang überschrieben.")
+                RegistrationState.DeletionPending -> Text("Eine Kontolöschung ist noch offen. Anmeldung und Abgabe sind gesperrt, bis sie abgeschlossen ist.")
                 RegistrationState.NotConfigured -> Text("Die Rangliste ist nicht eingerichtet.")
                 RegistrationState.Uncertain -> Text("Der Anmeldestatus ist unklar. Bitte prüfen; beim erneuten Versuch dasselbe Pseudonym verwenden.")
                 is RegistrationState.Registered -> Text("Angemeldet als ${currentAccount.username}.")
@@ -155,10 +185,15 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
                 busy = true; message = null
                 scope.launch { try { account = service.status() } finally { busy = false } }
             }) { Text("Kontostatus prüfen") }
-            if (account !is RegistrationState.Registered && account != RegistrationState.StorageUnavailable && account != RegistrationState.NotConfigured) {
+            if (account !is RegistrationState.Registered && account != RegistrationState.StorageUnavailable && account != RegistrationState.NotConfigured && account != RegistrationState.DeletionPending) {
                 OutlinedTextField(value = username, onValueChange = { if (it.length <= 24) username = it }, enabled = !busy,
                     label = { Text("Pseudonym") }, singleLine = true)
                 Button(enabled = !busy && QuizRegistration.validName(username), onClick = { confirmRegister = true }) { Text("Anmelden") }
+            }
+            if (account is RegistrationState.Registered || account == RegistrationState.DeletionPending) {
+                OutlinedButton(enabled = !busy, onClick = { confirmDelete = true }) {
+                    Text(if (account == RegistrationState.DeletionPending) "Kontolöschung fortsetzen" else "Ranglistenkonto löschen")
+                }
             }
             if (account is RegistrationState.Registered && quiz == null) {
                 Text("Antworten werden für die Wiederherstellung des Bildschirms vorübergehend im Android-Zustand gespeichert. Beim Verlassen des Bereichs oder nach Prozessverlust kann der Fortschritt verloren gehen.")

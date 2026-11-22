@@ -125,6 +125,8 @@ jobs:
               'pendingQuizClosureRequiresExplicitConfirmation',
               'rankedParticipationRequiresConfirmationAndRestoresAnswers',
               'rankedParticipationDoesNotReuseAnswersForChangedQuiz',
+              'androidDeletionJournalSurvivesRestartAndRequiresReceipt',
+              'accountDeletionNeedsConfirmationAndUncertainResultBlocksActivity',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):

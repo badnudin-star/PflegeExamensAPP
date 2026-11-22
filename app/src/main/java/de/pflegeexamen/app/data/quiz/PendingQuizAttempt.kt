@@ -71,6 +71,16 @@ class PendingAttemptStore(private val storage: PendingAttemptPersistence, privat
             true
         }
     }
+    /** Remove only the deleted account's marker, after a durable server deletion receipt. */
+    internal suspend fun clearForDeletedAccount(accountHash: String): Boolean = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val marker = readMarker() ?: return@withLock true
+            if (marker.accountHash != accountHash) return@withLock false
+            storage.delete()
+            check(storage.read() == null)
+            true
+        }
+    }
     /** Remove only the same unresolved marker after an authoritative server closure. */
     internal suspend fun clearClosed(expected: PendingMarker): Boolean = withContext(Dispatchers.IO) {
         lock.withLock {

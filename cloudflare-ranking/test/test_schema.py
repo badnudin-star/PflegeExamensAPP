@@ -47,6 +47,27 @@ class QuizSchemaTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute('INSERT INTO quiz_attempt_closures VALUES(?,?,?)', ('p1', '2026-11-01', 4))
 
+    def test_deletion_migration_blocks_legacy_registration_and_rolls_back_with_delete(self):
+        self.db.execute('DROP TRIGGER quiz_participant_delete_barrier')
+        self.db.execute('DROP TRIGGER quiz_participant_reject_deleted')
+        self.db.execute('DROP TABLE quiz_deleted_tokens')
+        migration = (Path(__file__).resolve().parents[1] / 'migrations/0003_deletion_barrier.sql').read_text()
+        self.db.executescript(migration)
+        self.db.executescript(migration)
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.db:
+                self.db.execute('DELETE FROM quiz_participants WHERE id=?', ('p1',))
+                self.db.execute('UPDATE quiz_snapshot_generation SET generation=-1')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM quiz_deleted_tokens').fetchone()[0], 0)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM quiz_participants').fetchone()[0], 1)
+        self.db.execute('DELETE FROM quiz_participants WHERE id=?', ('p1',))
+        barrier = self.db.execute('SELECT token_hash, deleted_at FROM quiz_deleted_tokens').fetchone()
+        self.assertEqual(barrier[0], 'hash1')
+        self.assertGreater(barrier[1], 0)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO quiz_participants VALUES(?,?,?,?)', ('p2', 'hash1', 'Again', 2))
+        self.db.execute('INSERT INTO quiz_participants VALUES(?,?,?,?)', ('p2', 'different', 'Other', 2))
+
     def test_retry_registration_by_token_is_idempotent_and_never_renames(self):
         sql = ('INSERT INTO quiz_participants(id, token_hash, username, created_at) VALUES (?, ?, ?, ?) '
                'ON CONFLICT(token_hash) DO NOTHING')

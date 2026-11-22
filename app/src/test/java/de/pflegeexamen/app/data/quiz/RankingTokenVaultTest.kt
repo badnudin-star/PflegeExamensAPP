@@ -76,10 +76,11 @@ class RankingTokenVaultTest {
         val storage = MemoryStorage(); val vault = RankingTokenVault(storage, FakeCipher())
         assertEquals(TokenSave.SAVED, vault.saveNew(token))
         storage.failDelete = true
-        assertFalse(vault.clearAfterConfirmedServerDeletion())
+        assertFalse(vault.clearMatchingAfterDeletion(sha256(token.toByteArray(Charsets.US_ASCII))))
         assertEquals(token, (vault.load() as TokenLoad.Available).token)
         storage.failDelete = false
-        assertTrue(vault.clearAfterConfirmedServerDeletion())
+        assertFalse(vault.clearMatchingAfterDeletion("a".repeat(64)))
+        assertTrue(vault.clearMatchingAfterDeletion(sha256(token.toByteArray(Charsets.US_ASCII))))
         assertEquals(TokenLoad.Missing, vault.load())
     }
 

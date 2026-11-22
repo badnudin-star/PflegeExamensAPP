@@ -28,6 +28,7 @@ sealed interface SubmissionResult {
     data object CredentialRejected : SubmissionResult
     data object AnotherAttemptPending : SubmissionResult
     data object PendingStorageUnavailable : SubmissionResult
+    data object DeletionPending : SubmissionResult
     /** Could be an already recorded attempt or changed quiz; reconcile instead of retrying blindly. */
     data object Conflict : SubmissionResult
     /** The server may have committed the attempt; reconcile before any further action. */

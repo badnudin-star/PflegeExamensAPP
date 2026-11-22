@@ -138,3 +138,44 @@ test('closure returns an existing score and never closes a recorded attempt', as
     assert.equal((await worker.fetch(req('POST','/quiz/attempt/close',{date:quiz.date},'f'.repeat(64)),e)).status,401);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('deletion survives a lost response and prevents a delayed or legacy registration from resurrecting the account', async () => {
+  const e=environment();
+  assert.equal((await worker.fetch(req('DELETE','/participants/me',undefined,'00'.repeat(32)),e)).status,401);
+  assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_deleted_tokens').get().n,0);
+  assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+  let start, release;
+  const started = new Promise(resolve => { start=resolve; });
+  const gate = new Promise(resolve => { release=resolve; });
+  const stream = new ReadableStream({async pull(controller) {
+    start(); await gate; controller.enqueue(new TextEncoder().encode('{"username":"Testperson"}')); controller.close();
+  }});
+  const delayed = worker.fetch(new Request('https://rank.test/participants',{method:'POST',duplex:'half',
+    headers:{'Content-Type':'application/json','CF-Connecting-IP':'192.0.2.1',Authorization:'Bearer '+token},body:stream}),e);
+  try {
+    await started;
+    const first = await worker.fetch(req('DELETE','/participants/me'),e);
+    assert.equal(first.status,204); assert.equal(first.headers.get('X-Quiz-Deletion-Receipt'),'v1');
+    // Treat the first 204 as lost; replaying deletion returns a durable receipt.
+    const replay = await worker.fetch(req('DELETE','/participants/me'),e);
+    assert.equal(replay.status,204); assert.equal(replay.headers.get('X-Quiz-Deletion-Receipt'),'v1');
+    release();
+    assert.equal((await delayed).status,410);
+    const hash=createHash('sha256').update(token).digest('hex');
+    assert.equal(e.DB.sqlite.prepare('SELECT token_hash FROM quiz_deleted_tokens').get().token_hash,hash);
+    assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_participants').get().n,0);
+    assert.throws(()=>e.DB.sqlite.prepare('INSERT INTO quiz_participants VALUES(?,?,?,?)').run('old-worker',hash,'Old',1));
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,410);
+  } finally { release(); }
+});
+
+test('missing deletion trigger is never acknowledged as a durable deletion', async () => {
+  const e = environment();
+  assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+  e.DB.sqlite.exec('DROP TRIGGER quiz_participant_delete_barrier');
+  const deletion = await worker.fetch(req('DELETE','/participants/me'),e);
+  assert.equal(deletion.status,503);
+  assert.equal(deletion.headers.get('X-Quiz-Deletion-Receipt'),null);
+  // Missing migration is a serious configuration error; the app retains its token.
+  assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_deleted_tokens').get().n,0);
+});
