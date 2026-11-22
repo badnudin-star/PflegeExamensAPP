@@ -222,3 +222,24 @@ class QuizArchiveTests(unittest.TestCase):
             self.assertEqual(archive.create(original.read_bytes(), path), 0)
             self.assertEqual(archive.verify(original.read_bytes(), path), 0)
             self.assertEqual(original.read_bytes(), raw)
+
+    def test_ambiguous_or_nonfinite_source_never_creates_or_verifies_backup(self):
+        raw = self.raw(self.catalog())
+        duplicate = raw.replace(b'"revision": 7', b'"revision": 7, "revision": 7')
+        nonfinite = raw.replace(b'"revision": 7', b'"extra": NaN, "revision": 7')
+        overflow = raw.replace(b'"revision": 7', b'"extra": 1e999, "revision": 7')
+        self.assertNotEqual(raw, duplicate)
+        self.assertNotEqual(raw, nonfinite)
+        nested = raw.replace(b'"correctIndex": 0', b'"correctIndex": 0, "correctIndex": 0', 1)
+        negative_overflow = raw.replace(b'"revision": 7', b'"extra": -1e999, "revision": 7')
+        self.assertNotEqual(raw, overflow)
+        self.assertNotEqual(raw, nested)
+        self.assertNotEqual(raw, negative_overflow)
+        with tempfile.TemporaryDirectory() as temp:
+            good, bad = Path(temp) / 'good.zip', Path(temp) / 'bad.zip'
+            archive.create(raw, good)
+            for invalid in (duplicate, nested, nonfinite, overflow, negative_overflow):
+                with self.subTest(invalid=invalid[:120]):
+                    with self.assertRaises(ValueError): archive.create(invalid, bad)
+                    self.assertFalse(bad.exists())
+                    with self.assertRaises(ValueError): archive.verify(invalid, good)

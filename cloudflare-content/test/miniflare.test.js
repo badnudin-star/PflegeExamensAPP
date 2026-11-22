@@ -145,3 +145,47 @@ test('Miniflare: authorization, revision, input and future-day safeguards', {tim
     assert.deepEqual(await (await request(mf,'GET','/content')).json(),content);
   } finally {await mf.dispose();}
 });
+
+test('Python archive tools and worker perform a complete isolated backup/prune/restore flow', {timeout:60000}, async () => {
+  const {createServer} = await import('node:http');
+  const {spawn} = await import('node:child_process');
+  const {once} = await import('node:events');
+  const mf = runtime();
+  let server;
+  try {
+    await sql(mf,statements(file('schema.sql')));
+    // The bridge exposes only production endpoints, on loopback, for synthetic data.
+    server=createServer(async (req,res) => {
+      try {
+        const url = new URL(req.url, 'https://content.test');
+        if (!['/content','/quiz-archive/2020-01-01','/admin/quiz-archive/2020-01-01','/admin/content'].includes(url.pathname)) {
+          res.writeHead(404).end(); return;
+        }
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const body=Buffer.concat(chunks);
+        const headers={};
+        for (const name of ['authorization','content-type','if-match','cache-control'])
+          if (req.headers[name]) headers[name]=req.headers[name];
+        const response=await mf.dispatchFetch(url.toString(), {method:req.method,headers,...(body.length ? {body} : {})});
+        res.writeHead(response.status, {'content-type':response.headers.get('content-type') || 'application/json'});
+        res.end(Buffer.from(await response.arrayBuffer()));
+      } catch {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      }
+    });
+    server.listen(0,'127.0.0.1');
+    await once(server,'listening');
+    const python=spawn('python3',[fileURLToPath(new URL('fixtures/archive-flow.py',root)),String(server.address().port)],
+      {env:{PATH:process.env.PATH, PYTHONIOENCODING:'utf-8'},stdio:['ignore','pipe','pipe'],timeout:35000});
+    let stdout='',stderr='';
+    python.stdout.on('data',x=>{stdout+=x;}); python.stderr.on('data',x=>{stderr+=x;});
+    const [code]=await once(python,'close');
+    assert.equal(code,0,stderr);
+    assert.match(stdout,/synthetic archive flow passed/);
+  } finally {
+    if (server) await new Promise((resolve,reject)=>server.close(error=>error ? reject(error) : resolve()));
+    await mf.dispose();
+  }
+});
