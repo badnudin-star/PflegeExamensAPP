@@ -69,6 +69,38 @@ class NotePresentationTest {
         assertEquals(before, raw)
     }
 
+    @Test fun `match navigation follows nonoverlapping highlighted positions across blocks`() {
+        val blocks = listOf(NoteBlock(""), NoteBlock("Ababa ABABa"), NoteBlock("ohne"), NoteBlock("aba", true))
+        val first = NotePresentation.nextMatch(blocks, "  ABA  ")!!
+        val second = NotePresentation.nextMatch(blocks, "aba", first)!!
+        val third = NotePresentation.nextMatch(blocks, "aba", second)!!
+        assertEquals(NoteMatch(1, 0), first)
+        assertEquals(NoteMatch(1, 6), second)
+        assertEquals(NoteMatch(3, 0), third)
+        assertNull(NotePresentation.previousMatch(blocks, "aba", first))
+        assertEquals(first, NotePresentation.previousMatch(blocks, "aba", second))
+        assertEquals(second, NotePresentation.previousMatch(blocks, "aba", third))
+        assertNull(NotePresentation.nextMatch(blocks, "aba", third))
+        assertFalse(NotePresentation.isMatch(blocks, "aba", NoteMatch(1, 2))) // overlaps
+        assertNull(NotePresentation.nextMatch(blocks, "aba", NoteMatch(99, 0)))
+        assertNull(NotePresentation.previousMatch(blocks, "aba", NoteMatch(1, -1)))
+        assertNull(NotePresentation.nextMatch(blocks, "  "))
+        assertNull(NotePresentation.nextMatch(emptyList(), "aba"))
+        assertNull(NotePresentation.nextMatch(blocks, "nicht gefunden"))
+        assertEquals(NotePresentation.firstMatch(blocks, "aba"), first.blockIndex)
+    }
+
+    @Test fun `match offsets use displayed UTF16 and leave source untouched`() {
+        val raw = "Erster Absatz mit 😀 Nadelwort.\n\nZweiter Absatz mit NADELWORT."
+        val blocks = NotePresentation.blocks(raw)
+        val first = NotePresentation.nextMatch(blocks, "nadelwort")!!
+        val next = NotePresentation.nextMatch(blocks, "nadelwort", first)!!
+        assertEquals(blocks[first.blockIndex].text.indexOf("Nadelwort"), first.offset)
+        assertEquals(NoteMatch(1, blocks[1].text.indexOf("NADELWORT")), next)
+        assertEquals(first, NotePresentation.previousMatch(blocks, "nadelwort", next))
+        assertEquals("Erster Absatz mit 😀 Nadelwort.\n\nZweiter Absatz mit NADELWORT.", raw)
+    }
+
     @Test fun `new PDFs present headings and hide end references`() {
         val text = """
             EXAMENSVORBEREITUNG · LERNZETTEL

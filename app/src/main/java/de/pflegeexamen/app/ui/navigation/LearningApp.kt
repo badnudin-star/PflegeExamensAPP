@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -35,9 +36,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,11 +70,14 @@ import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.notes.NotePresentation
 import de.pflegeexamen.app.domain.notes.NoteHeading
+import de.pflegeexamen.app.domain.notes.NoteMatch
 import de.pflegeexamen.app.domain.notes.NoteSearchIndex
 import de.pflegeexamen.app.domain.notes.NoteSearchHit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
@@ -294,6 +300,8 @@ private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, sim
     }
 }
 
+private data class NoteJump(val blockIndex: Int, val offset: Int?, val sequence: Int)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
@@ -302,25 +310,77 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
     val headings = remember(blocks) { NotePresentation.headings(blocks) }
     var showContents by rememberSaveable(body) { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     var positioned by rememberSaveable(body, query) { mutableStateOf(false) }
-    val match = remember(blocks, query) { NotePresentation.firstMatch(blocks, query) }
-    LaunchedEffect(match, body, query) { if (match != null && !positioned) listState.scrollToItem(match + 1) }
+    val firstMatch = remember(blocks, query) { NotePresentation.nextMatch(blocks, query) }
+    var selectedBlock by rememberSaveable(body, query) { mutableIntStateOf(firstMatch?.blockIndex ?: -1) }
+    var selectedOffset by rememberSaveable(body, query) { mutableIntStateOf(firstMatch?.offset ?: -1) }
+    val selected = remember(blocks, query, selectedBlock, selectedOffset, firstMatch) {
+        NoteMatch(selectedBlock, selectedOffset).takeIf { NotePresentation.isMatch(blocks, query, it) } ?: firstMatch
+    }
+    val previous = remember(blocks, query, selected) { selected?.let { NotePresentation.previousMatch(blocks, query, it) } }
+    val next = remember(blocks, query, selected) { selected?.let { NotePresentation.nextMatch(blocks, query, it) } }
+    // Text layout offsets allow jumps to a particular occurrence inside a long paragraph.
+    // Only composed items are retained, and pending jumps are cancelled by later choices.
+    val layouts = remember(body) { mutableStateMapOf<Int, TextLayoutResult>() }
+    val density = LocalDensity.current
+    var sequence by remember(body, query) { mutableIntStateOf(0) }
+    var jump by remember(body, query) { mutableStateOf<NoteJump?>(null) }
+    fun jumpTo(blockIndex: Int, offset: Int?) {
+        sequence++
+        jump = NoteJump(blockIndex, offset, sequence)
+    }
+    fun selectMatch(match: NoteMatch) {
+        selectedBlock = match.blockIndex
+        selectedOffset = match.offset
+        positioned = true
+        jumpTo(match.blockIndex, match.offset)
+    }
+    LaunchedEffect(body, query, firstMatch) {
+        if (!positioned && firstMatch != null) jumpTo(firstMatch.blockIndex, firstMatch.offset)
+    }
+    LaunchedEffect(jump) {
+        val target = jump ?: return@LaunchedEffect
+        listState.scrollToItem(target.blockIndex + 1)
+        if (target.offset != null) {
+            val layout = snapshotFlow { layouts[target.blockIndex] }.filterNotNull().first()
+            val inset = with(density) { (if (blocks[target.blockIndex].isHeading) 14.dp else 18.dp).roundToPx() }
+            val y = layout.getBoundingBox(target.offset).top.toInt().coerceAtLeast(0) + inset
+            listState.scrollToItem(target.blockIndex + 1, y)
+        }
+        positioned = true
+    }
     if (showContents && headings.isNotEmpty()) {
         NoteContentsDialog(headings, onDismiss = { showContents = false }) { blockIndex ->
             showContents = false
-            // An explicit choice must not be overridden by the initial search jump.
+            // An explicit choice cancels an outstanding search jump.
             positioned = true
-            scope.launch { listState.scrollToItem(blockIndex + 1) }
+            jumpTo(blockIndex, null)
         }
     }
-    Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
-        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
-    }, actions = {
-        if (headings.isNotEmpty()) IconButton(onClick = { showContents = true }) {
-            Icon(Icons.Default.List, contentDescription = "Überschriften öffnen")
+    Scaffold(topBar = { Column {
+        TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = {
+            IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
+        }, actions = {
+            if (headings.isNotEmpty()) IconButton(onClick = { showContents = true }) {
+                Icon(Icons.Default.List, contentDescription = "Überschriften öffnen")
+            }
+        })
+        if (query.isNotBlank()) Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (selected == null) "Kein Treffer in dieser Lernzettelversion" else "Suchtreffer: ${query.trim()}",
+                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium)
+                if (selected != null) {
+                    IconButton(onClick = { previous?.let(::selectMatch) }, enabled = previous != null) {
+                        Icon(Icons.Default.KeyboardArrowUp, "Vorheriger Suchtreffer")
+                    }
+                    IconButton(onClick = { next?.let(::selectMatch) }, enabled = next != null) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Nächster Suchtreffer")
+                    }
+                }
+            }
         }
-    }) }) { padding ->
+    } }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -362,22 +422,16 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
                     }
                     append(block.text.substring(pos))
                 } }
+                DisposableEffect(blockIndex, block.text, layouts) {
+                    onDispose { layouts.remove(blockIndex) }
+                }
                 ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                     Text(display, Modifier.fillMaxWidth().padding(if (block.isHeading) 14.dp else 18.dp),
                         style = if (block.isHeading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
                         fontSize = if (block.isHeading) 18.sp else 17.sp, lineHeight = 27.sp,
                         fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
                         color = if (block.isHeading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        onTextLayout = { layout ->
-                            if (!positioned && blockIndex == match && term.isNotEmpty()) {
-                                val offset = block.text.indexOf(term, ignoreCase = true)
-                                if (offset >= 0) {
-                                    positioned = true
-                                    val y = layout.getBoundingBox(offset).top.toInt().coerceAtLeast(0)
-                                    scope.launch { listState.scrollToItem(blockIndex + 1, y) }
-                                }
-                            }
-                        })
+                        onTextLayout = { layout -> layouts[blockIndex] = layout })
                 }
             }
             if (blocks.isEmpty()) item { Text("Lernzettel nicht verfügbar.") }

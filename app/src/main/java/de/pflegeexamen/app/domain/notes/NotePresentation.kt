@@ -3,8 +3,9 @@ package de.pflegeexamen.app.domain.notes
 /** Display-only transformation. The stored source text is never modified. */
 data class NoteSection(val heading: String?, val paragraphs: List<String>)
 data class NoteBlock(val text: String, val isHeading: Boolean = false)
-/** Index refers to the display blocks, not a source PDF page. */
+/** Indices and offsets refer to displayed text, not source PDF pages. */
 data class NoteHeading(val blockIndex: Int, val text: String)
+data class NoteMatch(val blockIndex: Int, val offset: Int)
 
 object NotePresentation {
     private val oldHeader = Regex("(?m)^EXAMEN 2027 \\| LERNZETTEL[ \\t]*\\r?\\n[0-9]+[ \\t]*(?:\\r?\\n|$)")
@@ -81,5 +82,52 @@ object NotePresentation {
         val term = query.trim()
         if (term.isEmpty()) return null
         return blocks.indexOfFirst { it.text.contains(term, ignoreCase = true) }.takeIf { it >= 0 }
+    }
+
+    /** Non-overlapping matches use the same order and boundaries as the visual highlighting. */
+    fun nextMatch(blocks: List<NoteBlock>, query: String, after: NoteMatch? = null): NoteMatch? {
+        val term = query.trim()
+        if (term.isEmpty() || (after != null && !isMatch(blocks, term, after))) return null
+        val startBlock = after?.blockIndex ?: 0
+        for (index in startBlock until blocks.size) {
+            val start = if (after != null && index == after.blockIndex) after.offset + term.length else 0
+            val found = blocks[index].text.indexOf(term, start, ignoreCase = true)
+            if (found >= 0) return NoteMatch(index, found)
+        }
+        return null
+    }
+
+    fun previousMatch(blocks: List<NoteBlock>, query: String, before: NoteMatch): NoteMatch? {
+        val term = query.trim()
+        if (term.isEmpty() || !isMatch(blocks, term, before)) return null
+        // Scan forward within a block so overlapping substrings agree with the highlighting.
+        for (index in before.blockIndex downTo 0) {
+            val text = blocks[index].text
+            val end = if (index == before.blockIndex) before.offset else text.length
+            var start = 0
+            var last = -1
+            while (start <= end) {
+                val found = text.indexOf(term, start, ignoreCase = true)
+                if (found < 0 || found >= end) break
+                last = found
+                start = found + term.length
+            }
+            if (last >= 0) return NoteMatch(index, last)
+        }
+        return null
+    }
+
+    fun isMatch(blocks: List<NoteBlock>, query: String, match: NoteMatch): Boolean {
+        val term = query.trim()
+        val text = blocks.getOrNull(match.blockIndex)?.text ?: return false
+        if (term.isEmpty() || match.offset < 0 || match.offset > text.length - term.length) return false
+        var start = 0
+        while (start <= match.offset) {
+            val found = text.indexOf(term, start, ignoreCase = true)
+            if (found == match.offset) return true
+            if (found < 0 || found > match.offset) return false
+            start = found + term.length
+        }
+        return false
     }
 }

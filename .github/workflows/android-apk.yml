@@ -85,6 +85,9 @@ jobs:
               'caseAnswerOnlyAppearsWhenExplicitlyExpanded',
               'localQuizResumesAndReviewsWithoutRanking',
               'noteSearchJumpsToMatchAndRespectsLaterHeadingChoice',
+              'noteSearchNavigatesBetweenMatchesAndKeepsSelectionAfterRestore',
+              'noteSearchNavigatesToDifferentOccurrencesInsideLongParagraph',
+              'noteSearchWithoutTextMatchDoesNotOfferNavigation',
               'topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange',
               'androidPreferencesKeepSeparateLearningProgress',
           }
