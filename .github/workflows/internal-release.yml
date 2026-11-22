@@ -13,7 +13,20 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    name: Branch und Bestätigung prüfen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Eingaben prüfen – ohne Zugriff auf Release-Secrets
+        env:
+          CONFIRMED: ${{ inputs.confirm }}
+        run: python tools/android_checks/check_release_request.py
   release:
+    needs: preflight
     name: Interne APK bauen und signieren
     # Only the reviewed default branch, never arbitrary PR code or automatic pushes.
     if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
