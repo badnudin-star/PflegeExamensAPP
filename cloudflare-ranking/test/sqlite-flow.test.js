@@ -168,3 +168,14 @@ test('deletion survives a lost response and prevents a delayed or legacy registr
     assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,410);
   } finally { release(); }
 });
+
+test('missing deletion trigger is never acknowledged as a durable deletion', async () => {
+  const e = environment();
+  assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+  e.DB.sqlite.exec('DROP TRIGGER quiz_participant_delete_barrier');
+  const deletion = await worker.fetch(req('DELETE','/participants/me'),e);
+  assert.equal(deletion.status,503);
+  assert.equal(deletion.headers.get('X-Quiz-Deletion-Receipt'),null);
+  // Missing migration is a serious configuration error; the app retains its token.
+  assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_deleted_tokens').get().n,0);
+});

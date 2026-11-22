@@ -135,6 +135,19 @@ class RankingAccountDeletionTest {
         assertEquals(1,deletes); assertEquals("blocked",f.gate.unlessDeleting("blocked") { "unsafe" })
     }
 
+    @Test fun `http transport rejects unsafe deletion destinations before connecting`() = runTest {
+        val transport=HttpsAccountDeletionTransport()
+        for ((destination, credential) in listOf(
+            "http://rank.example/participants/me" to token,
+            "https://user:pw@rank.example/participants/me" to token,
+            "https://rank.example/participants/me?x=1" to token,
+            "https://rank.example/other" to token,
+            "https://rank.example/participants/me" to "invalid")) {
+            try { transport.delete(destination,credential); fail("Unsafe destination must be rejected") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
     @Test fun `cancellation retains unresolved journal`() = runTest {
         val f=fixture()
         try { client(f,AccountDeletionTransport { _,_ -> throw CancellationException() }).delete(); fail("Cancellation must propagate") }
