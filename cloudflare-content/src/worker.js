@@ -30,7 +30,7 @@ async function readLimited(request) {
   const result = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
-  return new TextDecoder('utf-8', { fatal: true }).decode(result);
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(result);
 }
 
 const str = value => typeof value === 'string' && value.trim().length > 0;
