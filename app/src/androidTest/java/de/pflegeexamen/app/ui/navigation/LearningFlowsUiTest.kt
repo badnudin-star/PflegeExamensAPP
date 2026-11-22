@@ -13,6 +13,8 @@ import de.pflegeexamen.app.domain.content.PublishedCard
 import de.pflegeexamen.app.domain.content.PublishedCase
 import de.pflegeexamen.app.domain.content.PublishedCaseQuestion
 import de.pflegeexamen.app.domain.content.PublishedQuiz
+import de.pflegeexamen.app.domain.content.PublishedNote
+import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.data.progress.QuizProgressPersistence
 import de.pflegeexamen.app.data.progress.QuizProgressStore
 import de.pflegeexamen.app.data.progress.CardProgressStore
@@ -191,6 +193,29 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Erste Testfrage?").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Deine Antwort: Falsch eins").assertExists()
         compose.onNodeWithText("Richtige Antwort: Richtig eins").assertExists()
+    }
+
+    @Test fun topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange() {
+        val title = DefaultCatalogs.defaultPreparations.first().title
+        val note = PublishedNote(title, "Vereinfachtes Nadelwort", "Unbenutzt", "Ausführliches Nadelwort", listOf("Test"), 2)
+        val catalog = mutableStateOf(LearningCatalog(notes = listOf(note)))
+        var opened: Triple<Int, String, String>? = null
+        compose.setContent {
+            PflegeExamenTheme { Topics(catalog.value) { index, depth, query -> opened = Triple(index, depth, query) } }
+        }
+        compose.onNodeWithText("Themen und Lernzettel durchsuchen").performTextInput("Nadelwort")
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Suchtreffer im Lernzettel").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Suchtreffer im vereinfachten Lernzettel").assertExists()
+        compose.onNodeWithText(title).performClick()
+        compose.runOnIdle { assertEquals(Triple(0, "main", "Nadelwort"), opened) }
+
+        compose.runOnIdle { catalog.value = LearningCatalog(notes = listOf(note.copy(detailed = "Neuer Inhalt", short = "Neuer Inhalt"))) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Keine passenden Themen oder Lernzettel gefunden.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Suchtreffer im Lernzettel").assertDoesNotExist()
+        compose.onNodeWithText("Themen und Lernzettel durchsuchen").performTextClearance()
+        compose.onNodeWithText("Themen und Lernzettel durchsuchen").performTextInput("Neuer Inhalt")
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Suchtreffer im Lernzettel").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Suchtreffer im vereinfachten Lernzettel").assertExists()
     }
 
     @Test fun caseSearchShowsMatchingDayWithoutOpeningAnswers() {
