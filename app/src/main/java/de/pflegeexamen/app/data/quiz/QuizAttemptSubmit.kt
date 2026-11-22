@@ -26,6 +26,8 @@ sealed interface SubmissionResult {
     data object NoAccount : SubmissionResult
     data object CredentialUnavailable : SubmissionResult
     data object CredentialRejected : SubmissionResult
+    data object AnotherAttemptPending : SubmissionResult
+    data object PendingStorageUnavailable : SubmissionResult
     /** Could be an already recorded attempt or changed quiz; reconcile instead of retrying blindly. */
     data object Conflict : SubmissionResult
     /** The server may have committed the attempt; reconcile before any further action. */
@@ -38,10 +40,11 @@ fun interface QuizSubmissionTransport {
     suspend fun send(url: String, token: String, body: ByteArray): SubmissionResponse
 }
 
-/** One explicit call sends at most one request. This does not manage UI state or durable pending attempts. */
+/** One explicit call sends at most one request, after the durable pending marker is saved. */
 class QuizAttemptSubmit(
     private val leaderboardUrl: String,
     private val vault: RankingTokenVault,
+    private val pending: PendingAttemptStore,
     private val transport: QuizSubmissionTransport
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -67,6 +70,11 @@ class QuizAttemptSubmit(
             TokenLoad.Unavailable -> return SubmissionResult.CredentialUnavailable
             is TokenLoad.Available -> value.token
         }
+        val marker = PendingMarker(date = date, quizHash = fingerprint,
+            accountHash = sha256(token.toByteArray(Charsets.US_ASCII)), payloadHash = sha256(body))
+        val started = try { pending.begin(marker) } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { return SubmissionResult.PendingStorageUnavailable }
+        if (!started) return SubmissionResult.AnotherAttemptPending
         return try {
             val response = transport.send(base.resolve("/quiz/attempt").toASCIIString(), token, body)
             when (response.status) {
@@ -80,7 +88,8 @@ class QuizAttemptSubmit(
                     }.getOrNull()
                     if (score == null || score.date != date || score.total != 50 || score.correct !in 0..50)
                         SubmissionResult.Uncertain
-                    else SubmissionResult.Recorded(date, score.correct, score.total)
+                    else if (pending.record(marker, score.correct)) SubmissionResult.Recorded(date, score.correct, score.total)
+                    else SubmissionResult.Uncertain
                 }
                 else -> SubmissionResult.Uncertain
             }

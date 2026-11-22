@@ -21,6 +21,13 @@ class QuizAttemptSubmitTest {
         override fun write(bytes: ByteArray) { value = bytes.clone() }
         override fun delete() { value = null }
     }
+    private class PendingStorage : PendingAttemptPersistence {
+        private var data: ByteArray? = null
+        override fun read(): ByteArray? = data?.clone()
+        override fun write(data: ByteArray) { this.data = data.clone() }
+        override fun delete() { data = null }
+    }
+    private fun pending() = PendingAttemptStore(PendingStorage())
     private class Cipher : RankingTokenCipher {
         override fun encrypt(plain: ByteArray) = plain.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
         override fun decrypt(ciphertext: ByteArray) = ciphertext.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
@@ -44,17 +51,17 @@ class QuizAttemptSubmitTest {
             assertTrue(body["answers"]!!.jsonArray.all { it.jsonObject.keys == setOf("id", "option") })
             response(201, """{"date":"2026-11-13","correct":41,"total":50}""")
         }
-        assertEquals(SubmissionResult.Recorded(date, 41, 50), QuizAttemptSubmit(url, vault, transport).submit(date, fingerprint, answers))
+        assertEquals(SubmissionResult.Recorded(date, 41, 50), QuizAttemptSubmit(url, vault, pending(), transport).submit(date, fingerprint, answers))
         assertEquals(1, calls)
     }
 
     @Test fun `invalid input or missing account never sends`() = runTest {
         val storage = Storage(); val empty = RankingTokenVault(storage, Cipher()); var calls = 0
         val transport = QuizSubmissionTransport { _,_,_ -> calls++; response(500) }
-        assertEquals(SubmissionResult.NotConfigured, QuizAttemptSubmit("", empty, transport).submit(date, fingerprint, answers))
+        assertEquals(SubmissionResult.NotConfigured, QuizAttemptSubmit("", empty, pending(), transport).submit(date, fingerprint, answers))
         for (bad in listOf("http://rank.example/leaderboard", "https://user:pass@rank.example/leaderboard", "https://rank.example/leaderboard?x=1"))
-            assertEquals(SubmissionResult.InvalidInput, QuizAttemptSubmit(bad, empty, transport).submit(date, fingerprint, answers))
-        val client = QuizAttemptSubmit(url, empty, transport)
+            assertEquals(SubmissionResult.InvalidInput, QuizAttemptSubmit(bad, empty, pending(), transport).submit(date, fingerprint, answers))
+        val client = QuizAttemptSubmit(url, empty, pending(), transport)
         assertEquals(SubmissionResult.InvalidInput, client.submit("2026-02-30", fingerprint, answers))
         assertEquals(SubmissionResult.InvalidInput, client.submit(date, "X".repeat(64), answers))
         assertEquals(SubmissionResult.InvalidInput, client.submit(date, fingerprint, answers.drop(1)))
@@ -76,15 +83,15 @@ class QuizAttemptSubmitTest {
             Triple(201,"""{"date":"2026-11-13","correct":51,"total":50}""",SubmissionResult.Uncertain),
             Triple(201,"x".repeat(4097),SubmissionResult.Uncertain))) {
             var calls = 0
-            val client = QuizAttemptSubmit(url, vault, QuizSubmissionTransport { _,_,_ -> calls++; response(code,body) })
+            val client = QuizAttemptSubmit(url, vault, pending(), QuizSubmissionTransport { _,_,_ -> calls++; response(code,body) })
             assertEquals(expected, client.submit(date, fingerprint, answers))
             assertEquals(1,calls)
         }
         var calls = 0
-        val lost = QuizAttemptSubmit(url, vault, QuizSubmissionTransport { _,_,_ -> calls++; throw IllegalStateException() })
+        val lost = QuizAttemptSubmit(url, vault, pending(), QuizSubmissionTransport { _,_,_ -> calls++; throw IllegalStateException() })
         assertEquals(SubmissionResult.Uncertain, lost.submit(date, fingerprint, answers))
         assertEquals(1,calls)
-        val cancelled = QuizAttemptSubmit(url, vault, QuizSubmissionTransport { _,_,_ -> throw CancellationException() })
+        val cancelled = QuizAttemptSubmit(url, vault, pending(), QuizSubmissionTransport { _,_,_ -> throw CancellationException() })
         try { cancelled.submit(date, fingerprint, answers); fail("Cancellation must propagate") } catch (_: CancellationException) { }
     }
 
