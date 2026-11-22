@@ -79,6 +79,8 @@ jobs:
               'individualCardCanBeHiddenWithoutHidingOtherCards',
               'noteOutlineJumpsToSelectedHeading',
               'caseSearchShowsMatchingDayWithoutOpeningAnswers',
+              'caseAnswerOnlyAppearsWhenExplicitlyExpanded',
+              'localQuizResumesAndReviewsWithoutRanking',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):
