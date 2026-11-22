@@ -123,6 +123,7 @@ jobs:
               'androidKeystoreProtectsTokenAndDetectsLostKey',
               'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
               'pendingQuizClosureRequiresExplicitConfirmation',
+              'rankedParticipationRequiresConfirmationAndRestoresAnswers',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):

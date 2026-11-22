@@ -19,8 +19,11 @@ android {
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.path == "/content"
     }.getOrDefault(false)) { "contentUrl muss eine öffentliche HTTPS-URL mit Pfad /content sein." }
 
-    // Optional public read-only leaderboard, not a user setting and disabled by default.
+    // Build-time switches only, never user settings. Participation is experimental and off by default.
+    val enableRankedParticipation = providers.gradleProperty("enableRankedParticipation").orElse("false").get()
+    require(enableRankedParticipation == "true" || enableRankedParticipation == "false") { "enableRankedParticipation muss true oder false sein." }
     val rankingUrl = providers.gradleProperty("rankingUrl").orElse("").get()
+    require(enableRankedParticipation != "true" || rankingUrl.isNotBlank()) { "Wertungsteilnahme benötigt eine Ranking-URL." }
     require(rankingUrl.isEmpty() || runCatching {
         val uri = URI(rankingUrl)
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.rawPath == "/leaderboard"
@@ -32,6 +35,7 @@ android {
         targetSdk = 35
         buildConfigField("String", "CONTENT_URL", "\"$contentUrl\"")
         buildConfigField("String", "RANKING_URL", "\"$rankingUrl\"")
+        buildConfigField("boolean", "ENABLE_RANKED_PARTICIPATION", enableRankedParticipation)
         versionCode = 12
         versionName = "3.0.1"
 
