@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.buildAnnotatedString
@@ -104,7 +105,13 @@ fun LearningApp(store: PublishedContentStore) {
                 val depthLabel = if (depth == "simple") "Vereinfacht" else "Lernzettel"
                 NoteScreen(topic ?: "Lernzettel", depthLabel, content.orEmpty(), entry.arguments?.getString("query").orEmpty()) { nav.popBackStack() }
             }
-            composable("cards") { CardPicker(catalog, learnedCards, showLearned, { showLearned = it }) { nav.navigate("card_session/$it") } }
+            composable("cards") {
+                CardPicker(catalog, learnedCards, showLearned, { showLearned = it },
+                    manageLearned = { nav.navigate("learned_cards") }, open = { nav.navigate("card_session/$it") })
+            }
+            composable("learned_cards") {
+                LearnedCardsScreen(catalog.cards, learnedCards, cardProgress::setLearned) { nav.popBackStack() }
+            }
             composable("card_session/{index}") { entry ->
                 val index = entry.arguments?.getString("index")?.toIntOrNull() ?: -1
                 val topic = DefaultCatalogs.defaultPreparations.getOrNull(index)?.title
@@ -317,7 +324,7 @@ private fun DayHeader(title: String, summary: String, expanded: Boolean, toggle:
 }
 
 @Composable
-private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearned: Boolean, setShowLearned: (Boolean) -> Unit, open: (Int) -> Unit) {
+private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearned: Boolean, setShowLearned: (Boolean) -> Unit, manageLearned: () -> Unit, open: (Int) -> Unit) {
     var expandedDays by rememberSaveable { mutableIntStateOf(0) }
     val visible = remember(catalog.cards, learned, showLearned) { CardVisibility.visible(catalog.cards, learned, showLearned) }
     val counts = remember(visible) { visible.groupingBy { it.topic }.eachCount() }
@@ -338,6 +345,11 @@ private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearn
                 Switch(checked = showLearned, onCheckedChange = null)
             }
         }
+        item {
+            OutlinedButton(onClick = manageLearned, modifier = Modifier.fillMaxWidth()) {
+                Text("Gelernte Karten einzeln wieder einblenden ($learnedCount)")
+            }
+        }
         item { Button(onClick = { open(-1) }, enabled = visible.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("Alle sichtbaren Karten zufällig mischen") } }
         if (catalog.cards.isEmpty()) item { Text("Noch keine Karteikarten veröffentlicht.") }
         else if (visible.isEmpty()) item { Text("Alle Karten sind ausgeblendet. Aktiviere „Gelernte Karten anzeigen“, um sie wiederzusehen.") }
@@ -355,6 +367,55 @@ private fun CardPicker(catalog: LearningCatalog, learned: Set<String>, showLearn
                     val learnedCountForTopic = learnedCounts[entry.value.title] ?: 0
                     ListItem(headlineContent = { Text(entry.value.title) }, supportingContent = { Text("$count sichtbar · $learnedCountForTopic gelernt") },
                         modifier = Modifier.clickable(enabled = count > 0) { open(entry.index) }, trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) })
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LearnedCardsScreen(cards: List<PublishedCard>, learned: Set<String>, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val matches = remember(cards, learned, query) { CardVisibility.learnedMatching(cards, learned, query) }
+    val count = remember(cards, learned) { cards.count { it.id in learned } }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Gelernte Karten") }, navigationIcon = {
+            IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück zur Kartenübersicht") }
+        }) },
+        snackbarHost = { SnackbarHost(snackbar) }
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text("Karten wieder einblenden", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
+            item { Text("Wähle einzelne Karten aus, die du wieder lernen möchtest. Die Inhalte bleiben unverändert.") }
+            item {
+                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Gelernte Karten durchsuchen") },
+                    supportingText = { Text("Suche in Thema, Frage und Antwort") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) })
+            }
+            item { Text("$count gelernt · ${matches.size} angezeigt", style = MaterialTheme.typography.bodySmall) }
+            if (count == 0) item { Text("Noch keine Karten als gelernt markiert.") }
+            else if (matches.isEmpty()) item { Text("Keine passenden gelernten Karten gefunden.") }
+            items(matches, key = { it.id }) { card ->
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(card.topic, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        Text(card.front, style = MaterialTheme.typography.bodyLarge)
+                        OutlinedButton(onClick = {
+                            setLearned(card.id, false)
+                            scope.launch {
+                                val result = snackbar.showSnackbar("Karte wieder eingeblendet", actionLabel = "Rückgängig", duration = SnackbarDuration.Long)
+                                if (result == SnackbarResult.ActionPerformed) setLearned(card.id, true)
+                            }
+                        }, modifier = Modifier.semantics { contentDescription = "Karte wieder lernen: ${card.front}" }) {
+                            Text("Wieder lernen")
+                        }
+                    }
                 }
             }
         }

@@ -11,6 +11,15 @@ object CardVisibility {
     fun visible(cards: List<PublishedCard>, learned: Set<String>, showLearned: Boolean): List<PublishedCard> =
         if (showLearned) cards else cards.filterNot { it.id in learned }
 
+    /** Search learned cards only; card texts and saved IDs are not changed. */
+    fun learnedMatching(cards: List<PublishedCard>, learned: Set<String>, query: String): List<PublishedCard> {
+        val term = query.trim()
+        return cards.filter { card ->
+            card.id in learned && (term.isEmpty() || card.topic.contains(term, ignoreCase = true) ||
+                card.front.contains(term, ignoreCase = true) || card.back.contains(term, ignoreCase = true))
+        }
+    }
+
     /** Keep the same position if a following card exists; otherwise show the previous card. */
     fun indexAfterRemoval(index: Int, previousSize: Int): Int = index.coerceAtMost((previousSize - 2).coerceAtLeast(0))
 }
