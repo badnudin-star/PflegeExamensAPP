@@ -127,6 +127,8 @@ jobs:
               'rankedParticipationDoesNotReuseAnswersForChangedQuiz',
               'androidDeletionJournalSurvivesRestartAndRequiresReceipt',
               'accountDeletionNeedsConfirmationAndUncertainResultBlocksActivity',
+              'recoveryRequiresOptInAndDoesNotRestoreSensitiveDialogState',
+              'androidRecoveryMovesSyntheticAccessBetweenIsolatedKeystores',
           }
           found = set()
           for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):

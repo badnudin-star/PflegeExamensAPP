@@ -179,3 +179,25 @@ test('missing deletion trigger is never acknowledged as a durable deletion', asy
   // Missing migration is a serious configuration error; the app retains its token.
   assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_deleted_tokens').get().n,0);
 });
+
+test('two devices using the same account still share one daily attempt and a deletion', async () => {
+  const e = environment(), originalFetch = globalThis.fetch;
+  const questions = Array.from({length:50}, (_,i) => ({id:`q-${i}`, published:day(), topic:'Test', question:`Frage ${i}`,
+    options:['A','B','C','D'], correctIndex:i%4, explanation:'Test'}));
+  globalThis.fetch = async () => new Response(JSON.stringify({schemaVersion:1, quizzes:questions}));
+  try {
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,201);
+    assert.equal((await worker.fetch(req('GET','/participants/me'),e)).status,200);
+    const quiz = await (await worker.fetch(req('GET','/quiz/today'),e)).json();
+    const body = {date:quiz.date, fingerprint:quiz.fingerprint, answers:questions.map((q,i)=>({id:q.id,option:i%4}))};
+    const first = await worker.fetch(req('POST','/quiz/attempt',body),e);
+    assert.equal(first.status,201);
+    const second = await worker.fetch(req('POST','/quiz/attempt',body),e);
+    assert.equal(second.status,409);
+    assert.equal(e.DB.sqlite.prepare('SELECT count(*) n FROM quiz_attempts').get().n,1);
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);
+    assert.equal((await worker.fetch(req('GET','/participants/me'),e)).status,404);
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,410);
+    assert.equal((await worker.fetch(req('POST','/quiz/attempt',body),e)).status,401);
+  } finally { globalThis.fetch = originalFetch; }
+});
