@@ -71,6 +71,15 @@ class PendingAttemptStore(private val storage: PendingAttemptPersistence, privat
             true
         }
     }
+    /** Remove only the same unresolved marker after an authoritative server closure. */
+    internal suspend fun clearClosed(expected: PendingMarker): Boolean = withContext(Dispatchers.IO) {
+        lock.withLock {
+            if (expected.correct != null || readMarker() != expected) return@withLock false
+            storage.delete()
+            check(storage.read() == null)
+            true
+        }
+    }
     internal suspend fun acknowledge(accountHash: String): Boolean = withContext(Dispatchers.IO) {
         lock.withLock {
             val marker = readMarker() ?: return@withLock false
