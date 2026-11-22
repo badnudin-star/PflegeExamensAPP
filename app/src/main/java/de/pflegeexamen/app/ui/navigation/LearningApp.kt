@@ -57,6 +57,7 @@ import de.pflegeexamen.app.data.progress.QuizProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
 import de.pflegeexamen.app.domain.content.*
 import de.pflegeexamen.app.domain.cases.CasePresentation
+import de.pflegeexamen.app.domain.cases.CaseSearchIndex
 import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.domain.cards.TopicCardCounts
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
@@ -545,27 +546,45 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
 @Composable
 private fun CasePicker(catalog: LearningCatalog, completed: Set<String>, setCompleted: (String, Boolean) -> Unit, open: (String) -> Unit) {
     val cases = remember(catalog.cases) { catalog.cases.sortedBy { it.id } }
+    val index = remember(cases) { CaseSearchIndex(cases) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val searching = CaseSearchIndex.normalize(query).isNotEmpty()
+    val results = remember(index, query) { index.search(query) }
     var expandedDays by rememberSaveable { mutableIntStateOf(0) }
+    var collapsedSearchDays by rememberSaveable { mutableIntStateOf(0) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fallbeispiele", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text("Klappe einen Prüfungstag auf. Markierungen werden auf diesem Gerät gespeichert.") }
+        item {
+            OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text("Fallbeispiele durchsuchen") }, leadingIcon = { Icon(Icons.Default.Search, null) },
+                supportingText = { Text("Suche auch in Aufgaben und ausklappbaren Antworten") },
+                trailingIcon = {
+                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Suche löschen") }
+                })
+        }
         if (cases.isEmpty()) item { Text("Noch keine Fallbeispiele veröffentlicht.") }
+        else if (searching && results.isEmpty()) item { Text("Keine passenden Fallbeispiele gefunden.") }
+        else if (searching) item { Text("${results.size} passende Fälle", style = MaterialTheme.typography.bodySmall) }
         listOf(1, 2, 3, 0).forEach { day ->
-            val group = cases.filter { if (day == 0) it.examDay == null || it.examDay !in 1..3 else it.examDay == day }
+            val group = results.filter { result -> result.case.let { if (day == 0) it.examDay == null || it.examDay !in 1..3 else it.examDay == day } }
             if (group.isNotEmpty()) {
-                val expanded = expandedDays and (1 shl day) != 0
+                val expanded = if (searching) collapsedSearchDays and (1 shl day) == 0 else expandedDays and (1 shl day) != 0
                 item(key = "case-day-$day") {
                     DayHeader(if (day == 0) "Weitere Fälle" else "Prüfungstag $day",
-                        "${group.size} Fälle · ${group.count { it.id in completed }} bearbeitet", expanded) {
-                        expandedDays = expandedDays xor (1 shl day)
+                        "${group.size} ${if (searching) "passende Fälle" else "Fälle"} · ${group.count { it.case.id in completed }} bearbeitet", expanded) {
+                        if (searching) collapsedSearchDays = collapsedSearchDays xor (1 shl day)
+                        else expandedDays = expandedDays xor (1 shl day)
                     }
                 }
-                if (expanded) items(group, key = { it.id }) { case ->
+                if (expanded) items(group, key = { it.case.id }) { result ->
+                    val case = result.case
                     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth().clickable { open(case.id) }.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(case.title.ifBlank { case.diseases.joinToString(" · ") }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text("${case.questions.size} Aufgaben · Fall öffnen", style = MaterialTheme.typography.bodySmall)
+                                if (searching) Text("Treffer: ${result.fields.joinToString(", ") { it.label }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
                             CaseCompletionToggle(case.id in completed, { setCompleted(case.id, it) })
                         }
