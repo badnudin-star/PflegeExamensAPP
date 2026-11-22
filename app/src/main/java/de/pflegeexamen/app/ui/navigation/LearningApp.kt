@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -260,7 +261,7 @@ private fun TopicTile(title: String, available: Boolean, mainMatch: Boolean, sim
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
+internal fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
     openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit) {
     val blocks = remember(body) { NotePresentation.blocks(body) }
     val headings = remember(blocks) { NotePresentation.headings(blocks) }
@@ -503,7 +504,7 @@ private val cardSessionSaver = Saver<CardSessionState, String>(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
+internal fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Set<String>, showLearned: Boolean, setLearned: (String, Boolean) -> Unit, back: () -> Unit) {
     val fingerprint = remember(cards) { cardDeckFingerprint(cards) }
     var saved by rememberSaveable(stateSaver = cardSessionSaver) {
         mutableStateOf(CardSessionState(fingerprint, random, Random.Default.nextLong()))
@@ -560,7 +561,7 @@ private fun CardSession(cards: List<PublishedCard>, random: Boolean, learned: Se
 }
 
 @Composable
-private fun CasePicker(catalog: LearningCatalog, completed: Set<String>, setCompleted: (String, Boolean) -> Unit, open: (String) -> Unit) {
+internal fun CasePicker(catalog: LearningCatalog, completed: Set<String>, setCompleted: (String, Boolean) -> Unit, open: (String) -> Unit) {
     val cases = remember(catalog.cases) { catalog.cases.sortedBy { it.id } }
     val index = remember(cases) { CaseSearchIndex(cases) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -568,7 +569,7 @@ private fun CasePicker(catalog: LearningCatalog, completed: Set<String>, setComp
     val results = remember(index, query) { index.search(query) }
     var expandedDays by rememberSaveable { mutableIntStateOf(0) }
     var collapsedSearchDays by rememberSaveable { mutableIntStateOf(0) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("caseList"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fallbeispiele", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text("Klappe einen Prüfungstag auf. Markierungen werden auf diesem Gerät gespeichert.") }
         item {
