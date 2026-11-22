@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import date
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -27,9 +28,8 @@ def encode(value):
 
 
 def expected_files(raw):
-    if len(raw) > MAX_CATALOG:
-        raise ValueError('Katalog überschreitet das Größenlimit')
-    catalog = validate_base(json.loads(raw))
+    # Backups must use the same unambiguous JSON rules as restoration.
+    catalog = strict_catalog(raw)
     days = defaultdict(list)
     for question in catalog['quizzes']:
         day = question['published']
@@ -103,7 +103,13 @@ def strict_catalog(raw):
     def no_nonfinite(_):
         raise ValueError('Ungültige JSON-Zahl')
 
-    catalog = validate_base(json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_nonfinite))
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError('Ungültige JSON-Zahl')
+        return number
+
+    catalog = validate_base(json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_nonfinite, parse_float=finite_float))
     for question in catalog['quizzes']:
         day = question['published']
         try:
