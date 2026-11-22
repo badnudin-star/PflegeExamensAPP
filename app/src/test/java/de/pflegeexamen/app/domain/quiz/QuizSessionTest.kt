@@ -60,6 +60,30 @@ class QuizSessionTest {
         assertThrows(IllegalArgumentException::class.java) { QuizSession(quizFingerprint(empty)).reviewIndices(empty, false) }
     }
 
+    @Test fun `topic results reflect only the completed local attempt in question order`() {
+        val mixed = listOf(
+            questions[0].copy(topic = "Thema B"), questions[1].copy(topic = "Thema A"),
+            questions[0].copy(id = "q3", topic = "Thema B", correctIndex = 3),
+            questions[1].copy(id = "q4", topic = "Thema A", correctIndex = 0)
+        )
+        val start = QuizSession(quizFingerprint(mixed))
+        assertThrows(IllegalArgumentException::class.java) { start.topicResults(mixed) }
+        val finished = start.answer(1, mixed).advance(mixed).answer(0, mixed).advance(mixed)
+            .answer(1, mixed).advance(mixed).answer(0, mixed).advance(mixed)
+        assertEquals(listOf(QuizTopicResult("Thema B", 1, 2), QuizTopicResult("Thema A", 1, 2)), finished.topicResults(mixed))
+        assertEquals(2, finished.correctCount(mixed))
+        assertEquals(listOf(1, 0, 1, 0), finished.answers)
+        assertThrows(IllegalArgumentException::class.java) { finished.topicResults(mixed.reversed()) }
+        val empty = emptyList<PublishedQuiz>()
+        assertThrows(IllegalArgumentException::class.java) { QuizSession(quizFingerprint(empty)).topicResults(empty) }
+    }
+
+    @Test fun `topic results handle all correct and all incorrect`() {
+        val fingerprint = quizFingerprint(questions)
+        assertEquals(listOf(QuizTopicResult("Thema", 2, 2)), QuizSession(fingerprint, 2, listOf(1, 2)).topicResults(questions))
+        assertEquals(listOf(QuizTopicResult("Thema", 0, 2)), QuizSession(fingerprint, 2, listOf(0, 0)).topicResults(questions))
+    }
+
     @Test fun `content changes or question reorder invalidate state`() {
         val original = QuizSession(quizFingerprint(questions)).answer(1, questions)
         assertTrue(original.isValidFor(questions))

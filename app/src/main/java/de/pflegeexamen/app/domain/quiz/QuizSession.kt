@@ -6,6 +6,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 
+/** Summary of this practice session, not a measurement of mastery or a ranking result. */
+data class QuizTopicResult(val topic: String, val correct: Int, val total: Int)
+
 /** Local practice only. Answers and scores are never submitted to a ranking. */
 @Serializable
 data class QuizSession(val fingerprint: String, val index: Int = 0, val answers: List<Int> = emptyList()) {
@@ -29,6 +32,14 @@ data class QuizSession(val fingerprint: String, val index: Int = 0, val answers:
     fun reviewIndices(questions: List<PublishedQuiz>, onlyWrong: Boolean): List<Int> {
         require(isValidFor(questions) && index == questions.size && questions.isNotEmpty())
         return questions.indices.filter { !onlyWrong || answers[it] != questions[it].correctIndex }
+    }
+
+    /** Available only when the complete local quiz has been answered. Preserves topic order. */
+    fun topicResults(questions: List<PublishedQuiz>): List<QuizTopicResult> {
+        require(isValidFor(questions) && index == questions.size && questions.isNotEmpty())
+        return questions.indices.groupBy { questions[it].topic }.map { (topic, indices) ->
+            QuizTopicResult(topic, indices.count { answers[it] == questions[it].correctIndex }, indices.size)
+        }
     }
 
     fun correctCount(questions: List<PublishedQuiz>): Int {

@@ -122,7 +122,7 @@ fun LearningApp(store: PublishedContentStore) {
                 val day = entry.arguments?.getString("day")?.toIntOrNull()
                 CaseDayTopics(catalog, day, open = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
-            composable("quiz") { QuizScreen(catalog, quizProgress) }
+            composable("quiz") { QuizScreen(catalog, quizProgress) { index, depth -> nav.navigate("note/$index/$depth") } }
             composable("ranking") { QuizRankingScreen { nav.popBackStack() } }
             composable("settings") { AppSettings(store) { nav.popBackStack() } }
         }
@@ -542,15 +542,15 @@ private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, Strin
 }
 
 @Composable
-private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
+private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openNote: (Int, String) -> Unit) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
     var selectedDate by rememberSaveable(dates) { mutableStateOf(dates.firstOrNull()) }
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
     var session by remember(selectedDate, quiz, progress) { mutableStateOf(selectedDate?.let { progress.load(it, quiz) }) }
     var confirmRestart by remember(selectedDate, quiz) { mutableStateOf(false) }
-    var reviewing by remember(selectedDate, quiz) { mutableStateOf(false) }
-    var onlyWrong by remember(selectedDate, quiz) { mutableStateOf(false) }
-    var reviewPosition by remember(selectedDate, quiz) { mutableIntStateOf(0) }
+    var reviewing by rememberSaveable(selectedDate, quiz) { mutableStateOf(false) }
+    var onlyWrong by rememberSaveable(selectedDate, quiz) { mutableStateOf(false) }
+    var reviewPosition by rememberSaveable(selectedDate, quiz) { mutableIntStateOf(0) }
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     fun update(next: de.pflegeexamen.app.domain.quiz.QuizSession) {
@@ -600,21 +600,39 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
                     Text("Alle Fragen richtig beantwortet.")
                 }
                 OutlinedButton(onClick = { confirmRestart = true }) { Text("Erneut üben") }
+                HorizontalDivider()
+                Text("Ergebnis nach Thema", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Nur für diese Übung; das Ergebnis ist keine Bewertung deines gesamten Wissens.", style = MaterialTheme.typography.bodySmall)
+                current.topicResults(quiz).forEach { result ->
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(result.topic, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${result.correct} von ${result.total} richtig")
+                            QuizTopicNoteLinks(catalog, result.topic, openNote)
+                        }
+                    }
+                }
             } else {
                 val indices = current.reviewIndices(quiz, onlyWrong)
-                val questionIndex = indices[reviewPosition]
-                val q = quiz[questionIndex]
-                val selected = current.answers[questionIndex]
-                Text(if (onlyWrong) "Falsch beantwortete Fragen" else "Alle Antworten", style = MaterialTheme.typography.titleMedium)
-                Text("${reviewPosition + 1} / ${indices.size} · Frage ${questionIndex + 1} · ${q.topic}", style = MaterialTheme.typography.labelLarge)
-                Text(q.question, style = MaterialTheme.typography.titleLarge)
-                Text("Deine Antwort: ${q.options[selected]}")
-                Text(if (selected == q.correctIndex) "Richtig" else "Richtige Antwort: ${q.options[q.correctIndex]}", fontWeight = FontWeight.Bold)
-                Text(q.explanation)
-                Text("Quelle: ${q.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { reviewPosition--; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition > 0) { Text("Zurück") }
-                    OutlinedButton(onClick = { reviewPosition++; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition < indices.lastIndex) { Text("Weiter") }
+                val questionIndex = indices.getOrNull(reviewPosition)
+                if (questionIndex == null) {
+                    // A restored UI position may no longer exist after content or progress changes.
+                    Text("Diese Durchsicht ist nicht mehr verfügbar.")
+                } else {
+                    val q = quiz[questionIndex]
+                    val selected = current.answers[questionIndex]
+                    Text(if (onlyWrong) "Falsch beantwortete Fragen" else "Alle Antworten", style = MaterialTheme.typography.titleMedium)
+                    Text("${reviewPosition + 1} / ${indices.size} · Frage ${questionIndex + 1} · ${q.topic}", style = MaterialTheme.typography.labelLarge)
+                    Text(q.question, style = MaterialTheme.typography.titleLarge)
+                    Text("Deine Antwort: ${q.options[selected]}")
+                    Text(if (selected == q.correctIndex) "Richtig" else "Richtige Antwort: ${q.options[q.correctIndex]}", fontWeight = FontWeight.Bold)
+                    Text(q.explanation)
+                    Text("Quelle: ${q.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+                    QuizTopicNoteLinks(catalog, q.topic, openNote)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { reviewPosition--; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition > 0) { Text("Zurück") }
+                        OutlinedButton(onClick = { reviewPosition++; scope.launch { scroll.scrollTo(0) } }, enabled = reviewPosition < indices.lastIndex) { Text("Weiter") }
+                    }
                 }
                 TextButton(onClick = { reviewing = false; scope.launch { scroll.scrollTo(0) } }) { Text("Zur Ergebnisübersicht") }
             }
@@ -627,12 +645,24 @@ private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore) {
                 OutlinedButton(onClick = { update(current.answer(option, quiz)) }, enabled = choice == null, modifier = Modifier.fillMaxWidth()) { Text(text, modifier = Modifier.fillMaxWidth()) }
             }
             if (choice != null) {
+                Text("Deine Antwort: ${q.options[choice]}")
                 Text(if (choice == q.correctIndex) "Richtig" else "Nicht richtig. Richtig ist: ${q.options[q.correctIndex]}", fontWeight = FontWeight.Bold)
                 Text(q.explanation); Text("Quelle: ${q.sources.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { update(current.advance(quiz)); scope.launch { scroll.scrollTo(0) } }) { Text("Nächste Frage") }
             }
             if (current.answers.isNotEmpty()) OutlinedButton(onClick = { confirmRestart = true }) { Text("Quiz neu beginnen") }
         }
+    }
+}
+
+/** Link only to an existing fixed topic with its bundled/published two-version note. */
+@Composable
+private fun QuizTopicNoteLinks(catalog: LearningCatalog, topic: String, openNote: (Int, String) -> Unit) {
+    val index = remember(topic) { DefaultCatalogs.defaultPreparations.indexOfFirst { it.title == topic } }
+    val available = catalog.notes.any { it.topic == topic && it.formatVersion == 2 }
+    if (index >= 0 && available) {
+        TextButton(onClick = { openNote(index, "detailed") }) { Text("Lernzettel öffnen") }
+        TextButton(onClick = { openNote(index, "simple") }) { Text("Vereinfachten Lernzettel öffnen") }
     }
 }
 
