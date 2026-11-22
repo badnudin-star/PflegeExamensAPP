@@ -635,11 +635,11 @@ private fun readableCaseText(text: String): String = text.trim().lines().fold(mu
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (Boolean) -> Unit, openDayTopics: (Int) -> Unit, back: () -> Unit) {
+internal fun CaseDetail(case: PublishedCase, completed: Boolean, setCompleted: (Boolean) -> Unit, openDayTopics: (Int) -> Unit, back: () -> Unit) {
     val title = case.title.ifBlank { case.diseases.joinToString(" · ") }
     val sections = remember(case.text) { CasePresentation.sections(case.text) }
     Scaffold(topBar = { TopAppBar(title = { Text(title, maxLines = 2) }, navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") } }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("caseDetailList"), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(case.examDay?.let { "FALLBEISPIEL · PRÜFUNGSTAG $it" } ?: "FALLBEISPIEL", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -706,7 +706,7 @@ private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, Strin
 }
 
 @Composable
-private fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openNote: (Int, String) -> Unit) {
+internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openNote: (Int, String) -> Unit) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
     var selectedDate by rememberSaveable(dates) { mutableStateOf(dates.firstOrNull()) }
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
