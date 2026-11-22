@@ -40,6 +40,9 @@ import de.pflegeexamen.app.data.quiz.RankingOperationGate
 import de.pflegeexamen.app.data.quiz.RankingAccountDeletion
 import de.pflegeexamen.app.data.quiz.AccountDeletionTransport
 import de.pflegeexamen.app.data.quiz.DeletionResponse
+import de.pflegeexamen.app.data.quiz.RecoveryExport
+import de.pflegeexamen.app.data.quiz.RecoveryRestore
+import de.pflegeexamen.app.data.quiz.RankingRecovery
 import de.pflegeexamen.app.data.quiz.AccountDeletionResult
 import de.pflegeexamen.app.data.quiz.AttemptLookup
 import de.pflegeexamen.app.data.quiz.RankedAnswer
@@ -77,6 +80,40 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun recoveryRequiresOptInAndDoesNotRestoreSensitiveDialogState() {
+        val token = "ab".repeat(32); val code = token.chunked(8).joinToString("-")
+        var exports=0; var restores=0
+        val service = object : RankedParticipationService {
+            override suspend fun status(): RegistrationState = RegistrationState.NotPrepared
+            override suspend fun register(name: String): RegistrationState = throw AssertionError("No registration")
+            override suspend fun load(): RankedQuizStart = throw AssertionError("No quiz")
+            override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
+            override suspend fun deleteAccount(): AccountDeletionResult = throw AssertionError("No deletion")
+            override suspend fun exportRecovery(): RecoveryExport { exports++; return RecoveryExport.Ready(code) }
+            override suspend fun restoreRecovery(code: String): RecoveryRestore { restores++; assertEquals(token,code); return RecoveryRestore.Restored("Test") }
+        }
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
+        compose.onNodeWithText("Zugang wiederherstellen").performScrollTo().performClick()
+        compose.onNodeWithText("Geheimer Sicherungscode").performTextInput(token)
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Geheimer Sicherungscode").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(0,restores) }
+        compose.onNodeWithText("Zugang wiederherstellen").performScrollTo().performClick()
+        compose.onNodeWithText("Geheimer Sicherungscode").performTextInput(token)
+        compose.onNodeWithText("Wiederherstellen").performClick()
+        compose.onNodeWithText("Angemeldet als Test.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Sicherungscode anzeigen").performScrollTo().performClick()
+        compose.onNodeWithText("Abbrechen").performClick()
+        compose.runOnIdle { assertEquals(0,exports) }
+        compose.onNodeWithText("Sicherungscode anzeigen").performScrollTo().performClick()
+        compose.onNodeWithText("Code anzeigen").performClick()
+        compose.onNodeWithText(code).assertIsDisplayed()
+        compose.onNodeWithText("Schließen").performClick()
+        compose.onNodeWithText(code).assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1,exports); assertEquals(1,restores) }
+    }
+
     @Test fun accountDeletionNeedsConfirmationAndUncertainResultBlocksActivity() {
         var calls = 0
         val service = object : RankedParticipationService {
@@ -85,6 +122,8 @@ class LearningFlowsUiTest {
             override suspend fun load(): RankedQuizStart = throw AssertionError("No quiz")
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
             override suspend fun deleteAccount(): AccountDeletionResult { calls++; return if (calls == 1) AccountDeletionResult.Uncertain else AccountDeletionResult.Deleted }
+            override suspend fun exportRecovery(): RecoveryExport = throw AssertionError("No export")
+            override suspend fun restoreRecovery(code: String): RecoveryRestore = throw AssertionError("No restore")
         }
         compose.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
         compose.onNodeWithText("Kontostatus prüfen").performClick()
@@ -110,6 +149,8 @@ class LearningFlowsUiTest {
                 (1..50).map { RankedQuizQuestion("q-$it", "Test", "Frage $it", listOf("A", "B", "C", "D"), 0, "Erklärung") }))
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult = throw AssertionError("No submission")
             override suspend fun deleteAccount(): AccountDeletionResult = throw AssertionError("No deletion")
+            override suspend fun exportRecovery(): RecoveryExport = throw AssertionError("No export")
+            override suspend fun restoreRecovery(code: String): RecoveryRestore = throw AssertionError("No restore")
         }
         val restore = StateRestorationTester(compose)
         restore.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
@@ -140,6 +181,8 @@ class LearningFlowsUiTest {
                 submissions++; submitted = answers; return SubmissionResult.Recorded(date, 49, 50)
             }
             override suspend fun deleteAccount(): AccountDeletionResult = throw AssertionError("No deletion")
+            override suspend fun exportRecovery(): RecoveryExport = throw AssertionError("No export")
+            override suspend fun restoreRecovery(code: String): RecoveryRestore = throw AssertionError("No restore")
         }
         val restore = StateRestorationTester(compose)
         restore.setContent { PflegeExamenTheme { RankedParticipationScreen(fake, {}) } }
@@ -384,6 +427,33 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Kein Treffer in dieser Lernzettelversion").assertIsDisplayed()
         compose.onNodeWithContentDescription("Nächster Suchtreffer").assertDoesNotExist()
         compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertDoesNotExist()
+    }
+
+    @Test fun androidRecoveryMovesSyntheticAccessBetweenIsolatedKeystores() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString()
+        val folderA = File(base.cacheDir,"recovery-a-$unique"); val folderB = File(base.cacheDir,"recovery-b-$unique")
+        check(folderA.mkdirs()); check(folderB.mkdirs())
+        val contextA = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folderA }
+        val contextB = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folderB }
+        val aliasA = "recovery-a-$unique"; val aliasB = "recovery-b-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val token = "ab".repeat(32)
+        val server = de.pflegeexamen.app.data.quiz.RegistrationTransport { method, _, received, body ->
+            assertEquals("GET",method); assertEquals(token,received); assertNull(body)
+            de.pflegeexamen.app.data.quiz.RegistrationResponse(200,"""{"username":"Test"}""".toByteArray())
+        }
+        try {
+            val source = RankingTokenVault(NoBackupTokenStorage(contextA),KeystoreTokenCipher(base.packageName,aliasA))
+            val target = RankingTokenVault(NoBackupTokenStorage(contextB),KeystoreTokenCipher(base.packageName,aliasB))
+            assertEquals(TokenSave.SAVED,source.saveNew(token))
+            val export = RankingRecovery("https://rank.example/leaderboard",source,PendingAttemptStore(NoBackupPendingStorage(contextA)),RankingOperationGate(NoBackupDeletionJournal(contextA)),server)
+            val code = (export.export() as RecoveryExport.Ready).code
+            val restore = RankingRecovery("https://rank.example/leaderboard",target,PendingAttemptStore(NoBackupPendingStorage(contextB)),RankingOperationGate(NoBackupDeletionJournal(contextB)),server)
+            assertEquals(RecoveryRestore.Restored("Test"),restore.restore(code))
+            assertEquals(token,(target.load() as TokenLoad.Available).token)
+            assertFalse(File(folderB,"quiz-ranking-token.bin").readBytes().toString(Charsets.ISO_8859_1).contains(token))
+        } finally { keystore.deleteEntry(aliasA); keystore.deleteEntry(aliasB); folderA.deleteRecursively(); folderB.deleteRecursively() }
     }
 
     @Test fun androidDeletionJournalSurvivesRestartAndRequiresReceipt() = runBlocking {

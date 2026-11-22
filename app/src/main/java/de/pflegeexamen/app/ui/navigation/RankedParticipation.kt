@@ -42,6 +42,8 @@ internal interface RankedParticipationService {
     suspend fun load(): RankedQuizStart
     suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult
     suspend fun deleteAccount(): AccountDeletionResult
+    suspend fun exportRecovery(): RecoveryExport
+    suspend fun restoreRecovery(code: String): RecoveryRestore
 }
 
 @Composable
@@ -59,6 +61,7 @@ internal fun RankedParticipation(url: String, back: () -> Unit) {
         val start = RankedQuizStartCheck(StartPendingCheck { reconciliation.reconcile() }, StartQuizLoader { quiz.load() },
             vault, StartResultLookup { date, token -> lookup.lookup(date, token) })
         val deletion = RankingAccountDeletion(url, vault, pending, gate, HttpsAccountDeletionTransport())
+        val recovery = RankingRecovery(url, vault, pending, gate, HttpsRegistrationTransport())
         object : RankedParticipationService {
             override suspend fun status(): RegistrationState = gate.unlessDeleting(RegistrationState.DeletionPending) { registration.status() }
             override suspend fun register(name: String): RegistrationState = gate.unlessDeleting(RegistrationState.DeletionPending) { registration.register(name) }
@@ -66,6 +69,8 @@ internal fun RankedParticipation(url: String, back: () -> Unit) {
             override suspend fun submit(quiz: RankedQuiz, answers: List<RankedAnswer>): SubmissionResult =
                 gate.unlessDeleting(SubmissionResult.DeletionPending) { submit.submit(quiz.date, quiz.fingerprint, answers) }
             override suspend fun deleteAccount() = deletion.delete()
+            override suspend fun exportRecovery() = recovery.export()
+            override suspend fun restoreRecovery(code: String) = recovery.restore(code)
         }
     }
     RankedParticipationScreen(service, back)
@@ -190,6 +195,10 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
                     label = { Text("Pseudonym") }, singleLine = true)
                 Button(enabled = !busy && QuizRegistration.validName(username), onClick = { confirmRegister = true }) { Text("Anmelden") }
             }
+            RankingRecoveryControls(service,
+                canExport = account is RegistrationState.Registered,
+                canRestore = account == null || account == RegistrationState.NotPrepared || account == RegistrationState.NotRegistered || account == RegistrationState.Uncertain,
+                busy = busy, setBusy = { busy = it }, onRestored = { account = RegistrationState.Registered(it) })
             if (account is RegistrationState.Registered || account == RegistrationState.DeletionPending) {
                 OutlinedButton(enabled = !busy, onClick = { confirmDelete = true }) {
                     Text(if (account == RegistrationState.DeletionPending) "Kontolöschung fortsetzen" else "Ranglistenkonto löschen")
