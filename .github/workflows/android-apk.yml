@@ -71,7 +71,31 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: chmod +x ./gradlew && ./gradlew connectedDebugAndroidTest --no-daemon -PcontentUrl= -PrankingUrl=
+          script: |
+            chmod +x ./gradlew
+            bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon -PcontentUrl= -PrankingUrl= 2>&1 | tee "$RUNNER_TEMP/ui-gradle.log"'
+      - name: Fehlerdiagnose für Emulator-Tests
+        if: failure()
+        run: |
+          python - <<'PYCODE'
+          from pathlib import Path
+          import os
+          import xml.etree.ElementTree as ET
+
+          messages = []
+          log = Path(os.environ['RUNNER_TEMP']) / 'ui-gradle.log'
+          if log.exists():
+              for line in log.read_text(errors='replace').splitlines():
+                  if line.startswith('e: ') or ' FAILED ' in line or ' failed.' in line:
+                      messages.append(line[:1000])
+          for report in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml'):
+              for case in ET.parse(report).iter('testcase'):
+                  for failure in list(case.findall('failure')) + list(case.findall('error')):
+                      messages.append((case.get('name', '') + ': ' + (failure.get('message') or failure.text or 'Fehler'))[:1500])
+          for message in messages[:20]:
+              safe = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Android-Test::' + safe)
+          PYCODE
       - name: Ausführung aller Oberflächentests überprüfen
         run: |
           python - <<'PYCODE'
