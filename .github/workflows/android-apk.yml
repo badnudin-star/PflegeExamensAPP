@@ -193,6 +193,17 @@ jobs:
             grep -E '(^e: | FAILED$| tests completed, .* failed)' /tmp/gradle-test.log | while IFS= read -r line; do
               echo "::error::$line"
             done
+            python - <<'PYCODE'
+          from pathlib import Path
+          lines = Path('/tmp/gradle-test.log').read_text(errors='replace').splitlines()
+          relevant = [line for line in lines if any(marker in line for marker in (
+              'What went wrong:', 'Could not ', 'Could not resolve', 'Execution failed',
+              'Resource missing', 'FAILURE:', 'Error:', 'e: ', 'OutOfMemory', 'No space left',
+              'tests completed', 'Exception:', 'Caused by:'))]
+          for line in relevant[-25:]:
+              safe = line[:1000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Gradle-Diagnose::' + safe)
+          PYCODE
             echo "### Unit-Tests fehlgeschlagen" >> "$GITHUB_STEP_SUMMARY"
             echo '```text' >> "$GITHUB_STEP_SUMMARY"
             tail -n 120 /tmp/gradle-test.log >> "$GITHUB_STEP_SUMMARY"
