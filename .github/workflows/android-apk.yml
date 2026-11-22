@@ -246,11 +246,17 @@ jobs:
         run: |
           set -eu
           KEYSTORE="$RUNNER_TEMP/synthetic-release.p12"
-          trap 'rm -f "$KEYSTORE"' EXIT
+          STAGED_KEYSTORE="$RUNNER_TEMP/pflege-release-signing.keystore"
+          trap 'rm -f "$KEYSTORE" "$STAGED_KEYSTORE"' EXIT
           keytool -genkeypair -keystore "$KEYSTORE" -storetype PKCS12 -alias test-only \
             -storepass synthetic-test -keypass synthetic-test -keyalg RSA -keysize 2048 \
             -validity 1 -dname 'CN=Synthetic CI Test' >/dev/null 2>&1
-          PFLEGE_RELEASE_KEYSTORE="$KEYSTORE" \
+          PFLEGE_RELEASE_KEYSTORE_BASE64="$(base64 -w 0 "$KEYSTORE")" \
+          PFLEGE_RELEASE_STORE_PASSWORD=synthetic-test \
+          PFLEGE_RELEASE_KEY_ALIAS=test-only \
+          PFLEGE_RELEASE_KEY_PASSWORD=synthetic-test \
+          python tools/android_checks/prepare_release_key.py
+          PFLEGE_RELEASE_KEYSTORE="$STAGED_KEYSTORE" \
           PFLEGE_RELEASE_STORE_PASSWORD=synthetic-test \
           PFLEGE_RELEASE_KEY_ALIAS=test-only \
           PFLEGE_RELEASE_KEY_PASSWORD=synthetic-test \
@@ -260,6 +266,7 @@ jobs:
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           test -n "$APKSIGNER"
           "$APKSIGNER" verify "$APK"
+          python tools/android_checks/verify_release_apk.py "$APK" app/src/main/assets/learning_content.json
 
       - name: Offline-Katalog in der APK prüfen
         run: |
