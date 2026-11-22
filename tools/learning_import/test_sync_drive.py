@@ -1,7 +1,7 @@
 import json
 import unittest
 from unittest.mock import patch
-from sync_drive import origin, sync, validate_base
+from sync_drive import origin, sync, validate_base, read_remote
 from import_notes import TOPICS, topic_candidates
 
 BUNDLED = {'schemaVersion':1,'revision':1,'notes':[], 'cards':[], 'cases':[], 'quizzes':[]}
@@ -23,12 +23,33 @@ class Http:
         return Response(self.put_status)
 
 class SyncTests(unittest.TestCase):
+    def setUp(self):
+        # Synthetic catalog sizes must never be written to a real Actions summary.
+        env = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
+        env.start()
+        self.addCleanup(env.stop)
+
     def run_sync(self, http, bundled=BUNDLED):
         with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'):
             return sync(http, 'https://worker.example', bundled, 'folderid', object(), TOKEN)
+    def test_remote_size_uses_actual_downloaded_bytes_without_extra_request(self):
+        http = Http(BUNDLED)
+        with patch('sync_drive.report_capacity') as report:
+            self.assertEqual(read_remote(http, 'https://worker.example'), BUNDLED)
+            report.assert_called_once_with(len(json.dumps(BUNDLED).encode()), 'server')
+        with patch('sync_drive.report_capacity') as report:
+            self.assertIsNone(read_remote(Http(), 'https://worker.example'))
+            report.assert_not_called()
+
     def test_origin_requires_safe_https(self):
         for value in ('http://a', 'https://user:pass@a', 'https://a/path', 'https://a?x=1'):
             with self.assertRaises(ValueError): origin(value)
+    def test_notes_candidate_report_matches_exact_payload_sent(self):
+        http = Http()
+        with patch('sync_drive.report_capacity') as report:
+            self.assertEqual(self.run_sync(http), 'published')
+            report.assert_called_once_with(len(http.puts[0][1]['data']), 'notes_candidate')
+
     def test_initial_publish_uses_bundled_data_and_cas_zero(self):
         http = Http()
         self.assertEqual(self.run_sync(http), 'published')

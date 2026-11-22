@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'learning_import'))
 from import_notes import TOPICS, MAX_CATALOG, topic_files, list_folder, download_text, save_atomic
 from sync_drive import origin, read_remote, validate_base
+from catalog_capacity import report_capacity
 
 COUNT = 50
 PER_TOPIC = 10
@@ -188,6 +189,7 @@ def publish(http, worker, token, draft, bundled):
     candidate=copy.deepcopy(base); candidate['revision']+=1; candidate['quizzes'].extend(draft['quizzes'])
     validate_base(candidate)
     payload=(json.dumps(candidate,ensure_ascii=False,separators=(',',':'))+'\n').encode()
+    report_capacity(len(payload), 'quiz_candidate')
     if len(payload)>MAX_CATALOG: raise ValueError('Katalog erreicht Größenlimit; Archivierung notwendig')
     r=http.put(worker+'/admin/content',data=payload,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','If-Match':str(remote['revision'] if remote else 0)},timeout=60,allow_redirects=False)
     if r.status_code == 409: raise ValueError('Katalog gleichzeitig geändert: neu laden und erneut prüfen')

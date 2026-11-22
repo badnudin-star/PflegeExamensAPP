@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlsplit
 
 from import_notes import TOPICS, MAX_CATALOG, assemble, list_folder, download_text
+from catalog_capacity import report_capacity
 
 
 def origin(value):
@@ -49,7 +50,9 @@ def read_remote(http, url):
             if len(data) > MAX_CATALOG: raise ValueError('Serverkatalog zu groß')
     finally:
         response.close()
-    return validate_base(json.loads(data))
+    catalog = validate_base(json.loads(data))
+    report_capacity(len(data), 'server')
+    return catalog
 
 
 def sync(http, url, bundled, folder, drive, token):
@@ -69,6 +72,7 @@ def sync(http, url, bundled, folder, drive, token):
             raise ValueError(f"Quellenabschnitt fehlt: {f['name']}")
         return value
     payload = assemble(base, before, extract)
+    report_capacity(len(payload), 'notes_candidate')
     candidate = validate_base(json.loads(payload))
     if before != list_folder(drive, folder):
         raise ValueError('Drive-Ordner während des Imports geändert; kein Update veröffentlicht')
