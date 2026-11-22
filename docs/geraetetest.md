@@ -1,6 +1,6 @@
 # PflegeExamensApp auf einem Android-Gerät testen
 
-Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu haben. Gerätemodell, Android-Version und ein detailliertes Testprotokoll wurden nicht angegeben; das bestätigt daher nicht automatisch spätere Änderungen oder andere Geräte. Diese Liste dient weiteren freiwilligen Tests der **Debug-APK**, nicht einer signierten Veröffentlichung. Eine Debug-Version kann Fehler enthalten. Die verwendeten Lerninhalte und ihre medizinische Richtigkeit sind damit nicht fachlich freigegeben.
+Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu haben. Gerätemodell, Android-Version und ein detailliertes Testprotokoll wurden nicht angegeben; das bestätigt daher nicht automatisch spätere Änderungen oder andere Geräte. Diese Liste dient weiteren freiwilligen Tests der **Debug-APK**, nicht einer signierten Veröffentlichung. Eine Debug-Version kann Fehler enthalten. Die vorhandenen Inhalte sind nach Angabe des Nutzers fachlich geprüft und stammen aus einem Lehrbuch; ein Gerätetest prüft die technische Darstellung.
 
 ## APK herunterladen und installieren
 
@@ -10,7 +10,7 @@ Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu 
 
 ## Offline lernen
 
-1. App starten und danach den Flugmodus aktivieren. Themen öffnen und stichprobenartig in beiden Versionen einen Lernzettel lesen. Prüfen, ob Texte, Tabellen und gegebenenfalls Bilder ausreichend lesbar sind. PDF-Extraktion kann Inhalte unvollständig wiedergeben; nicht als fachliche Bestätigung verstehen.
+1. App starten und danach den Flugmodus aktivieren. Themen öffnen und stichprobenartig in beiden Versionen einen Lernzettel lesen. Prüfen, ob Texte, Tabellen und gegebenenfalls Bilder ausreichend lesbar sind. Auf mögliche Darstellungs- oder Übertragungsfehler achten.
 2. In der Themensuche nach einem tatsächlich vorhandenen Wort suchen, einen angezeigten Treffer öffnen und prüfen, ob zur Fundstelle gesprungen wird. Über das Listensymbol im Lernzettel eine erkannte Überschrift auswählen.
 3. Zu passenden Karteikarten wechseln, eine Karte umdrehen, als gelernt ausblenden und über **Gelernte Karten einzeln wieder einblenden** wieder zum Lernen freigeben. Prüfen, dass andere Karten sichtbar bleiben. Die Lernansicht auch einmal bei gedrehtem Gerät prüfen.
 4. Ein Fallbeispiel nach Prüfungstag öffnen; prüfen, ob Antworten unter der jeweiligen Aufgabe auf- und wieder zuklappbar sind. Die Suche nach einem passenden Wort testen.
@@ -22,4 +22,11 @@ Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu 
 - Die Rangliste und die tägliche Quizgenerierung sind noch nicht für den Betrieb eingerichtet. Lokale Quizpunkte zählen nicht für ein Ranking.
 - Für einen Fehler sind Android-Version, Gerätemodell, App-Version, genaue Schritte und das beobachtete Verhalten hilfreich. Screenshots können Lerninhalte oder persönliche Informationen enthalten; vor dem Teilen prüfen. Keine Zugangsdaten oder Schlüssel weitergeben.
 
-Ein einzelner Gerätetest ersetzt weder fachliche Prüfung noch Tests auf weiteren Android-Versionen. Emulator-Tests mit synthetischen Daten prüfen nur ausgewählte Abläufe.
+Ein einzelner Gerätetest ersetzt keine Tests auf weiteren Android-Versionen. Emulator-Tests mit synthetischen Daten prüfen nur ausgewählte Abläufe.
+
+
+## Backup und Gerätewechsel
+
+Android-Backups und Geräteübertragungen können lokale Karten-, Fall- und Quizfortschritte übernehmen, sind aber abhängig von Gerät, Android-Version, Einstellungen und Sicherungsdienst. Sie sind **nicht garantiert** und ersetzen keinen überprüften Wiederherstellungstest. Ein manueller vollständiger Fortschrittsexport ist derzeit nicht eingebaut. Vor Deinstallation, Gerätewechsel oder Wechsel der App-Signatur nicht davon ausgehen, dass die Daten wiederherstellbar sind.
+
+Für neu erstellte Android-Backups und direkte Geräteübertragungen schließen die App-Regeln zwei ältere Einstellungsdateien mit möglichen KI-API-Schlüsseln bzw. Ranglistenkennungen aus. Frühere Sicherungen werden dadurch nicht automatisch gelöscht. Der experimentelle Ranglistenzugang, ausstehende Abgaben und Löschjournale liegen separat im No-Backup-Speicher und werden nicht mit dem Android-Backup übertragen. Ein optionaler Ranglisten-Sicherungscode ist ein vollständiger Zugang und ersetzt keine Übertragung des lokalen Lernfortschritts. Ein echter Backup-/Restore-Test auf verschiedenen Geräten steht noch aus.

@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Import und Konflikte testen
         run: python -m unittest discover -s tools/learning_import -v
+      - name: Android-Backupregeln prüfen
+        run: python -m unittest discover -s tools/android_checks -v
       - name: Karteikartenimport testen
         run: |
           python -m pip install 'openpyxl>=3.1,<4'
@@ -217,6 +219,11 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
+
+      - name: Unsigned Release-Build technisch prüfen
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Offline-Katalog in der APK prüfen
         run: |

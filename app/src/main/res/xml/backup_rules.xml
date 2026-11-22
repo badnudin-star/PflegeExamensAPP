@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: omit legacy API credentials and ranking identity.
+     Progress preferences remain eligible for backup, subject to Android settings. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="pflege_examen_prefs.xml" />
+    <exclude domain="sharedpref" path="pflege_examen_ranking_prefs.xml" />
+</full-backup-content>

@@ -8,9 +8,9 @@ Android-Lernapp für die schriftliche Prüfung in der generalistischen Pflegeaus
 - **Karteikarten:** Thematisch oder zufällig lernen; einzelne bekannte Karten lassen sich aus- und wieder einblenden. Die lokale Suche findet Karten nach Thema, Frage oder Antwort, ohne die Lösung in der Übersicht anzuzeigen. Beim Lernen werden nur passende sichtbare Karten verwendet.
 - **Fallbeispiele:** Nach Prüfungstag sortiert, mit Antworten direkt unter den jeweiligen Fragen zum Aufklappen.
 - **MC-Quiz:** Veröffentlichte Fragen können in der App lokal geübt werden. Der Fortschritt wird pro Quiz auf dem Gerät gespeichert und kann nach einer Unterbrechung fortgesetzt oder zurückgesetzt werden; bei geänderten Quizinhalten beginnt die Übung erneut. Der vorbereitete Ablauf zur täglichen Erstellung von 50 Fragen ist noch nicht produktiv eingerichtet und erfordert fachliche Freigabe. Näheres unter [`tools/daily_quiz`](tools/daily_quiz/README.md).
-- **Quiz-Rangliste:** Noch nicht eingerichtet. Ein nicht deployter und nicht in die App integrierter Entwurf unter [`cloudflare-ranking`](cloudflare-ranking/README.md) berechnet ausschließlich MC-Quizpunkte; Sicherheits- und Datenschutzfragen sind vor dem Einsatz offen. Alte Lernpunkte werden nicht übernommen.
+- **Quiz-Rangliste:** Noch nicht eingerichtet. Eine standardmäßig deaktivierte experimentelle Teilnahmeoberfläche und ein nicht deployter Worker unter [`cloudflare-ranking`](cloudflare-ranking/README.md) verwenden ausschließlich MC-Quizpunkte; Sicherheits- und Datenschutzfragen sind vor dem Einsatz offen. Alte Lernpunkte werden nicht übernommen.
 
-Inhalte stammen aus dem bereitgestellten Ordner `QuellenExamen`; die Originaldateien werden nicht verändert. PDF-Extraktion kann insbesondere bei Bildern, Tabellen und Layout zu Fehlern oder Lücken führen. Die Inhalte und Zuordnungen sind nicht vollständig fachlich geprüft und ersetzen keine fachliche Kontrolle.
+Inhalte stammen aus dem bereitgestellten Ordner `QuellenExamen`; die Originaldateien werden nicht verändert. PDF-Extraktion kann insbesondere bei Bildern, Tabellen und Layout zu Fehlern oder Lücken führen. Der Nutzer bestätigt, dass die vorhandenen Inhalte fachlich geprüft sind und aus einem Lehrbuch stammen. Die automatische Übernahme oder ein Gerätetest prüft neue oder geänderte Inhalte nicht eigenständig.
 
 ## Inhalte und Aktualisierung
 
@@ -32,3 +32,9 @@ Der zuletzt importierte Bestand umfasste 523 Karten und 30 Fallbeispiele mit 494
 Eine Anleitung für den freiwilligen Smartphone-Test steht unter [Gerätetest](docs/geraetetest.md).
 
 Der Build kann je nach Konfiguration einen öffentlichen Katalog laden; Zugangsschlüssel gehören weder in die App noch ins Repository.
+
+## Backup und Release-Status
+
+Die CI baut zusätzlich eine **unsignierte Release-APK als technische Prüfung**; sie ist nicht als installierbare Veröffentlichung gedacht. Für eine echte Veröffentlichung fehlen weiterhin eine geeignete Signatur, sichere Schlüsselverwaltung, das Verteilungsverfahren und Tests auf weiteren Geräten. Die Release-Prüfung erzeugt kein Release und veröffentlicht nichts.
+
+Android kann lokale Lernfortschritte sichern oder auf ein neues Gerät übertragen, garantiert dies aber nicht; ein manueller vollständiger Fortschrittsexport und ein echter Wiederherstellungstest fehlen. Ältere Einstellungsdateien mit möglichen API-Schlüsseln oder Ranglistenkennungen werden für neue Android-Backups und Geräteübertragungen ausgeschlossen. Vorhandene ältere Sicherungen bleiben davon unberührt. Ranglistentoken und ausstehende Ranglistenaktionen liegen im No-Backup-Speicher. Details und Warnungen stehen in der [Gerätetest-Anleitung](docs/geraetetest.md).

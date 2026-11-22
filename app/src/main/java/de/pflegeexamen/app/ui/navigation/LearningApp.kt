@@ -1034,6 +1034,7 @@ private fun AppSettings(store: PublishedContentStore, back: () -> Unit) {
             HorizontalDivider()
             Text("Datenschutz", style = MaterialTheme.typography.titleLarge)
             Text("Für die spätere Rangliste ist eine gesonderte Einrichtung erforderlich. Bisher werden keine alten Lernpunkte übermittelt.")
+            Text("Android kann lokalen Lernfortschritt sichern oder übertragen, garantiert dies aber nicht. Vor einem Gerätewechsel oder einer Neuinstallation prüfen, ob eine Wiederherstellung möglich ist.")
         }
     }
 }
