@@ -79,6 +79,7 @@ jobs:
               'individualCardCanBeHiddenWithoutHidingOtherCards',
               'cardSearchFiltersWithoutRevealingAnswersOrUnhidingCards',
               'filteredCardSessionOnlyShowsMatchingVisibleCards',
+              'cardSearchNavigationCarriesSpecialCharactersAndRestoresPicker',
               'noteOutlineJumpsToSelectedHeading',
               'caseSearchShowsMatchingDayWithoutOpeningAnswers',
               'caseAnswerOnlyAppearsWhenExplicitlyExpanded',

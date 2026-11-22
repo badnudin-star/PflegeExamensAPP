@@ -17,6 +17,7 @@ import de.pflegeexamen.app.domain.content.PublishedNote
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.data.progress.QuizProgressPersistence
+import de.pflegeexamen.app.data.content.PublishedContentStore
 import de.pflegeexamen.app.data.progress.QuizProgressStore
 import de.pflegeexamen.app.data.progress.CardProgressStore
 import de.pflegeexamen.app.data.progress.CaseProgressStore
@@ -100,6 +101,28 @@ class LearningFlowsUiTest {
         compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText("Karteikarten durchsuchen"))
         compose.onNodeWithContentDescription("Kartensuche löschen").performClick()
         compose.onNodeWithText("Alle sichtbaren Karten zufällig mischen").assertExists()
+    }
+
+    @Test fun cardSearchNavigationCarriesSpecialCharactersAndRestoresPicker() {
+        val title = DefaultCatalogs.defaultPreparations.first().title
+        val unique = UUID.randomUUID().toString()
+        val query = "A&B/ä%z"
+        val deck = listOf(
+            PublishedCard("$unique-1", title, "Erste Navigationsfrage", "Antwort mit $query", listOf("Test")),
+            PublishedCard("$unique-2", title, "Zweite Navigationsfrage", "Andere Antwort", listOf("Test"))
+        )
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = PublishedContentStore(context)
+        compose.setContent { PflegeExamenTheme { LearningAppContent(LearningCatalog(cards = deck), store) } }
+        compose.onNodeWithText("Karten", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Karteikarten durchsuchen").performTextInput(query)
+        compose.onNodeWithTag("cardPickerList").performScrollToNode(hasText(title))
+        compose.onNodeWithText(title).performClick()
+        compose.onNodeWithText("Erste Navigationsfrage").assertIsDisplayed()
+        compose.onNodeWithText("1 / 1").assertExists()
+        compose.onNodeWithText("Gefilterte Karten · Suche: $query").assertExists()
+        compose.onNodeWithContentDescription("Zurück").performClick()
+        compose.onNodeWithText(query).assertExists()
     }
 
     @Test fun filteredCardSessionOnlyShowsMatchingVisibleCards() {

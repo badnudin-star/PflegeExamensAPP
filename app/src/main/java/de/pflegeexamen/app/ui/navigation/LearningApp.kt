@@ -86,6 +86,12 @@ private val destinations = listOf(
 @Composable
 fun LearningApp(store: PublishedContentStore) {
     val catalog by store.catalog.collectAsStateWithLifecycle()
+    LearningAppContent(catalog, store)
+}
+
+/** Kept separate so navigation can be exercised with synthetic catalogs on the emulator. */
+@Composable
+internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedContentStore) {
     val context = LocalContext.current
     val caseProgress = remember(context.applicationContext) { CaseProgressStore(SharedPreferencesCaseProgress(context)) }
     val completedCases by caseProgress.completed.collectAsStateWithLifecycle()
