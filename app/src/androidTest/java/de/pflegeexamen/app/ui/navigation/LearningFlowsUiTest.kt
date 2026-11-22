@@ -18,6 +18,32 @@ import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.cards.CardVisibility
 import de.pflegeexamen.app.data.progress.QuizProgressPersistence
 import de.pflegeexamen.app.data.content.PublishedContentStore
+import de.pflegeexamen.app.data.quiz.ArchiveCache
+import de.pflegeexamen.app.data.quiz.ArchiveDay
+import de.pflegeexamen.app.data.quiz.ArchivePage
+import de.pflegeexamen.app.data.quiz.ArchiveDaySummary
+import de.pflegeexamen.app.data.quiz.ArchiveTransport
+import de.pflegeexamen.app.data.quiz.QuizArchiveClient
+import de.pflegeexamen.app.data.quiz.FileArchiveCache
+import de.pflegeexamen.app.data.quiz.KeystoreTokenCipher
+import de.pflegeexamen.app.data.quiz.NoBackupTokenStorage
+import de.pflegeexamen.app.data.quiz.NoBackupPendingStorage
+import de.pflegeexamen.app.data.quiz.RankingTokenVault
+import de.pflegeexamen.app.data.quiz.TokenLoad
+import de.pflegeexamen.app.data.quiz.TokenSave
+import de.pflegeexamen.app.data.quiz.PendingAttemptStore
+import de.pflegeexamen.app.data.quiz.PendingMarker
+import de.pflegeexamen.app.data.quiz.PendingQuizReconciliation
+import de.pflegeexamen.app.data.quiz.PendingQuizState
+import de.pflegeexamen.app.data.quiz.AttemptLookup
+import de.pflegeexamen.app.data.quiz.sha256
+import kotlinx.coroutines.runBlocking
+import java.security.KeyStore
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import de.pflegeexamen.app.data.progress.QuizProgressStore
 import de.pflegeexamen.app.data.progress.CardProgressStore
 import de.pflegeexamen.app.data.progress.CaseProgressStore
@@ -229,6 +255,66 @@ class LearningFlowsUiTest {
         compose.onNodeWithContentDescription("Vorheriger Suchtreffer").assertDoesNotExist()
     }
 
+    @Test fun androidKeystoreProtectsTokenAndDetectsLostKey() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString()
+        val folder = File(base.cacheDir, "ranking-key-test-$unique")
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folder }
+        val alias = "ranking-test-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        check(!keystore.containsAlias(alias))
+        val token = "ab".repeat(32) // synthetic credential, never used with a real service
+        try {
+            val vault = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(TokenSave.SAVED, vault.saveNew(token))
+            val file = File(folder, "quiz-ranking-token.bin")
+            assertTrue(file.exists())
+            assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains(token))
+            val reopened = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(token, (reopened.load() as TokenLoad.Available).token)
+            keystore.deleteEntry(alias)
+            assertEquals(TokenLoad.Unavailable, reopened.load())
+            assertEquals(TokenSave.ALREADY_EXISTS, reopened.saveNew("cd".repeat(32)))
+            assertFalse(keystore.containsAlias(alias))
+            assertTrue(file.exists())
+        } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
+    }
+
+    @Test fun androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val unique = UUID.randomUUID().toString()
+        val folder = File(base.cacheDir, "ranking-pending-test-$unique")
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getNoBackupFilesDir(): File = folder }
+        val alias = "ranking-test-$unique"
+        val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        check(!keystore.containsAlias(alias))
+        val token = "ab".repeat(32)
+        val marker = PendingMarker(date = "2020-01-01", quizHash = "1".repeat(64),
+            accountHash = sha256(token.toByteArray(Charsets.US_ASCII)), payloadHash = "2".repeat(64))
+        try {
+            val vault = RankingTokenVault(NoBackupTokenStorage(isolated), KeystoreTokenCipher(base.packageName, alias))
+            assertEquals(TokenSave.SAVED, vault.saveNew(token))
+            assertTrue(PendingAttemptStore(NoBackupPendingStorage(isolated)).begin(marker))
+            val file = File(folder, "quiz-ranking-pending.json")
+            assertFalse(file.readText().contains(token))
+            val reopened = PendingAttemptStore(NoBackupPendingStorage(isolated))
+            assertFalse(reopened.begin(marker))
+            val waiting = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.NotFound }
+            assertEquals(PendingQuizState.Waiting(marker.date), waiting.reconcile())
+            assertFalse(waiting.acknowledgeRecorded())
+            val mismatch = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.Found(marker.date, 42, 50, "3".repeat(64)) }
+            assertEquals(PendingQuizState.DifferentOrUnverifiedAttempt(marker.date), mismatch.reconcile())
+            assertTrue(file.exists())
+            val confirmed = PendingQuizReconciliation(reopened, vault) { _, _ -> AttemptLookup.Found(marker.date, 42, 50, marker.payloadHash) }
+            assertEquals(PendingQuizState.Recorded(marker.date, 42), confirmed.reconcile())
+            assertTrue(confirmed.acknowledgeRecorded())
+            assertFalse(file.exists())
+            assertEquals(token, (vault.load() as TokenLoad.Available).token)
+        } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
+    }
+
     @Test fun androidPreferencesKeepSeparateLearningProgress() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "ui_test_" + UUID.randomUUID().toString() + "_"
@@ -281,6 +367,72 @@ class LearningFlowsUiTest {
         compose.onNodeWithTag("caseDetailList").performScrollToNode(hasText("Musterlösung verbergen"))
         compose.onNodeWithText("Musterlösung verbergen").performClick()
         compose.onNodeWithText("Dies ist die Testlösung.").assertDoesNotExist()
+    }
+
+    @Test fun quizArchiveLoadsOnDemandAndReopensCachedDayOffline() {
+        val day = "2020-01-01"
+        val question = PublishedQuiz("archive-q", day, DefaultCatalogs.defaultPreparations.first().title,
+            "Archivfrage?", listOf("Antwort A", "Antwort B", "Antwort C", "Antwort D"), 1, "Archiv-Erklärung", listOf("Test"))
+        val entries = ConcurrentHashMap<String, ByteArray>()
+        val cache = object : ArchiveCache {
+            override fun dates() = entries.keys.toList()
+            override fun read(date: String) = entries[date]
+            override fun writeNew(date: String, bytes: ByteArray) { check(entries.putIfAbsent(date, bytes) == null) }
+        }
+        val online = AtomicBoolean(true)
+        val client = QuizArchiveClient("https://example.test/content", ArchiveTransport { url, _ ->
+            if (!online.get()) null else if (url.contains("?limit=")) Json.encodeToString(ArchivePage(listOf(ArchiveDaySummary(day, 1)))).toByteArray()
+            else Json.encodeToString(ArchiveDay(day, listOf(question))).toByteArray()
+        }, cache)
+        val memory = object : QuizProgressPersistence {
+            val values = mutableMapOf<String, String>()
+            override fun load(date: String) = values[date]
+            override fun save(date: String, value: String) { values[date] = value }
+            override fun remove(date: String) { values.remove(date) }
+        }
+        val selected = mutableStateOf<String?>(null)
+        val progress = QuizProgressStore(memory)
+        compose.setContent {
+            PflegeExamenTheme {
+                val chosen = selected.value
+                if (chosen == null) QuizArchivePicker(client, emptySet(), open = { selected.value = it }, back = {})
+                else ArchivedQuizScreen(chosen, client, LearningCatalog(), progress, openNote = { _, _ -> }, back = { selected.value = null })
+            }
+        }
+        compose.onNodeWithText("Archiv online laden").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(day).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(day).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Archivfrage?").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Antwort B").performScrollTo().performClick()
+        compose.onNodeWithText("Deine Antwort: Antwort B").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { online.set(false) }
+        compose.onNodeWithContentDescription("Zurück zum Archiv").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(day).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Auf diesem Gerät gespeichert").assertExists()
+        compose.onNodeWithText(day).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Deine Antwort: Antwort B").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Deine Antwort: Antwort B").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun androidArchiveCacheNeverOverwritesExistingOrInterruptedFiles() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val folder = File(base.cacheDir, "archive-ui-test-" + UUID.randomUUID())
+        check(folder.mkdirs())
+        val isolated = object : ContextWrapper(base) { override fun getFilesDir(): File = folder }
+        try {
+            val cache = FileArchiveCache(isolated)
+            val day = "2020-01-01"
+            val bytes = "Testdaten".toByteArray()
+            assertNull(cache.read(day))
+            cache.writeNew(day, bytes)
+            assertArrayEquals(bytes, cache.read(day))
+            assertEquals(listOf(day), cache.dates())
+            try { cache.writeNew(day, "anders".toByteArray()); fail("Darf nicht überschreiben") } catch (_: IllegalStateException) { }
+            assertArrayEquals(bytes, cache.read(day))
+            File(folder, "quiz-archive/$day.json.new").writeText("unvollständig")
+            try { cache.read(day); fail("Unvollständige Datei darf nicht überschrieben werden") } catch (_: IllegalStateException) { }
+            assertArrayEquals(bytes, File(folder, "quiz-archive/$day.json").readBytes())
+        } finally { folder.deleteRecursively() }
     }
 
     @Test fun localQuizResumesAndReviewsWithoutRanking() {

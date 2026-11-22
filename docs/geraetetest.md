@@ -1,6 +1,6 @@
 # PflegeExamensApp auf einem Android-Gerät testen
 
-Diese Liste dient einem freiwilligen Test der **Debug-APK**, nicht einer signierten Veröffentlichung. Eine Debug-Version kann Fehler enthalten. Die verwendeten Lerninhalte und ihre medizinische Richtigkeit sind damit nicht fachlich freigegeben.
+Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu haben. Gerätemodell, Android-Version und ein detailliertes Testprotokoll wurden nicht angegeben; das bestätigt daher nicht automatisch spätere Änderungen oder andere Geräte. Diese Liste dient weiteren freiwilligen Tests der **Debug-APK**, nicht einer signierten Veröffentlichung. Eine Debug-Version kann Fehler enthalten. Die verwendeten Lerninhalte und ihre medizinische Richtigkeit sind damit nicht fachlich freigegeben.
 
 ## APK herunterladen und installieren
 

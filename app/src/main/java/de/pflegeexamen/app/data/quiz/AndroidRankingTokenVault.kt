@@ -22,7 +22,7 @@ object AndroidRankingTokenVault {
     }
 }
 
-private class NoBackupTokenStorage(context: Context) : EncryptedTokenStorage {
+internal class NoBackupTokenStorage(context: Context) : EncryptedTokenStorage {
     private val base = File(context.noBackupFilesDir, "quiz-ranking-token.bin")
     private val atomic = AtomicFile(base)
 
@@ -59,9 +59,8 @@ private class NoBackupTokenStorage(context: Context) : EncryptedTokenStorage {
     }
 }
 
-private class KeystoreTokenCipher(packageName: String) : RankingTokenCipher {
+internal class KeystoreTokenCipher(packageName: String, private val alias: String = "quiz-ranking-token-v1") : RankingTokenCipher {
     private val aad = (packageName + ":quiz-ranking-token:v1").toByteArray(Charsets.UTF_8)
-    private val alias = "quiz-ranking-token-v1"
     private fun keys(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private fun existingKey(store: KeyStore): SecretKey? = store.getKey(alias, null)?.let {
         it as? SecretKey ?: throw IllegalStateException("Unexpected key type")

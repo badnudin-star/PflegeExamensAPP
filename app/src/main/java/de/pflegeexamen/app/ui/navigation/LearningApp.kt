@@ -50,6 +50,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.pflegeexamen.app.BuildConfig
 import de.pflegeexamen.app.data.quiz.HttpsRankingTransport
+import de.pflegeexamen.app.data.quiz.AndroidQuizArchive
 import de.pflegeexamen.app.data.quiz.QuizRankingClient
 import de.pflegeexamen.app.data.quiz.RankingLoad
 import de.pflegeexamen.app.data.content.PublishedContentStore
@@ -104,6 +105,7 @@ internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedConten
     val cardProgress = remember(context.applicationContext) { CardProgressStore(SharedPreferencesCardProgress(context)) }
     val learnedCards by cardProgress.learned.collectAsStateWithLifecycle()
     val quizProgress = remember(context.applicationContext) { QuizProgressStore(SharedPreferencesQuizProgress(context)) }
+    val quizArchive = remember(context.applicationContext) { AndroidQuizArchive.create(context) }
     var showLearned by rememberSaveable { mutableStateOf(false) }
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
@@ -175,7 +177,12 @@ internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedConten
                 val day = entry.arguments?.getString("day")?.toIntOrNull()
                 CaseDayTopics(catalog, day, open = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
-            composable("quiz") { QuizScreen(catalog, quizProgress) { index, depth -> nav.navigate("note/$index/$depth") } }
+            composable("quiz") { QuizScreen(catalog, quizProgress, openArchive = { nav.navigate("quiz_archive") }) { index, depth -> nav.navigate("note/$index/$depth") } }
+            composable("quiz_archive") { QuizArchivePicker(quizArchive, catalog.quizzes.map { it.published }.toSet(), open = { nav.navigate("quiz_archive/$it") }, back = { nav.popBackStack() }) }
+            composable("quiz_archive/{date}") { entry ->
+                ArchivedQuizScreen(entry.arguments?.getString("date").orEmpty(), quizArchive, catalog, quizProgress,
+                    openNote = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
+            }
             composable("ranking") { QuizRankingScreen { nav.popBackStack() } }
             composable("settings") { AppSettings(store) { nav.popBackStack() } }
         }
@@ -812,7 +819,8 @@ private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, Strin
 }
 
 @Composable
-internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openNote: (Int, String) -> Unit) {
+internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openArchive: (() -> Unit)? = null,
+    modifier: Modifier = Modifier, openNote: (Int, String) -> Unit) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
     var selectedDate by rememberSaveable(dates) { mutableStateOf(dates.firstOrNull()) }
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
@@ -839,10 +847,11 @@ internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, o
             }) { Text("Neu beginnen") } },
             dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("Abbrechen") } })
     }
-    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Multiple-Choice-Quiz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Vier Antwortmöglichkeiten · eine Antwort ist richtig", style = MaterialTheme.typography.bodyMedium)
         Text("Dein Übungsfortschritt wird nur auf diesem Gerät gespeichert und nicht für die Rangliste gewertet.", style = MaterialTheme.typography.bodySmall)
+        if (openArchive != null) OutlinedButton(onClick = openArchive) { Text("Frühere Quiztage im Archiv") }
         if (dates.isNotEmpty()) {
             var menuOpen by remember { mutableStateOf(false) }
             Box {

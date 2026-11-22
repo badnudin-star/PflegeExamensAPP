@@ -12,7 +12,7 @@ object AndroidPendingQuizAttempt {
     fun create(context: Context): PendingAttemptStore = PendingAttemptStore(NoBackupPendingStorage(context.applicationContext), lock)
 }
 
-private class NoBackupPendingStorage(context: Context) : PendingAttemptPersistence {
+internal class NoBackupPendingStorage(context: Context) : PendingAttemptPersistence {
     private val base = File(context.noBackupFilesDir, "quiz-ranking-pending.json")
     private val atomic = AtomicFile(base)
     override fun read(): ByteArray? {
