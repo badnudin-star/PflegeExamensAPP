@@ -1,0 +1,27 @@
+name: Veröffentlichungstoken ohne Archivierung prüfen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/99efe8f6-pflegeexamensapp
+    paths:
+      - .github/workflows/content-publisher-probe.yml
+      - tools/cloudflare_checks/publish_token_probe.py
+      - tools/cloudflare_checks/test_publish_token_probe.py
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sicherheitstests ausführen
+        run: python -m unittest discover -s tools/cloudflare_checks -v
+      - name: Token auf nicht vorhandenem Quiztag prüfen
+        env:
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+        run: python tools/cloudflare_checks/publish_token_probe.py
