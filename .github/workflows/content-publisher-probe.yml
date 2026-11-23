@@ -2,13 +2,6 @@ name: Veröffentlichungstoken ohne Archivierung prüfen
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - arena/99efe8f6-pflegeexamensapp
-    paths:
-      - .github/workflows/content-publisher-probe.yml
-      - tools/cloudflare_checks/publish_token_probe.py
-      - tools/cloudflare_checks/test_publish_token_probe.py
 
 permissions:
   contents: read

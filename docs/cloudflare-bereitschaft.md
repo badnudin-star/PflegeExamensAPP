@@ -4,6 +4,8 @@ Der manuell startbare Workflow **Cloudflare-Bereitschaft schreibgeschützt prüf
 
 Ein positiver Check beweist **keine** Schreibrechte, keinen gültigen Inhalt der Datenbank, kein funktionierendes Backup, keine Rollout- oder Datenschutzfreigabe und keine Kostenfreiheit. Es werden keine Datenbanken angelegt oder verändert, keine Migrationen angewendet, keine Worker oder App bereitgestellt und keine Rangliste eingeschaltet. Die echte Infrastruktur muss separat geprüft werden.
 
+Der separate manuelle Workflow **Veröffentlichungstoken ohne Archivierung prüfen** verwendet `CONTENT_PUBLISH_TOKEN` aus GitHub Actions, ohne den Wert auszugeben. Er liest den produktiven Katalog über eine fest eingetragene HTTPS-Adresse und sendet nur dann einen authentisierten POST für den festen Prüftag `1900-01-01`, wenn dieser Tag im gelesenen Katalog nicht vorkommt. `If-Match` schützt vor zwischenzeitlichen Revisionsänderungen. Nur die spezifische erwartete 404-Antwort wird als Erfolg gewertet. Bei abweichendem Katalog, fehlendem Secret oder Fehler wird abgebrochen; es ist keine Veröffentlichung oder Archivierung vorgesehen. Der Test beweist nicht, dass eine echte Veröffentlichung funktioniert, und Weiterleitungen werden nicht verfolgt. Wie bei GitHub üblich muss ein manueller Workflow im Standardbranch vorhanden sein, bevor er über die Oberfläche gestartet werden kann.
+
 ## Bevor Archiv oder Ranking in Betrieb gehen
 
 1. Verantwortliche klären Kosten, Zugriff, Datenschutz und Aufbewahrung. Besonders die Löschsperre im Ranking speichert einen pseudonymen Token-Hash ohne automatische Frist; siehe `cloudflare-ranking/README.md`.
