@@ -1,0 +1,20 @@
+name: Veröffentlichungstoken ohne Archivierung prüfen
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sicherheitstests ausführen
+        run: python -m unittest discover -s tools/cloudflare_checks -v
+      - name: Token auf nicht vorhandenem Quiztag prüfen
+        env:
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+        run: python tools/cloudflare_checks/publish_token_probe.py
