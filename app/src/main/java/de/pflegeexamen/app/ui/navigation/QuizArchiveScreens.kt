@@ -45,7 +45,9 @@ internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<Strin
             busy = false
         }
     }
-    val dates = remember(local, online, activeDates) { ((local ?: emptyList()) + online).filterNot { it in activeDates }.distinct().sortedDescending() }
+    val knownDates = remember(local, online) { ((local ?: emptyList()) + online).distinct() }
+    val dates = remember(knownDates, activeDates) { knownDates.filterNot { it in activeDates }.sortedDescending() }
+    val hasActiveArchivedDates = remember(knownDates, activeDates) { knownDates.any { it in activeDates } }
     Scaffold(topBar = { TopAppBar(title = { Text("Quizarchiv") }, navigationIcon = {
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
     }) }) { padding ->
@@ -54,8 +56,9 @@ internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<Strin
             item { Text("Geöffnete Archivtage werden auf diesem Gerät gespeichert. Für noch nicht geladene Tage ist eine Verbindung nötig. Aktuelle Quiztage stehen in der Quizübersicht. Das Archiv ist eine lokale Übung und keine Ranglistenwertung.") }
             item { OutlinedButton(onClick = { loadPage(null) }, enabled = !busy) { Text(if (busy) "Archiv wird geladen …" else "Archiv online laden") } }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (hasActiveArchivedDates) item { Text("Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht.") }
             if (localLoaded && local == null) item { Text("Der lokale Archivspeicher ist nicht lesbar.", color = MaterialTheme.colorScheme.error) }
-            else if (localLoaded && dates.isEmpty()) item { Text(if (loadedOnline) "Keine archivierten Quiztage gefunden." else "Noch keine Archivtage auf diesem Gerät. Lade bei Bedarf das Online-Archiv.") }
+            else if (localLoaded && dates.isEmpty() && !hasActiveArchivedDates) item { Text(if (loadedOnline) "Keine archivierten Quiztage gefunden." else "Noch keine Archivtage auf diesem Gerät. Lade bei Bedarf das Online-Archiv.") }
             items(dates, key = { it }) { date ->
                 ElevatedCard(onClick = { open(date) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {

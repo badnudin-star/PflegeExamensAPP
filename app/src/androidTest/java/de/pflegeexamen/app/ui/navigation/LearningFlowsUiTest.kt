@@ -642,6 +642,33 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Deine Antwort: Antwort B").performScrollTo().assertIsDisplayed()
     }
 
+    @Test fun archiveExplainsWhenAnArchivedDayIsStillInTheActiveCatalog() {
+        val day = "2020-01-01"
+        val cache = object : ArchiveCache {
+            override fun dates() = emptyList<String>()
+            override fun read(date: String): ByteArray? = null
+            override fun writeNew(date: String, bytes: ByteArray) { fail("No archive day should be downloaded") }
+        }
+        val client = QuizArchiveClient("https://example.test/content", ArchiveTransport { url, _ ->
+            check(url.contains("?limit="))
+            Json.encodeToString(ArchivePage(listOf(ArchiveDaySummary(day, 1)))).toByteArray()
+        }, cache)
+        val selected = mutableStateOf<String?>(null)
+        compose.setContent {
+            PflegeExamenTheme {
+                QuizArchivePicker(client, setOf(day), open = { selected.value = it }, back = {})
+            }
+        }
+
+        compose.onNodeWithText("Archiv online laden").performClick()
+        val note = "Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht."
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(note).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(note).assertExists()
+        compose.onNodeWithText("Keine archivierten Quiztage gefunden.").assertDoesNotExist()
+        compose.onNodeWithText(day).assertDoesNotExist()
+        compose.runOnIdle { assertNull(selected.value) }
+    }
+
     @Test fun androidArchiveCacheNeverOverwritesExistingOrInterruptedFiles() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val folder = File(base.cacheDir, "archive-ui-test-" + UUID.randomUUID())
