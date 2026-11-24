@@ -1,9 +1,14 @@
 // Local-only test harness. Never use this as a deployed entrypoint.
-import worker from '../src/worker.js';
+import worker, {snapshot} from '../src/worker.js';
 import gateway from './synthetic-ranking-gateway.mjs';
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    if (path === '/__test/snapshot') {
+      const now = Number(new URL(request.url).searchParams.get('now'));
+      if (!Number.isSafeInteger(now) || now < 0) return new Response(null, {status:400});
+      return Response.json(await snapshot(env, now));
+    }
     if (path === '/__test/sql') {
       try {
         const {statements} = await request.json();

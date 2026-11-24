@@ -133,24 +133,43 @@ async function participant(request, env) {
   if (!token) return null;
   return env.DB.prepare('SELECT id, username FROM quiz_participants WHERE token_hash = ?').bind(await digest(token)).first();
 }
-async function snapshot(env, now = Date.now()) {
+export async function snapshot(env, now = Date.now()) {
   // If deletion overlaps aggregation, never persist or return a stale snapshot.
   // The conditional write uses the generation bumped atomically on deletion.
+  // Concurrent older refreshes must not replace an already newer snapshot.
   for (let retry = 0; retry < 3; retry++) {
     const generation = await env.DB.prepare('SELECT generation FROM quiz_snapshot_generation WHERE id = 1').first();
     if (!generation || !Number.isSafeInteger(generation.generation)) throw new Error('missing generation');
-    const result = await env.DB.prepare(`SELECT p.username, SUM(a.correct) AS points, COUNT(*) AS quizzes
+    // Aggregate the top 100 and total in one SQLite statement, so a concurrent
+    // submission cannot make the participant count and entries describe different
+    // database states. The LEFT JOIN also returns the count when no one has scored.
+    const result = await env.DB.prepare(`WITH ranking AS (
+      SELECT p.id, p.username, SUM(a.correct) AS points, COUNT(*) AS quizzes, MIN(a.submitted_at) AS first_at
       FROM quiz_attempts a JOIN quiz_participants p ON p.id = a.participant_id
-      GROUP BY p.id, p.username ORDER BY points DESC, MIN(a.submitted_at) ASC, p.id ASC LIMIT 100`).all();
-    const count = await env.DB.prepare('SELECT COUNT(DISTINCT participant_id) AS count FROM quiz_attempts').first();
+      GROUP BY p.id, p.username ORDER BY points DESC, first_at ASC, p.id ASC LIMIT 100
+    ), totals AS (SELECT COUNT(DISTINCT participant_id) AS count FROM quiz_attempts)
+    SELECT totals.count AS participant_count, ranking.username, ranking.points, ranking.quizzes
+    FROM totals LEFT JOIN ranking ON 1=1 ORDER BY ranking.points DESC, ranking.first_at ASC, ranking.id ASC`).all();
+    const rows = result.results;
+    if (!Array.isArray(rows) || !rows.length || !Number.isSafeInteger(rows[0].participant_count) || rows[0].participant_count < 0)
+      throw new Error('invalid ranking aggregation');
     const value = {generatedAtMillis:now, nextUpdateAtMillis:(Math.floor(now / HOUR) + 1) * HOUR,
-      totalParticipants:Number(count?.count || 0),
-      entries:(result.results || []).map((row, index) => ({rank:index+1, username:row.username, points:Number(row.points), quizzes:Number(row.quizzes)}))};
+      totalParticipants:rows[0].participant_count,
+      entries:rows.filter(row => row.username !== null).map((row, index) => ({rank:index+1, username:row.username, points:Number(row.points), quizzes:Number(row.quizzes)}))};
     const saved = await env.DB.prepare(`INSERT INTO quiz_hourly_snapshot(id, payload_json, generated_at)
       SELECT 1, ?, ? WHERE (SELECT generation FROM quiz_snapshot_generation WHERE id = 1) = ?
-      ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at`)
+      ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at
+      WHERE quiz_hourly_snapshot.generated_at < excluded.generated_at`)
       .bind(JSON.stringify(value), now, generation.generation).run();
     if (saved.meta?.changes) return value;
+    // A concurrent newer refresh is preferable to overwriting it with this older
+    // aggregation. Match the generation again to avoid returning a snapshot
+    // that was invalidated by a racing account deletion.
+    const current = await env.DB.prepare(`SELECT payload_json FROM quiz_hourly_snapshot
+      WHERE id = 1 AND generated_at >= ?
+      AND (SELECT generation FROM quiz_snapshot_generation WHERE id = 1) = ?`)
+      .bind(now, generation.generation).first();
+    if (current) return JSON.parse(current.payload_json);
   }
   throw new Error('snapshot changed during deletion');
 }

@@ -85,6 +85,11 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun rankingFairnessNoticeDoesNotClaimTamperResistance() {
+        compose.setContent { PflegeExamenTheme { RankingFairnessNotice() } }
+        compose.onNodeWithText("Die Rangliste ist nicht manipulationssicher: Lösungen sind sichtbar und mehrere Konten möglich. Sie ist keine faire Prüfung.").assertIsDisplayed()
+    }
+
     @Test fun backupNoticeDoesNotPromiseACompleteRestore() {
         compose.setContent { PflegeExamenTheme { ProgressBackupNotice() } }
         compose.onNodeWithText("Lernfortschritt sichern").assertIsDisplayed()

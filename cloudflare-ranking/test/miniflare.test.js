@@ -96,6 +96,52 @@ test('Miniflare D1: registration, score, retry, closure, deletion and fail-close
   } finally { await mf.dispose(); }
 });
 
+test('Miniflare D1: leaderboard is a consistent top 100 with a full participant count', {timeout:30000}, async () => {
+  const mf=runtime();
+  try {
+    await sql(mf,statements(file('schema.sql')));
+    const empty=await (await request(mf,'GET','/leaderboard')).json();
+    assert.equal(empty.totalParticipants,0); assert.deepEqual(empty.entries,[]);
+    await sql(mf,[
+      {sql:`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 102)
+        INSERT INTO quiz_participants(id,token_hash,username,created_at)
+        SELECT printf('p%03d',i), printf('hash%03d',i), printf('User %03d',i),i FROM n`},
+      {sql:`INSERT INTO quiz_attempts(participant_id,quiz_date,correct,total,submitted_at)
+        SELECT id,'2026-01-01',CAST(substr(id,2) AS INTEGER) % 51,50,created_at FROM quiz_participants`},
+      {sql:'DELETE FROM quiz_hourly_snapshot WHERE id=1'}
+    ]);
+    const response=await request(mf,'GET','/leaderboard');
+    assert.equal(response.status,200);
+    const board=await response.json();
+    assert.equal(board.totalParticipants,102); assert.equal(board.entries.length,100);
+    assert.deepEqual(board.entries.map(x=>x.rank),Array.from({length:100},(_,i)=>i+1));
+    assert.ok(board.entries.every((item,i)=>i===0 || board.entries[i-1].points >= item.points));
+    assert.ok(board.entries.every(item=>Object.keys(item).sort().join(',')==='points,quizzes,rank,username'));
+  } finally {await mf.dispose();}
+});
+
+test('Miniflare D1: delayed older refresh cannot replace a newer snapshot', {timeout:30000}, async () => {
+  const mf=runtime();
+  try {
+    await sql(mf,statements(file('schema.sql')));
+    const newest=await mf.dispatchFetch('https://ranking.test/__test/snapshot?now=2000');
+    assert.equal(newest.status,200);
+    await sql(mf,[
+      {sql:"INSERT INTO quiz_participants VALUES ('p1','hash1','Person',1)"},
+      {sql:"INSERT INTO quiz_attempts(participant_id,quiz_date,correct,total,submitted_at) VALUES ('p1','2026-01-01',12,50,1)"}
+    ]);
+    const older=await mf.dispatchFetch('https://ranking.test/__test/snapshot?now=1000');
+    assert.equal(older.status,200);
+    const board=await older.json();
+    assert.equal(board.generatedAtMillis,2000); assert.equal(board.totalParticipants,0);
+    const rows=await sql(mf,[{sql:'SELECT generated_at FROM quiz_hourly_snapshot WHERE id=1'}]);
+    assert.equal(rows[0].results[0].generated_at,2000);
+    const later=await mf.dispatchFetch('https://ranking.test/__test/snapshot?now=3000');
+    const updated=await later.json();
+    assert.equal(updated.totalParticipants,1); assert.equal(updated.entries[0].points,12);
+  } finally {await mf.dispose();}
+});
+
 test('Miniflare D1: migrations upgrade an existing prototype and enforce deletion trigger', {timeout:30000}, async () => {
   const mf=runtime();
   try {

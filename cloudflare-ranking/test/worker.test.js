@@ -1,12 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
-import worker, {scoreAnswers} from '../src/worker.js';
+import worker, {scoreAnswers, snapshot} from '../src/worker.js';
 globalThis.crypto ??= webcrypto;
 const day = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
 const questions = () => Array.from({length:50}, (_, i) => ({id:`q-${i}`, published:day(), topic:'Pflege', question:`Frage ${i}?`, options:['a','b','c','d'], correctIndex:i % 4, explanation:`Erklärung ${i}`}));
 function database() {
-  const participants = [], attempts = [], closures = [], deletedTokens = [], state = {participants, attempts, closures, deletedTokens, snapshot:null, generation:0, onSnapshotWrite:null};
+  const participants = [], attempts = [], closures = [], deletedTokens = [], state = {participants, attempts, closures, deletedTokens, snapshot:null, snapshotTime:null, generation:0, onSnapshotWrite:null};
   return {state, async batch(statements) { for (const s of statements) await s.run(); }, prepare(sql) {
     let args=[];
     return {bind(...values) {args=values; return this;}, async run() {
@@ -24,17 +24,21 @@ function database() {
       }
       if (sql.includes('INSERT INTO quiz_hourly_snapshot')) {
         if (state.onSnapshotWrite) { const hook=state.onSnapshotWrite; state.onSnapshotWrite=null; await hook(); }
-        if (args[2] !== state.generation) return {meta:{changes:0}};
-        state.snapshot=args[0]; return {meta:{changes:1}};
+        if (args[2] !== state.generation || (state.snapshot !== null && state.snapshotTime >= args[1])) return {meta:{changes:0}};
+        state.snapshot=args[0]; state.snapshotTime=args[1]; return {meta:{changes:1}};
       }
       if (sql.includes('DELETE FROM quiz_attempt_closures')) { for (let i=closures.length-1; i>=0; i--) if (closures[i].id===args[0]) closures.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_attempts')) { for (let i=attempts.length-1; i>=0; i--) if (attempts[i].id===args[0]) attempts.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) { deletedTokens.push(participants[i].hash); participants.splice(i,1); } return {meta:{changes:1}}; }
-      if (sql.includes('DELETE FROM quiz_hourly_snapshot')) { state.snapshot=null; return {meta:{changes:1}}; }
+      if (sql.includes('DELETE FROM quiz_hourly_snapshot')) { state.snapshot=null; state.snapshotTime=null; return {meta:{changes:1}}; }
       if (sql.includes('UPDATE quiz_snapshot_generation')) { state.generation++; return {meta:{changes:1}}; }
       throw Error('unexpected run');
     }, async first() {
       if (sql.includes('FROM quiz_deleted_tokens WHERE')) return deletedTokens.includes(args[0]) ? {token_hash:args[0]} : null;
+      if (sql.includes('FROM quiz_hourly_snapshot')) {
+        if (sql.includes('generated_at >=') && (state.snapshotTime < args[0] || state.generation !== args[1])) return null;
+        return state.snapshot ? {payload_json:state.snapshot} : null;
+      }
       if (sql.includes('FROM quiz_snapshot_generation')) return {generation:state.generation};
       if (sql.includes('FROM quiz_attempt_closures WHERE')) return closures.find(c => c.id===args[0] && c.date===args[1]) || null;
       if (sql.includes('FROM quiz_participants WHERE')) return participants.find(p => p.hash === args[0]) || null;
@@ -43,11 +47,12 @@ function database() {
         return attempt ? {correct:attempt.points, total:attempt.total, payload_hash:attempt.payloadHash ?? null} : null;
       }
       if (sql.includes('COUNT(DISTINCT participant_id)')) return {count:new Set(attempts.map(a => a.id)).size};
-      if (sql.includes('FROM quiz_hourly_snapshot')) return state.snapshot ? {payload_json:state.snapshot} : null;
       throw Error('unexpected first');
     }, async all() {
-      if (!sql.includes('FROM quiz_attempts')) throw Error('unexpected all');
-      return {results:participants.map(p => ({username:p.username, points:attempts.filter(a=>a.id===p.id).reduce((n,a)=>n+a.points,0), quizzes:attempts.filter(a=>a.id===p.id).length})).filter(p=>p.quizzes).sort((a,b)=>b.points-a.points)};
+      if (!sql.includes('FROM quiz_attempts') || !sql.includes('participant_count')) throw Error('unexpected all');
+      const count = new Set(attempts.map(a => a.id)).size;
+      const rows = participants.map(p => ({participant_count:count, username:p.username, points:attempts.filter(a=>a.id===p.id).reduce((n,a)=>n+a.points,0), quizzes:attempts.filter(a=>a.id===p.id).length})).filter(p=>p.quizzes).sort((a,b)=>b.points-a.points);
+      return {results:rows.length ? rows.slice(0,100) : [{participant_count:count, username:null, points:null, quizzes:null}]};
     }};
   }};
 }
@@ -234,6 +239,25 @@ test('snapshot aggregation racing account deletion cannot restore deleted entry'
     assert.deepEqual(board.entries,[]); assert.equal(board.totalParticipants,0);
     assert.ok(!e.DB.state.snapshot.includes('Alice'));
   } finally { globalThis.fetch=original; }
+});
+
+test('an older delayed snapshot never overwrites a newer refresh', async () => {
+  const e=env();
+  const token=await register(e,'Alice');
+  const id=e.DB.state.participants[0].id;
+  e.DB.state.attempts.push({id,date:day(),points:10,total:50});
+  // The older aggregation has already read its score when the newer refresh runs.
+  e.DB.state.onSnapshotWrite=async () => {
+    e.DB.state.attempts.push({id,date:'2000-01-01',points:20,total:50});
+    const fresh=await snapshot(e,2000);
+    assert.equal(fresh.entries[0].points,30);
+  };
+  const returned=await snapshot(e,1000);
+  assert.equal(returned.generatedAtMillis,2000);
+  assert.equal(returned.entries[0].points,30);
+  assert.equal(JSON.parse(e.DB.state.snapshot).entries[0].points,30);
+  assert.equal(e.DB.state.snapshotTime,2000);
+  assert.ok(!JSON.stringify(returned).includes(token));
 });
 
 test('failed deletion transaction does not claim success', async () => {
