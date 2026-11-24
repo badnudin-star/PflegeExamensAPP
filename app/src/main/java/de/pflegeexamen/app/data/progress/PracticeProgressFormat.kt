@@ -22,9 +22,9 @@ internal data class PracticeQuizSnapshot(val date: String, val session: QuizSess
 
 internal object PracticeProgressFormat {
     const val MAX_BYTES = 4 * 1024 * 1024
-    private const val MAX_IDS = 20_000
+    internal const val MAX_IDS = 20_000
     private const val MAX_ID_LENGTH = 512
-    private const val MAX_DAYS = 3_660
+    internal const val MAX_DAYS = 3_660
     private const val MAX_ANSWERS = 10_000
     private const val FORMAT = "pflege-practice-progress"
     private const val VERSION = 1
