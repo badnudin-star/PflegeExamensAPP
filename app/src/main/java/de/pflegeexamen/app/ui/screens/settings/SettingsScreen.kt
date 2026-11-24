@@ -157,7 +157,7 @@ fun SettingsScreen(
                 runCatching { repository.exportBundleZip(uri) }
                     .onSuccess { rep ->
                         snackbarHostState.showSnackbar(
-                            "Backup exportiert (${rep.sourcesImported} Quellen, ${rep.preparationsImported} Themen, ${rep.operatorsImported} Operatoren)."
+                            "Inhaltspaket exportiert (${rep.sourcesImported} Quellen, ${rep.preparationsImported} Themen, ${rep.operatorsImported} Operatoren). Kein vollständiges Fortschrittsbackup."
                         )
                     }
                     .onFailure { err ->
@@ -219,6 +219,10 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Text(
+                            "Der Inhaltsexport enthält Quellen und Einstellungen, aber keinen vollständigen Lernfortschritt. Er kann eine gespeicherte Ranglisten-URL enthalten und ist kein vollständiges Backup.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -232,11 +236,11 @@ fun SettingsScreen(
                                 Text(if (isImportingBundle) "Importiere..." else ".pflegebundle.zip laden")
                             }
                             OutlinedButton(
-                                onClick = { exportBundleLauncher.launch("PflegeExamen-Backup.pflegebundle.zip") }
+                                onClick = { exportBundleLauncher.launch("PflegeExamen-Inhaltspaket.pflegebundle.zip") }
                             ) {
                                 Icon(Icons.Outlined.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text("Alles als ZIP sichern")
+                                Text("Inhaltspaket exportieren")
                             }
                         }
                         if (isImportingBundle) {
