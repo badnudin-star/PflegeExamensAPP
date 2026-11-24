@@ -98,6 +98,21 @@ class ConfigTests(unittest.TestCase):
         self.assertIn('noch nicht geprüft', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
+    def test_scheduled_boolean_switch_is_case_insensitive_but_fails_closed(self):
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        for value in ('true', 'True', 'TRUE', ' tRuE '):
+            result, output, _ = self.config({**configured, 'ENABLED':value})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=true\n')
+        for value in ('false', 'False', 'FALSE'):
+            result, output, _ = self.config({'ENABLED':value})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=false\n')
+        for value in ('1', 'yes', '"true"', "'true'"):
+            result, output, _ = self.config({**configured, 'ENABLED':value})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=false\n')
+
     def test_manual_test_requires_explicit_confirmation_and_complete_config(self):
         configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
         for confirmation in ('', 'false', 'TRUE'):

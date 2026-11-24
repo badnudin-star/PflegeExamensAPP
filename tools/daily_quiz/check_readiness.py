@@ -13,15 +13,13 @@ REQUIRED = (
 
 
 def main():
-    enabled = os.environ.get('ENABLED', '').strip()
+    enabled = os.environ.get('ENABLED', '').strip().lower()
     state = {'': 'deaktiviert (Variable nicht gesetzt)', 'false': 'deaktiviert',
              'true': 'aktiviert'}.get(enabled, 'ungültig')
     # Fixed diagnostic categories only, never echo the untrusted variable value.
     hint = None
     if state == 'ungültig':
-        if enabled.lower() in ('true', 'false'):
-            hint = 'Groß- und Kleinschreibung stimmt nicht'
-        elif len(enabled) >= 2 and enabled[0] == enabled[-1] and enabled[0] in ('\"', "'") and enabled[1:-1].lower() in ('true', 'false'):
+        if len(enabled) >= 2 and enabled[0] == enabled[-1] and enabled[0] in ('\"', "'") and enabled[1:-1] in ('true', 'false'):
             hint = 'Anführungszeichen gehören nicht zum Wert'
         elif enabled.lower() in ('1', '0', 'yes', 'no', 'ja', 'nein', 'on', 'off'):
             hint = 'Zahlen und Ja/Nein-Werte werden nicht unterstützt'
