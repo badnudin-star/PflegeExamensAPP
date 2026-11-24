@@ -12,6 +12,10 @@ Der manuell auf `main` startbare Workflow **„Tagesquiz-Konfiguration schreibge
 
 Der erste schreibgeschützte [Prüflauf 45473162628](https://github.com/badnudin-star/PflegeExamensAPP/actions/runs/45473162628) meldete einen ungültigen Generierungsschalter. Zu diesem Zeitpunkt wurden nur kleingeschriebene Werte akzeptiert; der aktuelle Code akzeptiert Groß-/Kleinschreibung. Der tatsächliche Schalterzustand kann sich ändern und muss erneut geprüft werden. Er übertrug keine Inhalte und änderte keine Einstellungen.
 
+## Gemini mit künstlichen Daten prüfen
+
+Der Workflow **„Gemini-Verbindung mit künstlichen Daten prüfen“** ist manuell, nur auf `main` und nach Kostenbestätigung startbar. Er sendet höchstens zwei kurze künstliche Anfragen an das konfigurierte Modell: eine einfache und eine mit dem Quiz-JSON-Schema. Er verwendet weder Drive noch Lernzettel oder den Veröffentlichungstoken, veröffentlicht nichts und wiederholt Anfragen nicht. Die Ausgabe nennt nur HTTP-Status und ob Antworttext vorhanden ist, niemals Schlüssel, Antworttexte oder Server-Fehlertexte. Auch diese Anfragen können Kontingent oder Kosten verursachen. Ein 200-Status belegt nicht, dass die längeren echten Anfragen funktionieren oder fachlich brauchbare Fragen entstehen; ein 503 beweist weder eine bestimmte Ursache noch die Dauer einer Störung.
+
 ## Einmaliger echter Test ohne Zeitplan
 
 Der Workflow **„Tagesquiz einmalig testen“** ist ausschließlich manuell startbar. Er lässt `QUIZ_GENERATION_ENABLED` unverändert, benötigt keinen Veröffentlichungs-Schlüssel und veröffentlicht nichts. Für den Test müssen nur der Drive-Ordner und die vorhandenen Drive-Lese-Zugangsdaten sowie das Gemini-Modell und der Gemini-API-Key wie in Schritten 2–3 unten in GitHub konfiguriert sein. Die Arena-Drive-Verbindung ersetzt diese GitHub-Konfiguration nicht.
