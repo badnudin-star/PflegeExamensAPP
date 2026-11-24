@@ -16,12 +16,25 @@ def main():
     enabled = os.environ.get('ENABLED', '').strip()
     state = {'': 'deaktiviert (Variable nicht gesetzt)', 'false': 'deaktiviert',
              'true': 'aktiviert'}.get(enabled, 'ungültig')
+    # Fixed diagnostic categories only, never echo the untrusted variable value.
+    hint = None
+    if state == 'ungültig':
+        if enabled.lower() in ('true', 'false'):
+            hint = 'Groß- und Kleinschreibung stimmt nicht'
+        elif len(enabled) >= 2 and enabled[0] == enabled[-1] and enabled[0] in ('\"', "'") and enabled[1:-1].lower() in ('true', 'false'):
+            hint = 'Anführungszeichen gehören nicht zum Wert'
+        elif enabled.lower() in ('1', '0', 'yes', 'no', 'ja', 'nein', 'on', 'off'):
+            hint = 'Zahlen und Ja/Nein-Werte werden nicht unterstützt'
+        else:
+            hint = 'anderes ungültiges Format'
     missing = [label for key, label in REQUIRED if not os.environ.get(key, '').strip()]
     lines = [
         '### Tagesquiz: schreibgeschützte Konfigurationsprüfung', '',
         f'- Generierungsschalter: {state}.',
         '- Es wurden keine Inhalte übertragen, keine Verbindungen getestet und keine Einstellungen geändert.',
     ]
+    if hint:
+        lines.append(f'- Hinweis zum Generierungsschalter: {hint}.')
     for key, label in REQUIRED:
         status = 'vorhanden' if os.environ.get(key, '').strip() else 'fehlt oder ist leer'
         lines.append(f'- {label}: {status}.')
