@@ -1,0 +1,64 @@
+name: Ungeprüftes Tagesquiz mit Warnhinweis veröffentlichen
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Laufnummer des zu veröffentlichenden Entwurfs'
+        required: true
+        type: string
+      sha256:
+        description: 'SHA-256 der ursprünglichen quiz-draft.json'
+        required: true
+        type: string
+      unreviewed_confirmed:
+        description: 'Veröffentlichung OHNE fachliche Prüfung mit Warnhinweisen ausdrücklich bestätigen'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: learning-content-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Freigabe und Ursprung vor Abruf prüfen
+        env:
+          REF: ${{ github.ref }}
+          RUN_ID: ${{ inputs.run_id }}
+          HASH: ${{ inputs.sha256 }}
+          CONFIRMED: ${{ inputs.unreviewed_confirmed }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$REF" == refs/heads/main && "$CONFIRMED" == true && "$RUN_ID" =~ ^[0-9]{1,18}$ && "$HASH" =~ ^[a-fA-F0-9]{64}$ ]] || { echo '::error::Ungültige Eingaben oder fehlende ausdrückliche Freigabe.'; exit 1; }
+          gh api "repos/$REPO/actions/runs/$RUN_ID" | jq -e --arg repo "$REPO" '
+            .conclusion == "success" and .head_branch == "main" and
+            .repository.full_name == $repo and .head_repository.full_name == $repo and
+            ((.path == ".github/workflows/quiz-manual-draft.yml" and .event == "workflow_dispatch") or
+             (.path == ".github/workflows/daily-quiz-draft.yml" and (.event == "schedule" or .event == "workflow_dispatch")))
+          ' >/dev/null || { echo '::error::Kein erfolgreicher, zulässiger Entwurfslauf auf main.'; exit 1; }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Entwurf herunterladen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          umask 077
+          gh run download "$RUN_ID" --name tagesquiz-entwurf --dir "$RUNNER_TEMP/quiz"
+      - name: Abhängigkeiten installieren
+        run: pip install -r tools/learning_import/requirements.txt
+      - name: Ungeprüften Entwurf sichtbar markieren und konfliktgeschützt veröffentlichen
+        env:
+          UNREVIEWED_CONFIRMED: ${{ inputs.unreviewed_confirmed }}
+          HASH: ${{ inputs.sha256 }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+        run: python tools/daily_quiz/publish_unreviewed.py --draft "$RUNNER_TEMP/quiz/quiz-draft.json" --sha256 "$HASH" --worker "$CONTENT_WORKER_ORIGIN"
