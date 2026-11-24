@@ -37,6 +37,8 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('Generierungsschalter: aktiviert', summary)
         self.assertIn('Secret GEMINI_API_KEY: vorhanden', summary)
+        self.assertIn('::notice title=Tagesquiz::Secret GEMINI_API_KEY: vorhanden.', result.stdout)
+        self.assertIn('::notice title=Tagesquiz::Generierungsschalter: aktiviert.', result.stdout)
         for value in (secret, 'private-folder', 'private-model', 'other-private-key', 'Injected value'):
             self.assertNotIn(value, result.stdout + result.stderr + summary)
         missing = dict(settings, GEMINI_API_KEY='  ')
