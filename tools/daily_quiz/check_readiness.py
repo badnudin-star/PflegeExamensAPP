@@ -29,6 +29,10 @@ def main():
                   'Die regelmäßige Generierung und Veröffentlichung benötigen eigene Freigaben.'])
     report = '\n'.join(lines) + '\n'
     print(report, end='')
+    # Fixed status text only; annotations remain readable without downloading job logs.
+    for line in lines:
+        if line.startswith('- ') and not line.startswith('- Es wurden'):
+            print('::notice title=Tagesquiz::' + line[2:])
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with Path(summary).open('a', encoding='utf-8') as f:
