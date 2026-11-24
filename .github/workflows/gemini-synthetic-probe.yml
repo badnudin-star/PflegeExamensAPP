@@ -1,0 +1,37 @@
+name: Gemini-Verbindung mit künstlichen Daten prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Bis zu zwei Gemini-Anfragen mit künstlichen Daten; mögliche Kosten bestätigen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  probe:
+    name: Gemini mit künstlichen Daten prüfen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Nur freigegebenen Standardbranch zulassen
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo '::error::Der Gemini-Test darf nur auf main laufen.'
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Abhängigkeiten installieren
+        run: pip install -r tools/learning_import/requirements.txt
+      - name: Zwei künstliche Anfragen ohne Nutzerdaten
+        env:
+          CONFIRMED: ${{ inputs.confirm }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python tools/daily_quiz/probe_gemini.py
