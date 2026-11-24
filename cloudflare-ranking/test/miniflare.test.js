@@ -140,6 +140,102 @@ test('Miniflare D1: concurrent submissions share one daily slot', {timeout:30000
   } finally {await mf.dispose();}
 });
 
+test('Miniflare D1: result access and deletion are isolated between accounts', {timeout:30000}, async () => {
+  const mf=runtime();
+  try {
+    await sql(mf, statements(file('schema.sql')));
+    assert.equal((await request(mf,'POST','/participants',{username:'Test A'},token)).status,201);
+    assert.equal((await request(mf,'POST','/participants',{username:'Test B'},second)).status,201);
+    const quiz=await (await request(mf,'GET','/quiz/today')).json();
+    const body={date:quiz.date, fingerprint:quiz.fingerprint, answers:quiz.questions.map((q,i)=>({id:q.id,option:i%4}))};
+    assert.equal((await request(mf,'POST','/quiz/attempt',body,token)).status,201);
+    assert.equal((await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,second)).status,404);
+    assert.equal((await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,'ef'.repeat(32))).status,401);
+    const own=await (await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,token)).json();
+    assert.equal(own.correct,50);
+    assert.equal(own.payloadHash,createHash('sha256').update(JSON.stringify(body)).digest('hex'));
+    const board=await (await request(mf,'GET','/leaderboard')).json();
+    assert.deepEqual(board.entries.map(entry=>entry.username),['Test A']);
+    for (const secret of [token,second,own.payloadHash]) assert.ok(!JSON.stringify(board).includes(secret));
+    assert.equal((await request(mf,'DELETE','/participants/me',undefined,second)).status,204);
+    const stillOwn=await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,token);
+    assert.equal(stillOwn.status,200);
+    assert.deepEqual(await stillOwn.json(),own);
+    const boardAfter=await (await request(mf,'GET','/leaderboard')).json();
+    assert.deepEqual(boardAfter.entries.map(entry=>entry.username),['Test A']);
+    assert.equal((await request(mf,'POST','/participants',{username:'Test B'},second)).status,410);
+  } finally {await mf.dispose();}
+});
+
+test('Miniflare D1: submission racing closure leaves exactly one durable outcome', {timeout:30000}, async () => {
+  const mf=runtime();
+  try {
+    await sql(mf, statements(file('schema.sql')));
+    const quiz=await (await request(mf,'GET','/quiz/today')).json();
+    const body={date:quiz.date, fingerprint:quiz.fingerprint, answers:quiz.questions.map((q,i)=>({id:q.id,option:i%4}))};
+    for (let i=0; i<16; i++) {
+      const auth=(i+1).toString(16).padStart(64,'0');
+      assert.equal((await request(mf,'POST','/participants',{username:`Race ${i}`},auth)).status,201);
+      const [submission, closure]=await Promise.all([
+        request(mf,'POST','/quiz/attempt',body,auth),
+        request(mf,'POST','/quiz/attempt/close',{date:quiz.date},auth),
+      ]);
+      assert.equal(closure.status,200);
+      const closed=await closure.json();
+      const result=await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,auth);
+      if (closed.status === 'closed') {
+        assert.equal(submission.status,409);
+        assert.equal(result.status,410);
+        assert.deepEqual(await result.json(), {date:quiz.date,status:'closed'});
+      } else {
+        assert.equal(closed.status,'recorded');
+        assert.equal(submission.status,201);
+        assert.equal(result.status,200);
+        const saved=await result.json();
+        assert.equal(saved.correct,50);
+        assert.equal(saved.payloadHash,createHash('sha256').update(JSON.stringify(body)).digest('hex'));
+        assert.equal(closed.payloadHash,saved.payloadHash);
+      }
+      const state=await sql(mf,[{sql:`SELECT
+        (SELECT count(*) FROM quiz_attempts a JOIN quiz_participants p ON p.id=a.participant_id WHERE p.token_hash=?) AS attempts,
+        (SELECT count(*) FROM quiz_attempt_closures c JOIN quiz_participants p ON p.id=c.participant_id WHERE p.token_hash=?) AS closures`,
+        args:[createHash('sha256').update(auth).digest('hex'),createHash('sha256').update(auth).digest('hex')]}]);
+      assert.equal(state[0].results[0].attempts + state[0].results[0].closures,1);
+    }
+  } finally {await mf.dispose();}
+});
+
+test('Miniflare D1: concurrent account deletion and submission never resurrect an account', {timeout:30000}, async () => {
+  const mf=runtime();
+  try {
+    await sql(mf, statements(file('schema.sql')));
+    const quiz=await (await request(mf,'GET','/quiz/today')).json();
+    const body={date:quiz.date, fingerprint:quiz.fingerprint, answers:quiz.questions.map((q,i)=>({id:q.id,option:i%4}))};
+    for (let i=0; i<16; i++) {
+      const auth=(i+100).toString(16).padStart(64,'0'), name=`Delete ${i}`;
+      assert.equal((await request(mf,'POST','/participants',{username:name},auth)).status,201);
+      const [submission, deletion]=await Promise.all([
+        request(mf,'POST','/quiz/attempt',body,auth),
+        request(mf,'DELETE','/participants/me',undefined,auth),
+      ]);
+      assert.ok([201,401,503].includes(submission.status), `unexpected submission status ${submission.status}`);
+      assert.equal(deletion.status,204);
+      assert.equal(deletion.headers.get('X-Quiz-Deletion-Receipt'),'v1');
+      assert.equal((await request(mf,'POST','/participants',{username:name},auth)).status,410);
+      assert.equal((await request(mf,'GET',`/quiz/attempt/result?date=${quiz.date}`,undefined,auth)).status,401);
+      const hash=createHash('sha256').update(auth).digest('hex');
+      const state=await sql(mf,[{sql:`SELECT
+        (SELECT count(*) FROM quiz_participants WHERE token_hash=?) AS participants,
+        (SELECT count(*) FROM quiz_deleted_tokens WHERE token_hash=?) AS barriers,
+        (SELECT count(*) FROM quiz_attempts a LEFT JOIN quiz_participants p ON p.id=a.participant_id WHERE p.id IS NULL) AS orphan_attempts`,
+        args:[hash,hash]}]);
+      assert.deepEqual(state[0].results[0],{participants:0,barriers:1,orphan_attempts:0});
+      const board=await (await request(mf,'GET','/leaderboard')).json();
+      assert.ok(!board.entries.some(entry=>entry.username === name));
+    }
+  } finally {await mf.dispose();}
+});
+
 test('Miniflare rate-limit binding throttles repeated reads', {timeout:30000}, async () => {
   const mf=runtime('ok',2);
   try {
