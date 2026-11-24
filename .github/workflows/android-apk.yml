@@ -129,6 +129,7 @@ jobs:
               'noteSearchWithoutTextMatchDoesNotOfferNavigation',
               'topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange',
               'androidPreferencesKeepSeparateLearningProgress',
+              'malformedSyntheticPreferencesCanLookEmpty',
               'androidKeystoreProtectsTokenAndDetectsLostKey',
               'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
               'pendingQuizClosureRequiresExplicitConfirmation',

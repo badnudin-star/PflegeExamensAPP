@@ -552,6 +552,39 @@ class LearningFlowsUiTest {
         } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
     }
 
+    @Test fun malformedSyntheticPreferencesCanLookEmpty() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefix = "corrupt_test_" + UUID.randomUUID().toString() + "_"
+        val names = listOf(prefix + "cards", prefix + "cases", prefix + "quizzes")
+        val directory = File(base.applicationInfo.dataDir, "shared_prefs")
+        check(directory.isDirectory || directory.mkdirs())
+        val file = File(directory, names[0] + ".xml")
+        val malformed = "<map><set name=\"learned_card_ids\"><string>synthetic</string>"
+        var created = false
+        try {
+            check(names.all { !File(directory, "$it.xml").exists() && !File(directory, "$it.xml.bak").exists() })
+            check(file.createNewFile())
+            created = true
+            file.writeText(malformed)
+            val result = PracticeProgressReader.read(
+                base.getSharedPreferences(names[0], Context.MODE_PRIVATE),
+                base.getSharedPreferences(names[1], Context.MODE_PRIVATE),
+                base.getSharedPreferences(names[2], Context.MODE_PRIVATE)
+            )
+            // Android versions can report a read error differently. The CI emulator is API 29.
+            if (android.os.Build.VERSION.SDK_INT == 29) {
+                assertEquals(PracticeReadResult.Unverified(de.pflegeexamen.app.data.progress.PracticeProgressSnapshot(
+                    emptyList(), emptyList(), emptyList())), result)
+            } else {
+                assertTrue(result is PracticeReadResult.Unavailable || result is PracticeReadResult.Unverified)
+            }
+            assertEquals(malformed, file.readText())
+        } finally {
+            // Only fresh UUID-scoped synthetic preference files are deleted.
+            if (created) names.forEach { base.deleteSharedPreferences(it) }
+        }
+    }
+
     @Test fun androidPreferencesKeepSeparateLearningProgress() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "ui_test_" + UUID.randomUUID().toString() + "_"
@@ -571,7 +604,7 @@ class LearningFlowsUiTest {
             val cardPrefs = isolated.getSharedPreferences("card_progress", Context.MODE_PRIVATE)
             val casePrefs = isolated.getSharedPreferences("case_progress", Context.MODE_PRIVATE)
             val quizPrefs = isolated.getSharedPreferences("quiz_practice", Context.MODE_PRIVATE)
-            val captured = PracticeProgressReader.read(cardPrefs, casePrefs, quizPrefs) as PracticeReadResult.Captured
+            val captured = PracticeProgressReader.read(cardPrefs, casePrefs, quizPrefs) as PracticeReadResult.Unverified
             assertEquals(listOf("c1", "c2"), captured.snapshot.learnedCardIds)
             assertEquals(listOf("case1"), captured.snapshot.completedCaseIds)
             assertEquals(listOf("2026-01-01", "2026-01-02"), captured.snapshot.quizzes.map { it.date })
