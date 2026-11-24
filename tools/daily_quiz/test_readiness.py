@@ -54,6 +54,18 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('ungültig', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
+    def test_invalid_switch_has_safe_actionable_category_without_echo(self):
+        for value, hint in [('TRUE', 'Groß- und Kleinschreibung'), ('"true"', 'Anführungszeichen'),
+                            ("'false'", 'Anführungszeichen'), ('yes', 'Ja/Nein-Werte'),
+                            ('private::error::value', 'anderes ungültiges Format')]:
+            with self.subTest(value=value):
+                result, summary = self.run_report(ENABLED=value)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(hint, summary)
+                self.assertIn('::notice title=Tagesquiz::Hinweis zum Generierungsschalter:', result.stdout)
+                if value.startswith('private'):
+                    self.assertNotIn(value, result.stdout + result.stderr + summary)
+
     def test_workflow_is_manual_and_contains_no_generation_or_publication(self):
         workflow = WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', workflow)
