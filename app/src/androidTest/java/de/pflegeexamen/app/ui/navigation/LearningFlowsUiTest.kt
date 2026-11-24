@@ -111,11 +111,13 @@ class LearningFlowsUiTest {
         }
         val restoration = StateRestorationTester(compose)
         restoration.setContent { PflegeExamenTheme { RankedParticipationScreen(service, {}) } }
+        compose.onNodeWithText("Zugangsoptionen").performScrollTo().performClick()
         compose.onNodeWithText("Zugang wiederherstellen").performScrollTo().performClick()
         compose.onNodeWithText("Geheimer Sicherungscode").performTextInput(token)
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithText("Geheimer Sicherungscode").assertDoesNotExist()
         compose.runOnIdle { assertEquals(0,restores) }
+        compose.onNodeWithText("Zugangsoptionen").performScrollTo().performClick()
         compose.onNodeWithText("Zugang wiederherstellen").performScrollTo().performClick()
         compose.onNodeWithText("Geheimer Sicherungscode").performTextInput(token)
         compose.onNodeWithText("Wiederherstellen").performClick()
@@ -203,7 +205,8 @@ class LearningFlowsUiTest {
         }
         val restore = StateRestorationTester(compose)
         restore.setContent { PflegeExamenTheme { RankedParticipationScreen(fake, {}) } }
-        compose.onNodeWithText("Kontostatus prüfen").performClick()
+        // The normal path automatically checks for an existing local access key.
+        compose.onNodeWithText("Zugang wiederherstellen").assertDoesNotExist()
         compose.onNodeWithText("Pseudonym").performTextInput("LernFuchs")
         compose.onNodeWithText("Anmelden").performScrollTo().performClick()
         compose.onNodeWithText("Abbrechen").performClick()

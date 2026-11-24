@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -95,6 +96,12 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
     var confirmRegister by remember { mutableStateOf(false) }
     var confirmSubmit by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showRecovery by remember { mutableStateOf(false) }
+
+    LaunchedEffect(service) {
+        busy = true
+        try { account = service.status() } finally { busy = false }
+    }
 
     fun loadQuiz() {
         busy = true; message = null
@@ -172,9 +179,10 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
     }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(scroll).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Wertungsquiz", style = MaterialTheme.typography.headlineMedium)
-            Text("Getrennt vom lokalen Üben. Die Lösungen erscheinen sofort; die Rangliste ist daher leicht manipulierbar.")
+            Text("Wähle einen Namen, beantworte das Tagesquiz und sieh, wie viele Antworten richtig waren. Die Rangliste ist ein Spiel und keine Prüfung.")
+            Text("Die Wertung ist getrennt vom lokalen Üben. Lösungen sind sichtbar und mehrere Konten möglich.", style = MaterialTheme.typography.bodySmall)
             when (val currentAccount = account) {
-                null -> Text("Kontostatus noch nicht geprüft.")
+                null -> Text("Ranglistenzugang wird geprüft …")
                 RegistrationState.NotPrepared -> Text("Auf diesem Gerät ist noch kein Ranglistenzugang vorbereitet.")
                 RegistrationState.NotRegistered -> Text("Zum Abfragezeitpunkt wurde kein Konto gefunden. Eine frühere Anmeldung könnte noch eintreffen; nur mit demselben Pseudonym erneut versuchen.")
                 RegistrationState.InvalidName -> Text("Pseudonym ungültig: 2 bis 24 Zeichen, Buchstaben, Zahlen, Leerzeichen oder _ . -.")
@@ -190,14 +198,17 @@ internal fun RankedParticipationScreen(service: RankedParticipationService, back
                 busy = true; message = null
                 scope.launch { try { account = service.status() } finally { busy = false } }
             }) { Text("Kontostatus prüfen") }
-            if (account !is RegistrationState.Registered && account != RegistrationState.StorageUnavailable && account != RegistrationState.NotConfigured && account != RegistrationState.DeletionPending) {
+            if (account != null && account !is RegistrationState.Registered && account != RegistrationState.StorageUnavailable && account != RegistrationState.NotConfigured && account != RegistrationState.DeletionPending) {
                 OutlinedTextField(value = username, onValueChange = { if (it.length <= 24) username = it }, enabled = !busy,
                     label = { Text("Pseudonym") }, singleLine = true)
                 Button(enabled = !busy && QuizRegistration.validName(username), onClick = { confirmRegister = true }) { Text("Anmelden") }
             }
-            RankingRecoveryControls(service,
+            TextButton(enabled = !busy, onClick = { showRecovery = !showRecovery }) {
+                Text(if (showRecovery) "Zugangsoptionen ausblenden" else "Zugangsoptionen")
+            }
+            if (showRecovery) RankingRecoveryControls(service,
                 canExport = account is RegistrationState.Registered,
-                canRestore = account == null || account == RegistrationState.NotPrepared || account == RegistrationState.NotRegistered || account == RegistrationState.Uncertain,
+                canRestore = account == RegistrationState.NotPrepared || account == RegistrationState.NotRegistered || account == RegistrationState.Uncertain,
                 busy = busy, setBusy = { busy = it }, onRestored = { account = RegistrationState.Registered(it) })
             if (account is RegistrationState.Registered || account == RegistrationState.DeletionPending) {
                 OutlinedButton(enabled = !busy, onClick = { confirmDelete = true }) {
