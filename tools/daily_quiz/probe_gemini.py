@@ -113,6 +113,14 @@ def comparison_probe(http, key, model):
     return (request_status(http, key, model, small), request_status(http, key, model, long))
 
 
+def selected_model(choice, configured):
+    if choice == 'configured':
+        return configured
+    if choice == 'gemini-3.1-flash-lite':
+        return choice
+    return None
+
+
 def main():
     if os.environ.get('CONFIRMED', '').strip() != 'true':
         print('::error title=Gemini-Test::Test nicht bestätigt; keine Anfrage gesendet.')
@@ -125,7 +133,11 @@ def main():
         return 1
     run = {'basic': probe, 'realistic': realistic_probe, 'compare': comparison_probe,
            'sizing': lambda http, key, model: sized_probe(http, key, model, (1000, 2000))}[profile]
-    results = run(requests, os.environ.get('GEMINI_API_KEY', ''), os.environ.get('GEMINI_MODEL', ''))
+    model = selected_model(os.environ.get('PROBE_MODEL', 'configured'), os.environ.get('GEMINI_MODEL', ''))
+    if model is None:
+        print('::error title=Gemini-Test::Ungültige Modellauswahl; keine Anfrage gesendet.')
+        return 1
+    results = run(requests, os.environ.get('GEMINI_API_KEY', ''), model)
     if results is None:
         print('::error title=Gemini-Test::Modellname oder Zugangskonfiguration ungültig; keine Anfrage gesendet.')
         return 1

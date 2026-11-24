@@ -17,6 +17,14 @@ on:
           - sizing
         required: true
         default: basic
+      model:
+        description: 'Nur für diesen synthetischen Test; ändert nicht das produktive Modell'
+        type: choice
+        options:
+          - configured
+          - gemini-3.1-flash-lite
+        required: true
+        default: configured
 permissions:
   contents: read
 jobs:
@@ -43,6 +51,7 @@ jobs:
         env:
           CONFIRMED: ${{ inputs.confirm }}
           PROBE_PROFILE: ${{ inputs.profile }}
+          PROBE_MODEL: ${{ inputs.model }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python tools/daily_quiz/probe_gemini.py
