@@ -1,6 +1,6 @@
 # Quiz-Rangliste: serverseitiger Entwurf
 
-**Status: experimentell vorbereitet und nicht veröffentlicht.** Die App enthält eine standardmäßig deaktivierte Teilnahme- und Löschoberfläche sowie eine vorbereitete Ranglisten-Leseansicht. Ohne konfigurierte Adresse erfolgt kein Ranking-Aufruf. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
+**Status: experimentell, nicht für die produktive App veröffentlicht.** Ein späterer isolierter Cloudflare-Test mit künstlichen Daten und einer angepassten Test-Worker-Kopie ist [separat dokumentiert](../docs/rangliste-isolierter-cloudflare-test.md); er ist keine Produktionsfreigabe. Die historischen Aussagen zur Vorbereitung und zu nicht erfolgten Deployments unten beziehen sich auf den jeweiligen Entwurfsstand. Die App enthält eine standardmäßig deaktivierte Teilnahme- und Löschoberfläche sowie eine vorbereitete Ranglisten-Leseansicht. Ohne konfigurierte Adresse erfolgt kein Ranking-Aufruf. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
 
 ## Funktionsweise des Entwurfs
 
@@ -128,6 +128,8 @@ Bei ausdrücklicher Wiederherstellung nimmt die App nur ein gültiges Codeformat
 Ein Code überträgt **keine** lokalen Lernfortschritte, ausstehenden Abgabemarker oder Löschjournale. Deshalb offene Abgaben und Löschungen vor einem Gerätewechsel klären und nicht gleichzeitig auf mehreren Geräten teilnehmen: Ein 404 beweist weiterhin nicht, dass eine alte Abgabe nicht noch eintrifft. Die Serverbegrenzung erlaubt nur ein Ergebnis je Konto/Tag; bei zeitgleicher Nutzung kann unklar bleiben, welche Abgabe gewann. Eine Kontolöschung sperrt den Code serverseitig, entfernt aber lokale Token und externe Sicherungen auf anderen Geräten nicht automatisch. Die Nutzeroberfläche und Tests verwenden synthetische Daten; echte Tests auf mehreren Geräten und einer separaten Cloudflare-Datenbank sowie Sicherheits- und Datenschutzprüfung bleiben Voraussetzung. Es erfolgte kein Deployment.
 
 ## Synthetischer Katalog für einen späteren getrennten Cloudflare-Test
+
+Die folgenden Abschnitte beschreiben den Stand der Vorbereitung. Ein späterer, ausdrücklich freigegebener isolierter Test und seine Abweichungen vom Repository-Worker sind in [docs/rangliste-isolierter-cloudflare-test.md](../docs/rangliste-isolierter-cloudflare-test.md) festgehalten; er stellt keine Produktionsfreigabe dar.
 
 `fixtures/synthetic-test-catalog.mjs` liefert ausschließlich 50 künstliche technische Fragen mit wechselndem Berliner Tagesdatum und keinen Lehrbuch- oder Patientendaten. Nur `GET /content` wird beantwortet; die Antwort trägt `fixtureOnly: true`, `X-Fixture-Only: synthetic-ranking-test` und `Cache-Control: no-store`. Die lokale D1-Emulation verwendet dieselben Katalogdaten. Vorhersehbare Lösungen sind ausschließlich für Tests bestimmt. Der Marker erleichtert eine Sichtprüfung, beweist aber weder die Identität des Dienstes noch das sichere D1-Binding des Ranglisten-Workers.
 
