@@ -23,6 +23,7 @@ class InternalReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('if: always()', workflow)
         self.assertIn('rm -f "$RUNNER_TEMP/pflege-release-signing.keystore"', workflow)
         self.assertIn('path: app/build/outputs/apk/release/app-release.apk', workflow)
+        self.assertIn('./gradlew assembleRelease --no-daemon --quiet -PrankingUrl= -PenableRankedParticipation=false', workflow)
         self.assertNotIn('action-gh-release', workflow)
         self.assertNotIn('set -x', workflow)
         self.assertNotIn('--stacktrace', workflow)
