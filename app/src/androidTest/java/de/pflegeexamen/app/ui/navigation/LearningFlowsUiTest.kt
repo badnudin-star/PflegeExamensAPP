@@ -629,7 +629,12 @@ class LearningFlowsUiTest {
         }
         compose.onNodeWithText("Archiv online laden").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveOnlineLoaded").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(day))
+        // Loading and LazyColumn item layout can complete in different frames.
+        // Scroll by the stable date key and retry until the item provider catches up.
+        compose.waitUntil(30_000) {
+            try { compose.onNodeWithTag("quizArchiveList").performScrollToKey(day); true }
+            catch (_: AssertionError) { false }
+        }
         compose.onNodeWithText(day).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Archivfrage?").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Antwort B").performScrollTo().performClick()
@@ -637,7 +642,10 @@ class LearningFlowsUiTest {
         compose.runOnIdle { online.set(false) }
         compose.onNodeWithContentDescription("Zurück zum Archiv").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveLocalLoaded").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(day))
+        compose.waitUntil(30_000) {
+            try { compose.onNodeWithTag("quizArchiveList").performScrollToKey(day); true }
+            catch (_: AssertionError) { false }
+        }
         compose.onNodeWithText("Auf diesem Gerät gespeichert").assertExists()
         compose.onNodeWithText(day).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Deine Antwort: Antwort B").fetchSemanticsNodes().isNotEmpty() }
@@ -665,7 +673,10 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Archiv online laden").performClick()
         val note = "Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht."
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveOnlineLoaded").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(note))
+        compose.waitUntil(30_000) {
+            try { compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(note)); true }
+            catch (_: AssertionError) { false }
+        }
         compose.onNodeWithText(note).assertExists()
         compose.onNodeWithText("Keine archivierten Quiztage gefunden.").assertDoesNotExist()
         compose.onNodeWithText(day).assertDoesNotExist()
