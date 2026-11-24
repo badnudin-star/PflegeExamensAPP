@@ -65,6 +65,8 @@ import de.pflegeexamen.app.data.progress.CaseProgressStore
 import de.pflegeexamen.app.data.progress.SharedPreferencesCardProgress
 import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
 import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
+import de.pflegeexamen.app.data.progress.PracticeProgressReader
+import de.pflegeexamen.app.data.progress.PracticeReadResult
 import java.util.UUID
 import de.pflegeexamen.app.ui.theme.PflegeExamenTheme
 import org.junit.Assert.*
@@ -565,6 +567,21 @@ class LearningFlowsUiTest {
             val quizzes = QuizProgressStore(SharedPreferencesQuizProgress(isolated))
             quizzes.save("2026-01-01", quizA, quizzes.load("2026-01-01", quizA).answer(1, quizA))
             quizzes.save("2026-01-02", quizB, quizzes.load("2026-01-02", quizB).answer(0, quizB))
+
+            val cardPrefs = isolated.getSharedPreferences("card_progress", Context.MODE_PRIVATE)
+            val casePrefs = isolated.getSharedPreferences("case_progress", Context.MODE_PRIVATE)
+            val quizPrefs = isolated.getSharedPreferences("quiz_practice", Context.MODE_PRIVATE)
+            val captured = PracticeProgressReader.read(cardPrefs, casePrefs, quizPrefs) as PracticeReadResult.Captured
+            assertEquals(listOf("c1", "c2"), captured.snapshot.learnedCardIds)
+            assertEquals(listOf("case1"), captured.snapshot.completedCaseIds)
+            assertEquals(listOf("2026-01-01", "2026-01-02"), captured.snapshot.quizzes.map { it.date })
+            assertEquals(listOf(1), captured.snapshot.quizzes[0].session.answers)
+            assertEquals(listOf(0), captured.snapshot.quizzes[1].session.answers)
+            // Invalid data in the UUID-scoped test preferences must not be removed or repaired.
+            assertTrue(quizPrefs.edit().putString("unexpected", "synthetic").commit())
+            assertEquals(PracticeReadResult.InvalidData, PracticeProgressReader.read(cardPrefs, casePrefs, quizPrefs))
+            assertEquals("synthetic", quizPrefs.getString("unexpected", null))
+            assertTrue(quizPrefs.edit().remove("unexpected").commit())
 
             val cardsAgain = CardProgressStore(SharedPreferencesCardProgress(isolated))
             val casesAgain = CaseProgressStore(SharedPreferencesCaseProgress(isolated))
