@@ -6,7 +6,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal sealed interface PracticeReadResult {
-    data class Captured(val snapshot: PracticeProgressSnapshot) : PracticeReadResult
+    data class Unverified(val snapshot: PracticeProgressSnapshot) : PracticeReadResult
     data object InvalidData : PracticeReadResult
     data object Unavailable : PracticeReadResult
 }
@@ -14,7 +14,7 @@ internal sealed interface PracticeReadResult {
 /**
  * Experimental, read-only adapter; not used by the app or a user-facing backup.
  * SharedPreferences can silently treat an unreadable file as empty, and reading three
- * preferences sequentially is not an atomic snapshot. Captured therefore does NOT prove
+ * preferences sequentially is not an atomic snapshot. Unverified therefore does NOT prove
  * completeness, disk durability or cross-store consistency. Do not use it as a backup.
  */
 internal object PracticeProgressReader {
@@ -48,7 +48,7 @@ internal object PracticeProgressReader {
         val snapshot = PracticeProgressSnapshot(cardIds, caseIds, quizStates)
         // Also check the overall encoded byte limit; never truncate oversize input.
         PracticeProgressFormat.encode(snapshot)
-        PracticeReadResult.Captured(snapshot)
+        PracticeReadResult.Unverified(snapshot)
     } catch (_: Exception) {
         PracticeReadResult.InvalidData
     }
