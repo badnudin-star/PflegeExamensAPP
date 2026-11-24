@@ -68,6 +68,14 @@ class GeminiProbeTests(unittest.TestCase):
             self.assertIn('exakt 10', body['contents'][0]['parts'][0]['text'])
             self.assertFalse(call[1]['allow_redirects'])
 
+    def test_sizing_profile_uses_two_shorter_synthetic_sources(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.sized_probe(http, 'private-key', 'model', (1000, 2000)), ('HTTP 503', 'HTTP 503'))
+        self.assertEqual(len(http.calls), 2)
+        for call, length in zip(http.calls, (1000, 2000)):
+            self.assertEqual(call[1]['json'], quiz_pipeline.gemini_body('Fiktive Farbenwelt', probe.synthetic_source(length)))
+        self.assertIsNone(probe.sized_probe(Http([]), '', 'model', (1000, 2000)))
+
     def test_comparison_changes_one_dimension_without_real_sources(self):
         http = Http([Response(503), Response(503)])
         self.assertEqual(probe.comparison_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))

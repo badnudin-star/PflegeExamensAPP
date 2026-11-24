@@ -85,15 +85,19 @@ def synthetic_source(min_length):
     raise ValueError('Künstlicher Text überschreitet die feste Grenze')
 
 
-def realistic_probe(http, key, model):
+def sized_probe(http, key, model, sizes):
     if not key or not re.fullmatch(r'[A-Za-z0-9._-]+', model):
         return None
     results = []
-    for size in (5000, 12000):
+    for size in sizes:
         source = synthetic_source(size)
         body = gemini_body('Fiktive Farbenwelt', source)
         results.append(request_status(http, key, model, body, source))
     return tuple(results)
+
+
+def realistic_probe(http, key, model):
+    return sized_probe(http, key, model, (5000, 12000))
 
 
 def comparison_probe(http, key, model):
@@ -116,10 +120,11 @@ def main():
     # requests is imported only in the entry point; tests can inject a fake transport.
     import requests
     profile = os.environ.get('PROBE_PROFILE', 'basic')
-    if profile not in ('basic', 'realistic', 'compare'):
+    if profile not in ('basic', 'realistic', 'compare', 'sizing'):
         print('::error title=Gemini-Test::Ungültiges Testprofil; keine Anfrage gesendet.')
         return 1
-    run = {'basic': probe, 'realistic': realistic_probe, 'compare': comparison_probe}[profile]
+    run = {'basic': probe, 'realistic': realistic_probe, 'compare': comparison_probe,
+           'sizing': lambda http, key, model: sized_probe(http, key, model, (1000, 2000))}[profile]
     results = run(requests, os.environ.get('GEMINI_API_KEY', ''), os.environ.get('GEMINI_MODEL', ''))
     if results is None:
         print('::error title=Gemini-Test::Modellname oder Zugangskonfiguration ungültig; keine Anfrage gesendet.')
@@ -128,6 +133,7 @@ def main():
         'basic': ('Einfacher Aufruf', 'Aufruf mit Quiz-JSON-Schema'),
         'realistic': ('Künstliche Quelle ca. 5000 Zeichen', 'Künstliche Quelle ca. 12000 Zeichen'),
         'compare': ('Kurze Quelle, zehn Fragen angefordert', 'Quelle ca. 5000 Zeichen, eine Frage angefordert'),
+        'sizing': ('Künstliche Quelle ca. 1000 Zeichen', 'Künstliche Quelle ca. 2000 Zeichen'),
     }[profile]
     lines = [
         '### Gemini-Test mit ausschließlich künstlichem Inhalt', '',
@@ -142,7 +148,7 @@ def main():
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
-    success = 'HTTP 200, zehn Quizfragen technisch gültig' if profile == 'realistic' else 'HTTP 200, Antworttext vorhanden'
+    success = 'HTTP 200, zehn Quizfragen technisch gültig' if profile in ('realistic', 'sizing') else 'HTTP 200, Antworttext vorhanden'
     return 0 if all(item == success for item in results) else 1
 
 
