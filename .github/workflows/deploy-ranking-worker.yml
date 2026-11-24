@@ -2,17 +2,25 @@ name: Deploy Quiz-Ranking Worker (vorbereitet)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "cloudflare-ranking/**"
+    inputs:
+      confirm:
+        description: 'Ich bestätige die gesondert freigegebene Bereitstellung der Quiz-Rangliste'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.ENABLE_QUIZ_RANKING_DEPLOY == 'true' }}
+    # No automatic deploy on pushes, even if the repository variable is enabled.
+    if: ${{ github.ref == 'refs/heads/main' && vars.ENABLE_QUIZ_RANKING_DEPLOY == 'true' && inputs.confirm == true }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

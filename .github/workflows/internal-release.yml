@@ -62,7 +62,9 @@ jobs:
         run: |
           export PFLEGE_RELEASE_KEYSTORE="$RUNNER_TEMP/pflege-release-signing.keystore"
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon --quiet
+          # The standard internal release must not enable the experimental ranking,
+          # even if a runner or Gradle user property supplies different defaults.
+          ./gradlew assembleRelease --no-daemon --quiet -PrankingUrl= -PenableRankedParticipation=false
       - name: Temporäre Schlüsseldatei entfernen
         if: always()
         run: rm -f "$RUNNER_TEMP/pflege-release-signing.keystore"

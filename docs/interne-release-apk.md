@@ -1,6 +1,6 @@
 # Signierte interne APK mit GitHub Actions
 
-Der Workflow **Interne signierte APK erstellen** baut nur nach manuellem Start mit Bestätigung und nur vom Branch `main`. Er lädt und prüft den öffentlichen Offline-Katalog, signiert die APK mit dem eigenen Schlüssel, prüft die Signatur und den enthaltenen Katalog und stellt nur die APK für 30 Tage als Actions-Artifact `PflegeExamen-intern-signiert` bereit. Er erstellt kein GitHub Release, veröffentlicht nichts im Play Store und aktiviert keine Rangliste. Das Artifact ist keine Ende-zu-Ende-verschlüsselte Verteilung; prüfe, wer im Repository Zugriff auf Actions und Artifacts hat. Für jede reguläre Update-Version muss `versionCode` erhöht werden.
+Der Workflow **Interne signierte APK erstellen** baut nur nach manuellem Start mit Bestätigung und nur vom Branch `main`. Er lädt und prüft den öffentlichen Offline-Katalog, signiert die APK mit dem eigenen Schlüssel, prüft die Signatur und den enthaltenen Katalog und stellt nur die APK für 30 Tage als Actions-Artifact `PflegeExamen-intern-signiert` bereit. Er erstellt kein GitHub Release und veröffentlicht nichts im Play Store. Der Release-Befehl setzt eine leere Ranking-URL und deaktivierte Wertungsteilnahme ausdrücklich als Gradle-Parameter, auch wenn andere Gradle-Einstellungen abweichende Werte vorgeben. Das Artifact ist keine Ende-zu-Ende-verschlüsselte Verteilung; prüfe, wer im Repository Zugriff auf Actions und Artifacts hat. Für jede reguläre Update-Version muss `versionCode` erhöht werden.
 
 ## Sicherheit und Einrichtung
 
