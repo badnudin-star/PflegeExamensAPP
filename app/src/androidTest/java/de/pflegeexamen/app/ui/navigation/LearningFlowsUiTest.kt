@@ -566,8 +566,9 @@ class LearningFlowsUiTest {
             check(file.createNewFile())
             created = true
             val prefs = base.getSharedPreferences(name, Context.MODE_PRIVATE)
-            assertTrue(prefs.edit().putStringSet("learned_card_ids", setOf("c&1", "ü2"))
-                .putString("2026-01-01", "{\"synthetic\":true}").commit())
+            assertTrue(prefs.edit().putStringSet("learned_card_ids", setOf("c&1", "ü2", "🙂"))
+                .putString("2026-01-01", "{\"synthetic\":true}")
+                .putString("key<&\"", "Zeile 1\nZeile 2 & < > 🙂").commit())
             assertNotNull("Synthetic preference XML was rejected", PreferenceXmlInspector.inspect(file.readBytes()))
             assertTrue(PreferenceXmlInspector.matches(file.readBytes(), prefs.all))
             assertFalse(PreferenceXmlInspector.matches(file.readBytes(), emptyMap<String, Any>()))
@@ -603,6 +604,7 @@ class LearningFlowsUiTest {
                 assertTrue(result is PracticeReadResult.Unavailable || result is PracticeReadResult.Unverified)
             }
             assertEquals(malformed, file.readText())
+            assertNull(PreferenceXmlInspector.inspect(file.readBytes()))
         } finally {
             // Only fresh UUID-scoped synthetic preference files are deleted.
             if (created) names.forEach { base.deleteSharedPreferences(it) }

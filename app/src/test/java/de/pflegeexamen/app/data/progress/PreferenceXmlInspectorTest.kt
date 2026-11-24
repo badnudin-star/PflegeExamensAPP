@@ -21,6 +21,30 @@ class PreferenceXmlInspectorTest {
         assertEquals(mapOf("x" to "a\nb\nc"), inspect("<map><string name=\"x\">a\r\nb\rc</string></map>"))
     }
 
+    @Test fun `synthetic escaped values agree with the standard JVM XML parser`() {
+        val random = java.util.Random(42)
+        val fragments = listOf("a", "ü", "🙂", "&", "<", ">", "\"", "'", "\n", "\t", "\r")
+        fun value() = (0 until random.nextInt(35)).joinToString("") { fragments[random.nextInt(fragments.size)] }
+        fun escape(input: String): String = buildString {
+            input.forEach { ch -> append(when (ch) {
+                '&' -> "&amp;"; '<' -> "&lt;"; '>' -> "&gt;"; '\"' -> "&quot;"
+                '\n' -> "&#10;"; '\r' -> "&#13;"; '\t' -> "&#9;"; else -> ch.toString()
+            }) }
+        }
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        }
+        repeat(250) {
+            val name = "k" + value()
+            val payload = value()
+            val xml = "<map><string name=\"${escape(name)}\">${escape(payload)}</string></map>"
+            val doc = factory.newDocumentBuilder().parse(xml.byteInputStream())
+            val element = doc.documentElement.firstChild as org.w3c.dom.Element
+            val expected = mapOf(element.getAttribute("name") to element.textContent)
+            assertEquals(expected, inspect(xml))
+        }
+    }
+
     @Test fun `malformed duplicate and unsupported preference xml fails closed`() {
         val bad = listOf(
             "", "<map><string name=\"x\">broken", "<map></map><map/>",
