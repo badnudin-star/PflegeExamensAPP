@@ -4,7 +4,12 @@ import os
 from pathlib import Path
 import sys
 
-REQUIRED = ('FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')
+REQUIRED = {
+    'FOLDER': 'Variable LEARNING_DRIVE_FOLDER_ID',
+    'MODEL': 'Variable GEMINI_MODEL',
+    'GOOGLE_CREDS': 'Secret LEARNING_DRIVE_CREDENTIALS',
+    'GEMINI_API_KEY': 'Secret GEMINI_API_KEY',
+}
 
 
 def main():
@@ -23,13 +28,16 @@ def main():
     elif not manual and enabled != 'true':
         ready, message, code = False, 'QUIZ_GENERATION_ENABLED muss true oder false sein.', 1
     else:
-        missing = [name for name in REQUIRED if not os.environ.get(name, '').strip()]
+        missing = [label for name, label in REQUIRED.items() if not os.environ.get(name, '').strip()]
         label = manual_label if manual else 'Quizgenerierung'
         if missing:
             ready, message, code = False, label + ': Konfiguration unvollständig: ' + ', '.join(missing), 1
         else:
             ready, message, code = True, label + ': Konfiguration vorhanden (Zugänge noch nicht geprüft).', 0
     print(message)
+    # Message text contains only fixed labels, never configuration values.
+    if code:
+        print('::error title=Tagesquiz::' + message)
     if os.environ.get('GITHUB_OUTPUT'):
         with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
             f.write(f'ready={str(ready).lower()}\n')

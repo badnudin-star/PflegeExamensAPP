@@ -83,8 +83,13 @@ class ConfigTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(output, 'ready=false\n')
         self.assertIn('unvollständig', summary)
+        self.assertIn('Variable LEARNING_DRIVE_FOLDER_ID', summary)
+        self.assertIn('Secret GEMINI_API_KEY', summary)
+        self.assertIn('::error title=Tagesquiz::', result.stdout)
         self.assertNotIn('sensitive-value', result.stdout + result.stderr + summary)
-        self.assertNotEqual(self.config({'ENABLED':'TRUE'})[0].returncode, 0)
+        invalid, _, _ = self.config({'ENABLED':'TRUE\n::error::injected'})
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertNotIn('injected', invalid.stdout + invalid.stderr)
 
     def test_configured_is_ready_but_does_not_claim_connections_work(self):
         result, output, summary = self.config({'ENABLED':'true', 'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'})
