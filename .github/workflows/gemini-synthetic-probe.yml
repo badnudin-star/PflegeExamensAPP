@@ -7,13 +7,21 @@ on:
         type: boolean
         required: true
         default: false
+      profile:
+        description: 'Kurztest oder produktionsähnlicher Test mit künstlichen Quellen (kann mehr kosten)'
+        type: choice
+        options:
+          - basic
+          - realistic
+        required: true
+        default: basic
 permissions:
   contents: read
 jobs:
   probe:
     name: Gemini mit künstlichen Daten prüfen
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Nur freigegebenen Standardbranch zulassen
         env:
@@ -32,6 +40,7 @@ jobs:
       - name: Zwei künstliche Anfragen ohne Nutzerdaten
         env:
           CONFIRMED: ${{ inputs.confirm }}
+          PROBE_PROFILE: ${{ inputs.profile }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python tools/daily_quiz/probe_gemini.py

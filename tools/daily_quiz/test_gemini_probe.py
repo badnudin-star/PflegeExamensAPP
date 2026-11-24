@@ -55,6 +55,32 @@ class GeminiProbeTests(unittest.TestCase):
         self.assertEqual(http.calls[1][1]['json']['generationConfig']['responseSchema'], quiz_pipeline.SCHEMA)
         self.assertNotIn('source', json.dumps(http.calls[0][1]['json']).lower())
 
+    def test_realistic_profile_reuses_production_prompt_on_only_artificial_sources(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.realistic_probe(http, 'private-key', 'test-model'), ('HTTP 503', 'HTTP 503'))
+        self.assertEqual(len(http.calls), 2)
+        for call, length in zip(http.calls, (5000, 12000)):
+            body = call[1]['json']
+            source = probe.synthetic_source(length)
+            self.assertGreaterEqual(len(source), length)
+            self.assertLess(len(source), length + 200)
+            self.assertEqual(body, quiz_pipeline.gemini_body('Fiktive Farbenwelt', source))
+            self.assertIn('exakt 10', body['contents'][0]['parts'][0]['text'])
+            self.assertFalse(call[1]['allow_redirects'])
+
+    def test_realistic_response_validation_does_not_disclose_text(self):
+        source = probe.synthetic_source(5000)
+        items = [{'question': f'Frage {i}', 'options': ['eins', 'zwei', 'drei', 'vier'],
+                  'correctIndex': 0, 'explanation': 'Erklärung', 'evidenceId': 1} for i in range(10)]
+        payload = lambda x: json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps(x)}]}}]}).encode()
+        http = Http([Response(200, payload(items)), Response(200, payload(items[:9]))])
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+            self.assertEqual(probe.request_status(http, 'private', 'model', {}, source), 'HTTP 200, zehn Quizfragen technisch gültig')
+            self.assertEqual(probe.request_status(http, 'private', 'model', {}, source), 'HTTP 200, Quizantwort technisch ungültig')
+        self.assertNotIn('Frage', log.getvalue())
+        self.assertNotIn('private', log.getvalue())
+
     def test_status_network_errors_and_large_or_invalid_body_are_not_leaked(self):
         for response, expected in [
             (Response(503, b'private response'), 'HTTP 503'),
