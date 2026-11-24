@@ -96,6 +96,19 @@ def realistic_probe(http, key, model):
     return tuple(results)
 
 
+def comparison_probe(http, key, model):
+    """Vary one dimension at a time: source length vs. requested output count."""
+    if not key or not re.fullmatch(r'[A-Za-z0-9._-]+', model):
+        return None
+    small = gemini_body('Fiktive Farbenwelt', synthetic_source(200))
+    long = gemini_body('Fiktive Farbenwelt', synthetic_source(5000))
+    text = long['contents'][0]['parts'][0]['text']
+    if text.count('exakt 10 unterschiedliche') != 1:
+        raise ValueError('Produktionsprompt nicht wie erwartet')
+    long['contents'][0]['parts'][0]['text'] = text.replace('exakt 10 unterschiedliche', 'exakt 1 unterschiedliche', 1)
+    return (request_status(http, key, model, small), request_status(http, key, model, long))
+
+
 def main():
     if os.environ.get('CONFIRMED', '').strip() != 'true':
         print('::error title=Gemini-Test::Test nicht bestätigt; keine Anfrage gesendet.')
@@ -103,15 +116,19 @@ def main():
     # requests is imported only in the entry point; tests can inject a fake transport.
     import requests
     profile = os.environ.get('PROBE_PROFILE', 'basic')
-    if profile not in ('basic', 'realistic'):
+    if profile not in ('basic', 'realistic', 'compare'):
         print('::error title=Gemini-Test::Ungültiges Testprofil; keine Anfrage gesendet.')
         return 1
-    run = realistic_probe if profile == 'realistic' else probe
+    run = {'basic': probe, 'realistic': realistic_probe, 'compare': comparison_probe}[profile]
     results = run(requests, os.environ.get('GEMINI_API_KEY', ''), os.environ.get('GEMINI_MODEL', ''))
     if results is None:
         print('::error title=Gemini-Test::Modellname oder Zugangskonfiguration ungültig; keine Anfrage gesendet.')
         return 1
-    labels = ('Künstliche Quelle ca. 5000 Zeichen', 'Künstliche Quelle ca. 12000 Zeichen') if profile == 'realistic' else ('Einfacher Aufruf', 'Aufruf mit Quiz-JSON-Schema')
+    labels = {
+        'basic': ('Einfacher Aufruf', 'Aufruf mit Quiz-JSON-Schema'),
+        'realistic': ('Künstliche Quelle ca. 5000 Zeichen', 'Künstliche Quelle ca. 12000 Zeichen'),
+        'compare': ('Kurze Quelle, zehn Fragen angefordert', 'Quelle ca. 5000 Zeichen, eine Frage angefordert'),
+    }[profile]
     lines = [
         '### Gemini-Test mit ausschließlich künstlichem Inhalt', '',
         f'- {labels[0]}: {results[0]}.',

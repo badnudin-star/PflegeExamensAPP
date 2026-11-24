@@ -68,6 +68,17 @@ class GeminiProbeTests(unittest.TestCase):
             self.assertIn('exakt 10', body['contents'][0]['parts'][0]['text'])
             self.assertFalse(call[1]['allow_redirects'])
 
+    def test_comparison_changes_one_dimension_without_real_sources(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.comparison_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))
+        small, long = [call[1]['json'] for call in http.calls]
+        self.assertEqual(small, quiz_pipeline.gemini_body('Fiktive Farbenwelt', probe.synthetic_source(200)))
+        expected = quiz_pipeline.gemini_body('Fiktive Farbenwelt', probe.synthetic_source(5000))
+        text = expected['contents'][0]['parts'][0]['text']
+        expected['contents'][0]['parts'][0]['text'] = text.replace('exakt 10 unterschiedliche', 'exakt 1 unterschiedliche', 1)
+        self.assertEqual(long, expected)
+        self.assertEqual(probe.comparison_probe(Http([]), '', 'model'), None)
+
     def test_realistic_response_validation_does_not_disclose_text(self):
         source = probe.synthetic_source(5000)
         items = [{'question': f'Frage {i}', 'options': ['eins', 'zwei', 'drei', 'vier'],

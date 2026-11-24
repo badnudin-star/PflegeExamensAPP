@@ -13,6 +13,7 @@ on:
         options:
           - basic
           - realistic
+          - compare
         required: true
         default: basic
 permissions:
