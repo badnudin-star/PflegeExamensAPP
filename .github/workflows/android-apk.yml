@@ -131,6 +131,7 @@ jobs:
               'androidPreferencesKeepSeparateLearningProgress',
               'malformedSyntheticPreferencesCanLookEmpty',
               'inspectCommittedSyntheticPreferenceXml',
+              'compareThreeSyntheticPreferencesWithDiskEvidence',
               'androidKeystoreProtectsTokenAndDetectsLostKey',
               'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
               'pendingQuizClosureRequiresExplicitConfirmation',

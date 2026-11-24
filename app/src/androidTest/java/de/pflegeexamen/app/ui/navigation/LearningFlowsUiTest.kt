@@ -68,6 +68,8 @@ import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
 import de.pflegeexamen.app.data.progress.PracticeProgressReader
 import de.pflegeexamen.app.data.progress.PracticeReadResult
 import de.pflegeexamen.app.data.progress.PreferenceXmlInspector
+import de.pflegeexamen.app.data.progress.PreferenceEvidence
+import de.pflegeexamen.app.data.progress.PracticeProgressEvidence
 import java.util.UUID
 import de.pflegeexamen.app.ui.theme.PflegeExamenTheme
 import org.junit.Assert.*
@@ -577,6 +579,39 @@ class LearningFlowsUiTest {
         }
     }
 
+    @Test fun compareThreeSyntheticPreferencesWithDiskEvidence() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefix = "evidence_test_" + UUID.randomUUID().toString() + "_"
+        val names = listOf(prefix + "cards", prefix + "cases", prefix + "quizzes")
+        val directory = File(base.applicationInfo.dataDir, "shared_prefs")
+        check(directory.isDirectory || directory.mkdirs())
+        val files = names.map { File(directory, "$it.xml") }
+        val created = mutableListOf<String>()
+        try {
+            names.forEachIndexed { i, name ->
+                check(!files[i].exists() && !File(directory, "$name.xml.bak").exists())
+                check(files[i].createNewFile())
+                created.add(name)
+            }
+            val prefs = names.map { base.getSharedPreferences(it, Context.MODE_PRIVATE) }
+            val session = de.pflegeexamen.app.domain.quiz.QuizSession("a".repeat(64), 0, listOf(1))
+            assertTrue(prefs[0].edit().putStringSet("learned_card_ids", setOf("c1")).commit())
+            assertTrue(prefs[1].edit().putStringSet("completed_case_ids", setOf("f1")).commit())
+            assertTrue(prefs[2].edit().putString("2026-01-01", Json.encodeToString(session)).commit())
+            val bytes = files.map { it.readBytes() }
+            val evidence = prefs.indices.map { PreferenceEvidence(prefs[it].all, bytes[it]) }
+            val result = PracticeProgressEvidence.compare(evidence[0], evidence[1], evidence[2]) as PracticeReadResult.Unverified
+            assertEquals(listOf("c1"), result.snapshot.learnedCardIds)
+            assertEquals(listOf("f1"), result.snapshot.completedCaseIds)
+            assertEquals(session, result.snapshot.quizzes.single().session)
+            files.indices.forEach { assertArrayEquals(bytes[it], files[it].readBytes()) }
+            assertEquals(setOf("c1"), prefs[0].getStringSet("learned_card_ids", emptySet()))
+            assertEquals(setOf("f1"), prefs[1].getStringSet("completed_case_ids", emptySet()))
+        } finally {
+            created.forEach { base.deleteSharedPreferences(it) }
+        }
+    }
+
     @Test fun malformedSyntheticPreferencesCanLookEmpty() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "corrupt_test_" + UUID.randomUUID().toString() + "_"
@@ -605,6 +640,10 @@ class LearningFlowsUiTest {
             }
             assertEquals(malformed, file.readText())
             assertNull(PreferenceXmlInspector.inspect(file.readBytes()))
+            val empty = PreferenceEvidence(emptyMap<String, Any>(), "<map/>".toByteArray())
+            assertEquals(PracticeReadResult.InvalidData, PracticeProgressEvidence.compare(
+                PreferenceEvidence(emptyMap<String, Any>(), file.readBytes()), empty, empty
+            ))
         } finally {
             // Only fresh UUID-scoped synthetic preference files are deleted.
             if (created) names.forEach { base.deleteSharedPreferences(it) }
