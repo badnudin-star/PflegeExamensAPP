@@ -133,6 +133,30 @@ class RestoreSnapshotTest(unittest.TestCase):
         with self.assertRaises(restore.RestoreError):
             restore.reconstruct(self.d1, DST_ID, self.plan)
 
+    def test_api_requests_use_fixed_cloudflare_host_and_parameters(self):
+        class Response:
+            def __init__(self, value): self.value = value
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self): return json.dumps(self.value).encode()
+
+        opener = Mock()
+        opener.open.side_effect = [
+            Response({'success': True, 'result': {'uuid': DST_ID, 'name': DST_NAME}}),
+            Response({'success': True, 'result': [{'success': True, 'results': [], 'meta': {'changes': 1}}]}),
+        ]
+        api = restore.D1('a' * 32, 't' * 40, opener)
+        self.assertEqual(api.info(DST_ID)['name'], DST_NAME)
+        self.assertEqual(api.query(DST_ID, 'UPDATE t SET x = ?', ['synthetic'])['meta']['changes'], 1)
+        info, query = [call.args[0] for call in opener.open.call_args_list]
+        base = 'https://api.cloudflare.com/client/v4/accounts/' + 'a' * 32 + '/d1/database/'
+        self.assertEqual(info.full_url, base + DST_ID)
+        self.assertEqual(query.full_url, base + DST_ID + '/query')
+        self.assertEqual(query.get_method(), 'POST')
+        self.assertEqual(json.loads(query.data), {'sql': 'UPDATE t SET x = ?', 'params': ['synthetic']})
+        self.assertEqual(query.get_header('Authorization'), 'Bearer ' + 't' * 40)
+        self.assertNotIn(b't' * 40, query.data)
+
     def test_redirects_are_never_followed(self):
         self.assertIsNone(restore.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://example.invalid'))
 
