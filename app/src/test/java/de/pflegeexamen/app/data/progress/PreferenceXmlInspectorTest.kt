@@ -17,6 +17,8 @@ class PreferenceXmlInspectorTest {
         assertEquals(emptyMap<String, Any>(), inspect("<map/>"))
         assertEquals(mapOf("x" to "  text  ", "empty" to emptySet<String>()),
             inspect("<map><string name=\"x\">  text  </string><set name=\"empty\"/></map>"))
+        assertEquals(mapOf("a b" to "🙂\n"), inspect("<map><string name=\"a\tb\">&#x1f642;&#10;</string></map>"))
+        assertEquals(mapOf("x" to "a\nb\nc"), inspect("<map><string name=\"x\">a\r\nb\rc</string></map>"))
     }
 
     @Test fun `malformed duplicate and unsupported preference xml fails closed`() {
@@ -28,6 +30,10 @@ class PreferenceXmlInspectorTest {
             "<map><set name=\"x\"><string>a</string><string>a</string></set></map>",
             "<map><set name=\"x\"><string name=\"y\">a</string></set></map>",
             "<map><set name=\"x\"><set/></set></map>", "<map><?instruction value?></map>",
+            "<map><!--comment--></map>", "<map><string name=\"x\">&unknown;</string></map>",
+            "<map><string name=\"x\">&#0;</string></map>", "<map><string name=\"x\">&#xD800;</string></map>",
+            "<map><string name=\"x\">]]></string></map>", "<map><string name=\"x\">\u0001</string></map>",
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?><map/>",
             "<!DOCTYPE map [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><map><string name=\"x\">&e;</string></map>",
             "<!DOCTYPE map [<!ENTITY e 'expanded'>]><map><string name=\"x\">&e;</string></map>"
         )

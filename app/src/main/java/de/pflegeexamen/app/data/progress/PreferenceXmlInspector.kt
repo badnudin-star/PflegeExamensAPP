@@ -1,34 +1,29 @@
 package de.pflegeexamen.app.data.progress
 
-import java.io.ByteArrayInputStream
-import javax.xml.parsers.SAXParserFactory
-import org.xml.sax.Attributes
-import org.xml.sax.SAXException
-import org.xml.sax.SAXParseException
-import org.xml.sax.helpers.DefaultHandler
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 
 /**
- * Experimental inspection of the subset of Android preference XML used for practice
- * progress. Only supplied bytes are read: this does not open files, resolve .bak files,
- * synchronize with writers, prove durability, or implement backup/restore.
- * Unsupported XML, duplicate entries, parser failures, and DTDs are rejected.
+ * Narrow, fail-closed reader for the UTF-8 subset emitted by Android for the preference
+ * string and string-set types. It is not a general XML parser. DTDs, custom entities,
+ * comments, namespaces and unsupported types are rejected rather than interpreted.
+ * Supplied bytes only: no files, .bak resolution, locking, backup or restore.
  */
 internal object PreferenceXmlInspector {
     private const val MAX_XML_BYTES = 4 * 1024 * 1024
+    private val declaration = Regex(
+        "<\\?xml\\s+version\\s*=\\s*(?:'1\\.0'|\"1\\.0\")" +
+            "(?:\\s+encoding\\s*=\\s*(?:'(?i:utf-8)'|\"(?i:utf-8)\"))?" +
+            "(?:\\s+standalone\\s*=\\s*(?:'yes'|\"yes\"|'no'|\"no\"))?\\s*\\?>"
+    )
 
     fun inspect(bytes: ByteArray): Map<String, Any>? {
         if (bytes.size > MAX_XML_BYTES) return null
         return try {
-            val factory = SAXParserFactory.newInstance().apply {
-                isNamespaceAware = false
-                // Fail closed if any of these protections is unavailable.
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            }
-            val handler = Handler()
-            factory.newSAXParser().parse(ByteArrayInputStream(bytes), handler)
-            handler.result()
+            val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
+                .replace("\r\n", "\n").replace('\r', '\n')
+            Parser(text).parse()
         } catch (_: Exception) {
             null
         }
@@ -37,74 +32,130 @@ internal object PreferenceXmlInspector {
     /** Equality with one supplied map is not proof of a consistent or durable snapshot. */
     fun matches(bytes: ByteArray, memory: Map<String, *>): Boolean = inspect(bytes)?.let { it == memory } == true
 
-    private class Handler : DefaultHandler() {
-        private val values = linkedMapOf<String, Any>()
-        private var depth = 0
-        private var finished = false
-        private var entryName: String? = null
-        private var set: MutableSet<String>? = null
-        private var text: StringBuilder? = null
+    private class Parser(private val text: String) {
+        private var pos = 0
 
-        override fun startElement(uri: String?, localName: String?, qName: String, attrs: Attributes) {
-            when (depth) {
-                0 -> requireXml(!finished && qName == "map" && attrs.length == 0)
-                1 -> {
-                    requireXml((qName == "set" || qName == "string") && attrs.length == 1 && attrs.getQName(0) == "name")
-                    val name = attrs.getValue(0)
-                    requireXml(name.isNotEmpty() && name !in values)
-                    entryName = name
-                    if (qName == "set") set = linkedSetOf() else text = StringBuilder()
-                }
-                2 -> {
-                    requireXml(set != null && qName == "string" && attrs.length == 0 && text == null)
-                    text = StringBuilder()
-                }
-                else -> throw SAXException("Unexpected nesting")
+        fun parse(): Map<String, Any> {
+            if (text.startsWith('\uFEFF')) pos++
+            if (text.startsWith("<?xml", pos)) {
+                val match = declaration.find(text, pos)
+                require(match != null && match.range.first == pos)
+                pos = match.range.last + 1
             }
-            depth++
-        }
-
-        override fun characters(ch: CharArray, start: Int, length: Int) {
-            val buffer = text
-            if (buffer != null) buffer.append(ch, start, length)
-            else for (i in start until start + length) requireXml(ch[i] == ' ' || ch[i] == '\n' || ch[i] == '\r' || ch[i] == '\t')
-        }
-
-        override fun endElement(uri: String?, localName: String?, qName: String) {
-            when (depth) {
-                3 -> {
-                    requireXml(qName == "string" && text != null && set != null)
-                    requireXml(set!!.add(text.toString()))
-                    text = null
-                }
-                2 -> {
-                    val name = entryName ?: throw SAXException("Missing name")
-                    if (qName == "set") {
-                        requireXml(set != null && text == null)
-                        values[name] = set!!.toSet()
-                        set = null
-                    } else {
-                        requireXml(qName == "string" && text != null && set == null)
-                        values[name] = text.toString()
-                        text = null
+            whitespace()
+            literal("<map")
+            val result = linkedMapOf<String, Any>()
+            if (!tagEnd()) {
+                while (true) {
+                    whitespace()
+                    if (text.startsWith("</map>", pos)) { pos += 6; break }
+                    val isSet = when {
+                        text.startsWith("<set", pos) -> { pos += 4; true }
+                        text.startsWith("<string", pos) -> { pos += 7; false }
+                        else -> throw IllegalArgumentException("Unsupported entry")
                     }
-                    entryName = null
+                    require(whitespace())
+                    literal("name")
+                    whitespace(); literal("="); whitespace()
+                    val quote = take()
+                    require(quote == '\'' || quote == '"')
+                    val name = value(quote, attribute = true)
+                    literal(quote.toString())
+                    require(name.isNotEmpty() && name !in result)
+                    val empty = tagEnd()
+                    if (isSet) {
+                        val values = linkedSetOf<String>()
+                        if (!empty) {
+                            while (true) {
+                                whitespace()
+                                if (text.startsWith("</set>", pos)) { pos += 6; break }
+                                literal("<string")
+                                if (tagEnd()) {
+                                    require(values.add(""))
+                                } else {
+                                    val item = value('<', attribute = false)
+                                    literal("</string>")
+                                    require(values.add(item))
+                                }
+                            }
+                        }
+                        result[name] = values.toSet()
+                    } else if (empty) {
+                        result[name] = ""
+                    } else {
+                        val item = value('<', attribute = false)
+                        literal("</string>")
+                        result[name] = item
+                    }
                 }
-                1 -> { requireXml(qName == "map"); finished = true }
-                else -> throw SAXException("Unexpected closing tag")
             }
-            depth--
+            whitespace()
+            require(pos == text.length)
+            return result.toMap()
         }
 
-        override fun processingInstruction(target: String?, data: String?) { throw SAXException("Processing instruction") }
-        override fun resolveEntity(publicId: String?, systemId: String?) = throw SAXException("External entity")
-        override fun warning(e: SAXParseException) { throw e }
-        override fun error(e: SAXParseException) { throw e }
-        override fun fatalError(e: SAXParseException) { throw e }
-        fun result(): Map<String, Any> {
-            requireXml(finished && depth == 0)
-            return values.toMap()
+        private fun tagEnd(): Boolean {
+            whitespace()
+            return when {
+                text.startsWith("/>", pos) -> { pos += 2; true }
+                text.startsWith(">", pos) -> { pos++; false }
+                else -> throw IllegalArgumentException("Unexpected tag")
+            }
         }
-        private fun requireXml(condition: Boolean) { if (!condition) throw SAXException("Unsupported preference XML") }
+
+        private fun value(end: Char, attribute: Boolean): String {
+            val result = StringBuilder()
+            while (pos < text.length && text[pos] != end) {
+                if (text.startsWith("]]>", pos) && !attribute) throw IllegalArgumentException("Invalid text")
+                when (val ch = take()) {
+                    '<' -> throw IllegalArgumentException("Unexpected markup")
+                    '&' -> {
+                        val semicolon = text.indexOf(';', pos)
+                        require(semicolon >= pos && semicolon - pos <= 12)
+                        val entity = text.substring(pos, semicolon)
+                        pos = semicolon + 1
+                        val code = when (entity) {
+                            "amp" -> '&'.code
+                            "lt" -> '<'.code
+                            "gt" -> '>'.code
+                            "quot" -> '"'.code
+                            "apos" -> '\''.code
+                            else -> when {
+                                entity.startsWith("#x") -> entity.substring(2).takeIf { it.isNotEmpty() && it.all { c -> c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F' } }?.toIntOrNull(16)
+                                entity.startsWith("#") -> entity.substring(1).takeIf { it.isNotEmpty() && it.all { c -> c in '0'..'9' } }?.toIntOrNull()
+                                else -> null
+                            } ?: throw IllegalArgumentException("Unsupported entity")
+                        }
+                        require(xmlCodePoint(code))
+                        result.appendCodePoint(code)
+                    }
+                    else -> {
+                        val code = if (Character.isHighSurrogate(ch)) {
+                            val low = take()
+                            require(Character.isLowSurrogate(low))
+                            Character.toCodePoint(ch, low)
+                        } else {
+                            require(!Character.isLowSurrogate(ch))
+                            ch.code
+                        }
+                        require(xmlCodePoint(code))
+                        if (attribute && (code == 9 || code == 10 || code == 13)) result.append(' ')
+                        else result.appendCodePoint(code)
+                    }
+                }
+            }
+            require(pos < text.length)
+            return result.toString()
+        }
+
+        private fun xmlCodePoint(code: Int) = code == 9 || code == 10 || code == 13 ||
+            code in 0x20..0xD7FF || code in 0xE000..0xFFFD || code in 0x10000..0x10FFFF
+        private fun whitespace(): Boolean {
+            val start = pos
+            while (pos < text.length && text[pos] in " \t\n\r") pos++
+            return pos > start
+        }
+        private fun literal(value: String) { require(text.startsWith(value, pos)); pos += value.length }
+        private fun take(): Char { require(pos < text.length); return text[pos++] }
     }
 }
