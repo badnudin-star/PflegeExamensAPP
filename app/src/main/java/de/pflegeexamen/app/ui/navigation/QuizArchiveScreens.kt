@@ -52,9 +52,9 @@ internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<Strin
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
     }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("quizArchiveList"), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Text("Frühere Quiztage", style = MaterialTheme.typography.headlineSmall) }
+            item { Text("Frühere Quiztage", modifier = Modifier.testTag(if (localLoaded) "quizArchiveLocalLoaded" else "quizArchiveLocalLoading"), style = MaterialTheme.typography.headlineSmall) }
             item { Text("Geöffnete Archivtage werden auf diesem Gerät gespeichert. Für noch nicht geladene Tage ist eine Verbindung nötig. Aktuelle Quiztage stehen in der Quizübersicht. Das Archiv ist eine lokale Übung und keine Ranglistenwertung.") }
-            item { OutlinedButton(onClick = { loadPage(null) }, enabled = !busy) { Text(if (busy) "Archiv wird geladen …" else "Archiv online laden") } }
+            item { OutlinedButton(onClick = { loadPage(null) }, enabled = !busy, modifier = Modifier.testTag(if (loadedOnline) "quizArchiveOnlineLoaded" else "quizArchiveOnlineLoad")) { Text(if (busy) "Archiv wird geladen …" else "Archiv online laden") } }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             if (hasActiveArchivedDates) item { Text("Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht.") }
             if (localLoaded && local == null) item { Text("Der lokale Archivspeicher ist nicht lesbar.", color = MaterialTheme.colorScheme.error) }

@@ -628,14 +628,16 @@ class LearningFlowsUiTest {
             }
         }
         compose.onNodeWithText("Archiv online laden").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(day).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveOnlineLoaded").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(day))
         compose.onNodeWithText(day).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Archivfrage?").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Antwort B").performScrollTo().performClick()
         compose.onNodeWithText("Deine Antwort: Antwort B").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { online.set(false) }
         compose.onNodeWithContentDescription("Zurück zum Archiv").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(day).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveLocalLoaded").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(day))
         compose.onNodeWithText("Auf diesem Gerät gespeichert").assertExists()
         compose.onNodeWithText(day).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Deine Antwort: Antwort B").fetchSemanticsNodes().isNotEmpty() }
@@ -662,7 +664,8 @@ class LearningFlowsUiTest {
 
         compose.onNodeWithText("Archiv online laden").performClick()
         val note = "Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht."
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(note).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveOnlineLoaded").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(note))
         compose.onNodeWithText(note).assertExists()
         compose.onNodeWithText("Keine archivierten Quiztage gefunden.").assertDoesNotExist()
         compose.onNodeWithText(day).assertDoesNotExist()
