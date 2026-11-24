@@ -1034,7 +1034,16 @@ private fun AppSettings(store: PublishedContentStore, back: () -> Unit) {
             HorizontalDivider()
             Text("Datenschutz", style = MaterialTheme.typography.titleLarge)
             Text("Für die spätere Rangliste ist eine gesonderte Einrichtung erforderlich. Bisher werden keine alten Lernpunkte übermittelt.")
-            Text("Android kann lokalen Lernfortschritt sichern oder übertragen, garantiert dies aber nicht. Vor einem Gerätewechsel oder einer Neuinstallation prüfen, ob eine Wiederherstellung möglich ist.")
+            ProgressBackupNotice()
         }
+    }
+}
+
+@Composable
+internal fun ProgressBackupNotice() {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Lernfortschritt sichern", style = MaterialTheme.typography.titleLarge)
+        Text("Ein vollständiger manueller Export des Lernfortschritts ist noch nicht verfügbar. Android-Backup oder Geräteübertragung sind nicht garantiert und wurden nicht vollständig auf echten Geräten wiederhergestellt.")
+        Text("App nicht deinstallieren und App-Daten nicht löschen, solange keine Wiederherstellung geprüft ist. Bei Geräte- oder Signaturwechsel können lokale Daten verloren gehen.")
     }
 }

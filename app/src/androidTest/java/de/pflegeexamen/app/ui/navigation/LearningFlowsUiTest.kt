@@ -80,6 +80,13 @@ class LearningFlowsUiTest {
         compose.onAllNodesWithText(card.front).fetchSemanticsNodes().isNotEmpty()
     }
 
+    @Test fun backupNoticeDoesNotPromiseACompleteRestore() {
+        compose.setContent { PflegeExamenTheme { ProgressBackupNotice() } }
+        compose.onNodeWithText("Lernfortschritt sichern").assertIsDisplayed()
+        compose.onNodeWithText("Ein vollständiger manueller Export des Lernfortschritts ist noch nicht verfügbar.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("App nicht deinstallieren und App-Daten nicht löschen", substring = true).assertIsDisplayed()
+    }
+
     @Test fun recoveryRequiresOptInAndDoesNotRestoreSensitiveDialogState() {
         val token = "ab".repeat(32); val code = token.chunked(8).joinToString("-")
         var exports=0; var restores=0

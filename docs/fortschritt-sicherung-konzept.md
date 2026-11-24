@@ -1,0 +1,28 @@
+# Lernfortschritt: Bestandsaufnahme und Sicherungskonzept
+
+**Status: Planung, keine implementierte Export- oder Wiederherstellungsfunktion.** Nicht als Anleitung zur Deinstallation verwenden. Weder diese Bestandsaufnahme noch Emulator-Tests belegen, dass ein Android-Backup auf einem echten Gerät wiederhergestellt werden kann.
+
+## Wo liegen Daten?
+
+| Bereich | Aktueller Speicher | Bedeutung für eine spätere Sicherung |
+| --- | --- | --- |
+| Veröffentlichte Karten | SharedPreferences `card_progress`, Schlüssel `learned_card_ids` | Menge der als gelernt markierten Karten-IDs; benötigt passende Karten im Katalog. |
+| Veröffentlichte Fälle | SharedPreferences `case_progress`, Schlüssel `completed_case_ids` | Menge der als erledigt markierten Fall-IDs; benötigt passende Fälle im Katalog. |
+| Lokale Quizübungen | SharedPreferences `quiz_practice`, pro Datum ein serialisierter `QuizSession` | Antworten, Position und Fingerabdruck der Fragen. Bei abweichendem Inhalt wird der alte Stand von der App nicht verwendet; eine Datei mit Fortschritt allein garantiert daher keine nutzbare Wiederherstellung. |
+| Veröffentlichter Katalog und lokale Archivkopien | `files/published-learning.json`, `files/quiz-archive/` | Lerninhalte, teils möglicherweise geschützte Inhalte, keine bloßen Fortschrittsdaten. Katalog und Archiv sind für die Zuordnung bzw. Quiz-Fingerabdrücke relevant; Offline-Verfügbarkeit darf nicht vorausgesetzt werden. |
+| Ältere, derzeit nicht gestartete Lernoberfläche | Room-Datenbank `pflege_examen_lokal.db`, mehrere Tabellen | Kann eigene Quellen, Notizen, Karteikarten, Antworten, Übungsstände und Profil enthalten. Ein vollständiger Export darf diese Daten nicht stillschweigend übergehen, auch wenn die aktuelle Oberfläche sie nicht anzeigt. |
+| Ältere KI- und Ranking-Einstellungen | `pflege_examen_prefs`, `pflege_examen_ranking_prefs` | Können API-Schlüssel, Rankingkennung oder URL enthalten. Beide sind von neu erstellten Android-Backups und Geräteübertragungen per Regeln ausgeschlossen; frühere Sicherungen bleiben unberührt. Die KI-Einstellungen enthalten auch Seed-Marker; das Verhalten bei Restore einer alten Room-Datenbank ohne diese Marker muss separat geprüft werden. |
+| Experimenteller Quiz-Rankingzugang und offene Aktionen | No-Backup-Dateien für Token, ausstehende Abgabe und Löschjournal; Token zusätzlich mit Android-Keystore geschützt | Nicht Bestandteil eines normalen Fortschrittsexports. Ein optionaler Sicherungscode ist ein vollständiger Kontozugang, kein Fortschrittsbackup; offene Aktionen und Löschungen erfordern gesonderte Behandlung. |
+
+Android-Backupregeln sind derzeit eine Ausschlussliste: andere geeignete App-Daten sind grundsätzlich für Backup bzw. Geräteübertragung vorgesehen, sofern Android, Gerät und Dienst dies unterstützen. Das ist **keine Zusage**, dass die Sicherung aktuell, vollständig oder wiederherstellbar ist. Test- und Cache-Verzeichnisse sowie der No-Backup-Speicher sind davon zu unterscheiden. Der bestehende alte `.pflegebundle.zip`-Inhaltsexport umfasst ausgewählte Quellen, Themen, Operatoren und Einstellungen, aber nicht den vollständigen Fortschritt; er kann eine gespeicherte Ranking-URL enthalten.
+
+## Anforderungen vor einer Implementierung
+
+1. Den Umfang ausdrücklich festlegen: aktuelle Karten-, Fall- und Quizfortschritte und gegebenenfalls alte Room-Nutzerdaten. Einen eingeschränkten Export niemals „vollständig“ nennen. Katalog- und Archivabhängigkeiten sowie nicht zuordenbare IDs vorab erklären; keine geschützten Inhalte ohne bewusste Entscheidung einschließen.
+2. Format versionieren; unterstützte Versionen und Felder explizit festlegen. Größen, Datumswerte, IDs, Quizdaten, doppelte Einträge und Struktur vor jeglichem Schreiben begrenzen und validieren. Ungültige, unvollständige oder neuere Formate müssen ohne Veränderung bestehender Daten abgelehnt werden.
+3. Keine API-Schlüssel, Rankingtoken, offenen Ranglistenaktionen oder Löschjournale in einen Fortschrittsexport übernehmen. Fortschritt und mögliche Lerninhalte können dennoch persönlich oder urheberrechtlich geschützt sein; Datei nur auf ausdrückliche Nutzeraktion an einen gewählten Ort schreiben, Schutz und Weitergabe klar erklären.
+4. Import zunächst nur mit Vorschau und expliziter Bestätigung anbieten. Konflikte zwischen vorhandenen und importierten Daten sowie Katalogänderungen sichtbar machen; nicht automatisch überschreiben, zusammenführen oder verwerfen. Semantik für jeden Datentyp separat festlegen.
+5. Konsistenz über mehrere SharedPreferences und gegebenenfalls Room hinweg sowie Fehler, Prozessabbruch und Wiederanlauf zuerst technisch lösen. Ein atomarer Schreibvorgang für nur eine Datei macht einen Import über mehrere Speicher **nicht** atomar. Ohne nachgewiesene Wiederherstellung bei Teilfehlern keinen destruktiven Import freigeben.
+6. Mit ausschließlich künstlichen Daten auf isolierten Emulatoren und anschließend getrennten Testgeräten Export, Wiedereinlesen und sämtliche Inhalte vergleichen; Fehlerfälle, Abbruch, Speicherplatz, Versionswechsel und vorhandenen Zielfortschritt testen. Echte Daten erst nach geklärtem Verfahren und freiwilliger Entscheidung des Nutzers einbeziehen. Das Quellgerät bis zur überprüften Wiederherstellung unangetastet lassen.
+
+Die vorhandenen Android-Tests prüfen isolierte Präferenzen und das erneute Laden im selben Testprozess. Sie testen keinen Android-Backuptransport, keinen App-Neustart und keine Geräteübertragung. Die statischen Tests prüfen ausgewählte Quelldateien und Regeln; sie können dynamische Speichernamen oder andere Speicherorte nicht vollständig erfassen.

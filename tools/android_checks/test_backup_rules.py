@@ -1,6 +1,7 @@
 """Static checks for backup XML. Not a substitute for real Android restore testing."""
 from pathlib import Path
 import unittest
+import re
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +43,25 @@ class BackupRulesTests(unittest.TestCase):
         for path, preference in [('ai/AiPreferencesStore.kt','pflege_examen_prefs'),
                                  ('ranking/RankingPreferencesStore.kt','pflege_examen_ranking_prefs')]:
             self.assertIn('getSharedPreferences("' + preference + '"', (app/path).read_text())
+
+    def test_literal_preference_names_are_reviewed_when_the_inventory_changes(self):
+        # The Android rules are a denylist: a newly added preference is eligible by
+        # default. Force a privacy/backup review for literal names in app code.
+        source = ROOT / 'app/src/main/java'
+        found = set()
+        for path in source.rglob('*.kt'):
+            found.update(re.findall(r'getSharedPreferences\s*\(\s*"([^"\n]+)"', path.read_text()))
+        self.assertEqual(found, {name.removesuffix('.xml') for name in SENSITIVE_PREFS | PROGRESS_PREFS})
+
+    def test_ranking_sensitive_files_remain_in_no_backup_directory(self):
+        quiz = ROOT / 'app/src/main/java/de/pflegeexamen/app/data/quiz'
+        for path, filename in [
+            ('AndroidRankingTokenVault.kt', 'quiz-ranking-token.bin'),
+            ('AndroidPendingQuizAttempt.kt', 'quiz-ranking-pending.json'),
+            ('AndroidRankingDeletion.kt', 'quiz-ranking-deletion.json'),
+        ]:
+            with self.subTest(path=path):
+                self.assertIn(f'File(context.noBackupFilesDir, "{filename}")', (quiz / path).read_text())
 
 
 if __name__ == '__main__': unittest.main()
