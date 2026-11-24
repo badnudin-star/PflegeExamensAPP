@@ -121,6 +121,7 @@ jobs:
               'caseAnswerOnlyAppearsWhenExplicitlyExpanded',
               'localQuizResumesAndReviewsWithoutRanking',
               'quizArchiveLoadsOnDemandAndReopensCachedDayOffline',
+              'archiveExplainsWhenAnArchivedDayIsStillInTheActiveCatalog',
               'androidArchiveCacheNeverOverwritesExistingOrInterruptedFiles',
               'noteSearchJumpsToMatchAndRespectsLaterHeadingChoice',
               'noteSearchNavigatesBetweenMatchesAndKeepsSelectionAfterRestore',
