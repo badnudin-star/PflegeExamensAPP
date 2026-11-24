@@ -19,7 +19,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 SOURCE_NAME = 'pflegeexamen-content'
 MAX_ROW = 2_000_000
@@ -127,7 +127,8 @@ class D1:
             raise RestoreError('Account ID oder Token ungültig.')
         self.base = f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/'
         self.token = token
-        self.opener = opener or build_opener(NoRedirect())
+        # Do not send the account-wide token or private data through an inherited proxy.
+        self.opener = opener or build_opener(ProxyHandler({}), NoRedirect())
 
     def call(self, path, data=None):
         headers = {'Authorization': 'Bearer ' + self.token, 'User-Agent': 'Mozilla/5.0'}
@@ -251,8 +252,10 @@ def main():
             tmp = Path(folder)
             gnupg = tmp / 'gnupg'
             gnupg.mkdir(mode=0o700)
-            env = os.environ.copy()
-            env.update({'GNUPGHOME': str(gnupg), 'TMPDIR': str(tmp)})
+            # Avoid inherited GPG options, agent sockets, library injection and
+            # temporary-directory overrides. Resolve standard tools from system paths.
+            env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp), 'GNUPGHOME': str(gnupg),
+                   'TMPDIR': str(tmp), 'LANG': 'C.UTF-8'}
             try:
                 stage = 'Entschlüsselung und lokale Prüfung'
                 sql = tmp / 'backup.sql'
