@@ -71,7 +71,7 @@ internal object PracticeProgressFormat {
         }
     }
 
-    private fun valid(snapshot: PracticeProgressSnapshot): Boolean =
+    internal fun valid(snapshot: PracticeProgressSnapshot): Boolean =
         validIds(snapshot.learnedCardIds) && validIds(snapshot.completedCaseIds) &&
             snapshot.quizzes.size <= MAX_DAYS &&
             snapshot.quizzes.map { it.date }.toSet().size == snapshot.quizzes.size &&
