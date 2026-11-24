@@ -105,6 +105,44 @@ test('no legacy points accepted, grading and one attempt per account/day', async
   } finally { globalThis.fetch=original; }
 });
 
+test('catalog transport is explicit, preserves HTTP default and never falls back from service', async () => {
+  const original=globalThis.fetch, quiz=questions(), e=env();
+  let publicCalls=0, serviceCalls=0;
+  const response=()=>new Response(JSON.stringify({schemaVersion:1,quizzes:quiz}));
+  globalThis.fetch=async (url, options) => {
+    publicCalls++;
+    assert.equal(url,'https://catalog.test/content');
+    assert.equal(options.redirect,'manual');
+    return response();
+  };
+  const service={async fetch(url, options) {
+    serviceCalls++;
+    assert.equal(url,'https://catalog.test/content');
+    assert.equal(options.redirect,'manual');
+    assert.equal(options.headers['Cache-Control'],'no-cache');
+    return response();
+  }};
+  try {
+    assert.equal((await worker.fetch(request('GET','/quiz/today'),e)).status,200);
+    assert.equal((await worker.fetch(request('GET','/quiz/today'),{...e,QUIZ_CATALOG_TRANSPORT:'http'})).status,200);
+    assert.equal(publicCalls,2);
+    const serviceEnv={...e,QUIZ_CATALOG_TRANSPORT:'service',QUIZ_CATALOG_SERVICE:service};
+    assert.equal((await worker.fetch(request('GET','/quiz/today'),serviceEnv)).status,200);
+    assert.equal(serviceCalls,1);
+    for (const config of [
+      {...serviceEnv,QUIZ_CATALOG_SERVICE:undefined},
+      {...serviceEnv,QUIZ_CATALOG_SERVICE:{}},
+      {...serviceEnv,QUIZ_CATALOG_SERVICE:{async fetch(){throw new Error('unavailable');}}},
+      {...serviceEnv,QUIZ_CATALOG_SERVICE:{async fetch(){return new Response(null,{status:302,headers:{Location:'https://catalog.test/content'}});}}},
+      {...serviceEnv,QUIZ_CATALOG_TRANSPORT:''},
+      {...serviceEnv,QUIZ_CATALOG_TRANSPORT:'invalid'},
+      {...serviceEnv,QUIZ_CATALOG_URL:'http://catalog.test/content'},
+    ]) assert.equal((await worker.fetch(request('GET','/quiz/today'),config)).status,503);
+    assert.equal(publicCalls,2,'service errors and invalid configuration must never use network');
+    assert.equal(serviceCalls,1,'invalid URL must not reach the service');
+  } finally {globalThis.fetch=original;}
+});
+
 test('unpublished or malformed quizzes do not accept attempts', async () => {
   const original=globalThis.fetch, e=env();
   try {

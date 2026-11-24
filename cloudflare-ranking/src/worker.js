@@ -84,7 +84,20 @@ async function loadQuiz(env, date) {
   const url = catalogUrl(env.QUIZ_CATALOG_URL);
   if (!url) throw new Error('catalog not configured');
   // Workers do not support redirect:'error'; manual plus the status check rejects redirects.
-  const response = await fetch(url, {headers: {'Cache-Control':'no-cache'}, redirect:'manual'});
+  // An explicitly selected service binding never falls back to the public network.
+  // Binding identity must be checked independently when configuring the Worker.
+  const transport = env.QUIZ_CATALOG_TRANSPORT;
+  const options = {headers: {'Cache-Control':'no-cache'}, redirect:'manual'};
+  let response;
+  if (transport === 'service') {
+    if (!env.QUIZ_CATALOG_SERVICE || typeof env.QUIZ_CATALOG_SERVICE.fetch !== 'function')
+      throw new Error('catalog service unavailable');
+    response = await env.QUIZ_CATALOG_SERVICE.fetch(url, options);
+  } else if (transport === undefined || transport === 'http') {
+    response = await fetch(url, options);
+  } else {
+    throw new Error('invalid catalog transport');
+  }
   if (response.status !== 200) throw new Error('catalog unavailable');
   const catalog = await limited(response, MAX_CATALOG);
   if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.quizzes)) throw new Error('bad catalog');

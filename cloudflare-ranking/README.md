@@ -21,6 +21,12 @@
 
 Lokale Tests: `npm test --prefix cloudflare-ranking` und `python -m unittest discover -s cloudflare-ranking/test -p 'test_*.py' -v`. Sie ersetzen keinen Test auf Cloudflare oder auf einem Android-Gerät.
 
+## Katalogtransport im Entwurf
+
+Der bisherige HTTPS-Aufruf bleibt Standard, wenn `QUIZ_CATALOG_TRANSPORT` nicht gesetzt ist; `http` wählt ihn ausdrücklich. Alternativ kann ein späteres, separat freigegebenes Deployment mit `QUIZ_CATALOG_TRANSPORT=service` und dem Service Binding `QUIZ_CATALOG_SERVICE` den Katalogworker direkt ansprechen. `QUIZ_CATALOG_URL` bleibt auch dann erforderlich und muss eine HTTPS-Adresse mit Pfad `/content` ohne Zugangsdaten, Query oder Fragment sein; sie bestimmt die Request-URL, **nicht** das Ziel des Bindings. Die Identität und Isolation des gebundenen Workers sind unabhängig zu prüfen. Bei falschem Transportwert, fehlendem oder fehlerhaftem Binding, Weiterleitung oder Katalogfehler schlägt die Quizanfrage geschlossen fehl; es gibt keinen automatischen Rückfall auf das öffentliche Netz.
+
+Im isolierten Cloudflare-Test wurde eine anders benannte, manuell angepasste Test-Worker-Kopie mit Service Binding erprobt; die neue Option dieses Repository-Workers ist bisher nur lokal emuliert, nicht dort deployt oder auf Cloudflare getestet. Die Wrangler-Konfiguration richtet weder diese Option noch das Binding automatisch ein. Keine Änderung an produktiven Diensten oder Aktivierung der App-Rangliste.
+
 ## Löschung im Prototyp
 
 Der noch nicht deployte Worker bietet `DELETE /participants/me` mit dem Geräte-Token als `Authorization: Bearer …`. In einer D1-Transaktion werden ausschließlich die zugehörigen Quizversuche und der Teilnehmer gelöscht und der öffentliche Ranglisten-Snapshot verworfen. Ein Generationszähler verhindert, dass ein gleichzeitig berechneter alter Snapshot die gelöschten Daten wiederherstellt; bis zur Neuberechnung kann die Rangliste vorübergehend nicht verfügbar sein. Eine standardmäßig deaktivierte experimentelle App-Oberfläche ist vorbereitet; bei Tokenverlust ohne vorhandenen Sicherungscode besteht derzeit keine Wiederherstellung oder andere Löschmöglichkeit. Vor Deployment muss `schema.sql` einschließlich der neuen Generationstabelle angewendet werden. Nicht vorhandenes Schema führt zu Fehlern; die Operation darf nicht als erfolgreich gemeldet werden.
@@ -140,6 +146,8 @@ Dies ist nur eine Vorbereitung, keine Bereitstellung und keine Testfreigabe. Vor
 ## Lokale Worker-/D1-Emulation
 
 Mit Node.js 22: `npm ci --prefix cloudflare-ranking` und `npm test --prefix cloudflare-ranking`. Neben den bisherigen SQLite-Testdoubles führen Miniflare und workerd den tatsächlichen Worker gegen eine isolierte, nicht persistierte D1-Emulation aus. Die Tests verwenden nur synthetische Konten und ein internes Testkatalog-Servicebinding; ausgehende Netzverbindungen des Katalogs sind gesperrt. Die ausschließlich lokalen Test-Hilfsendpunkte dürfen **nicht** deployt werden. Geprüft werden unter anderem frisches Schema, exemplarische Migration eines alten Schemas, Registrierung, Bewertung, konkurrierende Abgaben, Tagessperre, Löschsperre, D1-Batch-Rollback, Rate-Limits und abgelehnte Katalogfehler/Weiterleitungen.
+
+Die nur für lokale Tests verwendete Miniflare-Version legt `sharp` und `undici` auf anfällige Versionen fest. Bis ein passendes Upstream-Update verfügbar und geprüft ist, überschreiben npm-Overrides diese beiden transitiven Pakete mit gepatchten Versionen. Die Kombination ist durch die lokalen Tests abgedeckt, aber keine von Miniflare selbst ausgewiesene Abhängigkeitskombination; bei künftigen Upgrades Kompatibilität und `npm audit` erneut prüfen. Das ändert keine Abhängigkeiten der Android-App und deployt keinen Worker.
 
 Zusätzliche lokale D1-Emulationstests prüfen die Trennung zweier synthetischer Konten sowie parallele Abgabe gegen Tagessperre und parallele Abgabe gegen Kontolöschung. Nach erfolgreicher Löschung werden Löschsperre, fehlende verwaiste Versuche und fehlender öffentlicher Ranglisteneintrag geprüft. Die parallelen Abläufe sind nicht deterministisch und erzwingen nicht jede mögliche Reihenfolge; sie ersetzen keine verteilten Cloudflare-Rennentests.
 

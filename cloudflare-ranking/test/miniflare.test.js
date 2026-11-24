@@ -22,14 +22,16 @@ function statements(source) {
   assert.equal(current.trim(), '', 'unparsed SQL');
   return result;
 }
-function runtime(catalogStatus = 'ok', rateLimit = 1000, gateway = false) {
+function runtime(catalogStatus = 'ok', rateLimit = 1000, gateway = false, service = false) {
   const rates = Object.fromEntries(['REGISTRATION_RATE','READ_RATE','AUTH_RATE','ACCOUNT_RATE'].map((name, i) =>
     [name, {namespace_id:String(81001+i), simple:{limit:rateLimit, period:60}}]));
   const catalogUrl = gateway ? 'https://pflegeexamen-ranking-katalog-test.beispiel.workers.dev/content' : 'https://catalog.test/content';
   return new Miniflare({workers:[
     {name:'ranking', modules:true, modulesRules:[{type:'ESModule',include:['**/*.js','**/*.mjs']}], scriptPath:fileURLToPath(new URL('fixtures/miniflare-harness.mjs',root)),
       compatibilityDate:'2025-11-01', cf:false, d1Databases:['DB'], ratelimits:rates,
-      bindings:{QUIZ_CATALOG_URL:catalogUrl, ...(gateway ? {TEST_GATEWAY:'1', TEST_ONLY_KEY:'f0'.repeat(32)} : {})}, outboundService:'catalog'},
+      bindings:{QUIZ_CATALOG_URL:catalogUrl, ...(gateway ? {TEST_GATEWAY:'1', TEST_ONLY_KEY:'f0'.repeat(32)} : {}),
+        ...(service ? {QUIZ_CATALOG_TRANSPORT:'service'} : {})},
+      ...(service ? {serviceBindings:{QUIZ_CATALOG_SERVICE:'catalog'}, outboundService:{network:{allow:[]}}} : {outboundService:'catalog'})},
     {name:'catalog', modules:true, scriptPath:fileURLToPath(new URL(gateway ? 'fixtures/synthetic-test-catalog.mjs' : 'fixtures/miniflare-catalog.mjs',root)),
       compatibilityDate:'2025-11-01', cf:false, bindings:{CATALOG_STATUS:catalogStatus}, outboundService:{network:{allow:[]}}}
   ]});
@@ -120,6 +122,33 @@ INSERT INTO quiz_attempts VALUES ('legacy','2020-01-01',5,50,1);`));
 for (const mode of ['redirect', 'error']) {
   test(`Miniflare: catalog ${mode} is rejected without following redirects`, {timeout:30000}, async () => {
     const mf=runtime(mode);
+    try {
+      await sql(mf, statements(file('schema.sql')));
+      assert.equal((await request(mf,'GET','/quiz/today')).status,503);
+    } finally {await mf.dispose();}
+  });
+}
+
+test('Miniflare service binding: synthetic quiz and scoring without public network', {timeout:30000}, async () => {
+  const mf=runtime('ok',1000,false,true);
+  try {
+    await sql(mf, statements(file('schema.sql')));
+    assert.equal((await request(mf,'POST','/participants',{username:'Service Test'})).status,201);
+    const response=await request(mf,'GET','/quiz/today');
+    assert.equal(response.status,200);
+    const quiz=await response.json();
+    assert.equal(quiz.questions.length,50);
+    assert.ok(quiz.questions.every((q,i)=>q.id===`synthetic-ranking-${i}`));
+    const body={date:quiz.date,fingerprint:quiz.fingerprint,answers:quiz.questions.map(q=>({id:q.id,option:q.correctIndex}))};
+    const result=await request(mf,'POST','/quiz/attempt',body);
+    assert.equal(result.status,201);
+    assert.equal((await result.json()).correct,50);
+  } finally {await mf.dispose();}
+});
+
+for (const mode of ['redirect', 'error']) {
+  test(`Miniflare service binding: catalog ${mode} is rejected without fallback`, {timeout:30000}, async () => {
+    const mf=runtime(mode,1000,false,true);
     try {
       await sql(mf, statements(file('schema.sql')));
       assert.equal((await request(mf,'GET','/quiz/today')).status,503);
@@ -237,8 +266,8 @@ test('Miniflare D1: concurrent account deletion and submission never resurrect a
   } finally {await mf.dispose();}
 });
 
-test('Miniflare: guarded synthetic gateway exercises the real worker with a test catalog', {timeout:30000}, async () => {
-  const mf=runtime('ok',1000,true);
+for (const service of [false, true]) test(`Miniflare: guarded synthetic gateway exercises the ${service ? 'service binding' : 'HTTP'} worker`, {timeout:30000}, async () => {
+  const mf=runtime('ok',1000,true,service);
   const base='https://pflegeexamen-ranking-test.beispiel.workers.dev';
   const key='f0'.repeat(32);
   const call=(method,path,body,testKey=key) => mf.dispatchFetch(base+path, {method,
