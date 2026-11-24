@@ -1,0 +1,47 @@
+name: Tagesquiz-Entwurf technisch prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Laufnummer eines erfolgreichen Tagesquiz-Entwurfs auf main'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Nur main und vertrauenswürdigen Ursprung zulassen
+        env:
+          REF: ${{ github.ref }}
+          RUN_ID: ${{ inputs.run_id }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$REF" == refs/heads/main && "$RUN_ID" =~ ^[0-9]{1,18}$ ]] || exit 1
+          gh api "repos/$REPO/actions/runs/$RUN_ID" | jq -e --arg repo "$REPO" '
+            .conclusion == "success" and .head_branch == "main" and
+            .repository.full_name == $repo and .head_repository.full_name == $repo and
+            ((.path == ".github/workflows/quiz-manual-draft.yml" and .event == "workflow_dispatch") or
+             (.path == ".github/workflows/daily-quiz-draft.yml" and (.event == "schedule" or .event == "workflow_dispatch")))
+          ' >/dev/null || { echo '::error::Kein erfolgreicher, zulässiger Entwurfslauf auf main.'; exit 1; }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Entwurf geschützt herunterladen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          umask 077
+          gh run download "$RUN_ID" --name tagesquiz-entwurf --dir "$RUNNER_TEMP/quiz-inspect"
+      - name: Nur technische Hinweise und Dateiprüfsumme ausgeben
+        run: |
+          python tools/daily_quiz/review_checks.py "$RUNNER_TEMP/quiz-inspect/quiz-draft.json"
+          hash=$(sha256sum "$RUNNER_TEMP/quiz-inspect/quiz-draft.json" | cut -d ' ' -f1)
+          echo "::notice title=Dateiprüfsumme SHA-256::$hash"
+          echo 'Diese Auswertung ist keine fachliche Prüfung oder Freigabe.'

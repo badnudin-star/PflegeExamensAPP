@@ -1,5 +1,6 @@
 import copy
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -59,6 +60,29 @@ class ReviewChecksTests(unittest.TestCase):
         self.assertIn('keine fachliche Prüfung', result.stdout)
         self.assertNotIn('Privates Beispiel', result.stdout + result.stderr)
         self.assertNotIn('Geheimer Testtext', result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which('jq'), 'jq not installed')
+    def test_inspection_workflow_restricts_run_provenance(self):
+        workflow = (ROOT.parents[1] / '.github/workflows/quiz-inspect-draft.yml').read_text()
+        predicate = workflow.split("jq -e --arg repo \"$REPO\" '", 1)[1].split("' >/dev/null", 1)[0]
+        base = {'conclusion': 'success', 'head_branch': 'main', 'event': 'workflow_dispatch',
+                'repository': {'full_name': 'owner/repo'}, 'head_repository': {'full_name': 'owner/repo'},
+                'path': '.github/workflows/quiz-manual-draft.yml'}
+        def accepted(run):
+            proc = subprocess.run(['jq', '-e', '--arg', 'repo', 'owner/repo', predicate],
+                                  input=json.dumps(run), text=True, capture_output=True)
+            return proc.returncode == 0
+        self.assertTrue(accepted(base))
+        self.assertTrue(accepted({**base, 'path': '.github/workflows/daily-quiz-draft.yml', 'event': 'schedule'}))
+        for replacement in ({'conclusion': 'failure'}, {'head_branch': 'other'}, {'event': 'pull_request'},
+                            {'repository': {'full_name': 'other/repo'}}, {'head_repository': {'full_name': 'other/repo'}},
+                            {'path': '.github/workflows/quiz-manual-test.yml'}, {'event': 'schedule'}):
+            self.assertFalse(accepted({**base, **replacement}), replacement)
+        self.assertIn('refs/heads/main', workflow)
+        self.assertIn('name tagesquiz-entwurf', workflow)
+        self.assertIn('review_checks.py', workflow)
+        for forbidden in ('GEMINI_API_KEY', 'LEARNING_DRIVE_CREDENTIALS', 'CONTENT_PUBLISH_TOKEN', 'schedule:'):
+            self.assertNotIn(forbidden, workflow)
 
     def test_rejects_incomplete_draft(self):
         draft = self.draft()
