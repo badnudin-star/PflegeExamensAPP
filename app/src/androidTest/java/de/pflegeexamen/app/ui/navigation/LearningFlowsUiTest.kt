@@ -67,6 +67,7 @@ import de.pflegeexamen.app.data.progress.SharedPreferencesCaseProgress
 import de.pflegeexamen.app.data.progress.SharedPreferencesQuizProgress
 import de.pflegeexamen.app.data.progress.PracticeProgressReader
 import de.pflegeexamen.app.data.progress.PracticeReadResult
+import de.pflegeexamen.app.data.progress.PreferenceXmlInspector
 import java.util.UUID
 import de.pflegeexamen.app.ui.theme.PflegeExamenTheme
 import org.junit.Assert.*
@@ -550,6 +551,28 @@ class LearningFlowsUiTest {
             assertFalse(file.exists())
             assertEquals(token, (vault.load() as TokenLoad.Available).token)
         } finally { keystore.deleteEntry(alias); folder.deleteRecursively() }
+    }
+
+    @Test fun inspectCommittedSyntheticPreferenceXml() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "inspect_test_" + UUID.randomUUID().toString()
+        val directory = File(base.applicationInfo.dataDir, "shared_prefs")
+        check(directory.isDirectory || directory.mkdirs())
+        val file = File(directory, "$name.xml")
+        var created = false
+        try {
+            check(!file.exists() && !File(directory, "$name.xml.bak").exists())
+            // Reserve the fresh test path before opening SharedPreferences.
+            check(file.createNewFile())
+            created = true
+            val prefs = base.getSharedPreferences(name, Context.MODE_PRIVATE)
+            assertTrue(prefs.edit().putStringSet("learned_card_ids", setOf("c&1", "ü2"))
+                .putString("2026-01-01", "{\"synthetic\":true}").commit())
+            assertTrue(PreferenceXmlInspector.matches(file.readBytes(), prefs.all))
+            assertFalse(PreferenceXmlInspector.matches(file.readBytes(), emptyMap<String, Any>()))
+        } finally {
+            if (created) base.deleteSharedPreferences(name)
+        }
     }
 
     @Test fun malformedSyntheticPreferencesCanLookEmpty() {

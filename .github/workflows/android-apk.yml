@@ -130,6 +130,7 @@ jobs:
               'topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange',
               'androidPreferencesKeepSeparateLearningProgress',
               'malformedSyntheticPreferencesCanLookEmpty',
+              'inspectCommittedSyntheticPreferenceXml',
               'androidKeystoreProtectsTokenAndDetectsLostKey',
               'androidPendingMarkerSurvivesReopenAndNeedsMatchingServerHash',
               'pendingQuizClosureRequiresExplicitConfirmation',
