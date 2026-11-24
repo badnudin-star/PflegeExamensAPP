@@ -568,6 +568,16 @@ class LearningFlowsUiTest {
             val prefs = base.getSharedPreferences(name, Context.MODE_PRIVATE)
             assertTrue(prefs.edit().putStringSet("learned_card_ids", setOf("c&1", "ü2"))
                 .putString("2026-01-01", "{\"synthetic\":true}").commit())
+            val factory = javax.xml.parsers.SAXParserFactory.newInstance()
+            for ((feature, value) in listOf(
+                "http://apache.org/xml/features/disallow-doctype-decl" to true,
+                "http://xml.org/sax/features/external-general-entities" to false,
+                "http://xml.org/sax/features/external-parameter-entities" to false
+            )) {
+                try { factory.setFeature(feature, value) }
+                catch (e: Exception) { throw AssertionError("Unsupported parser security feature: $feature (${e.javaClass.simpleName})") }
+            }
+            assertNotNull("Synthetic preference XML was rejected", PreferenceXmlInspector.inspect(file.readBytes()))
             assertTrue(PreferenceXmlInspector.matches(file.readBytes(), prefs.all))
             assertFalse(PreferenceXmlInspector.matches(file.readBytes(), emptyMap<String, Any>()))
         } finally {
