@@ -1,5 +1,6 @@
 // Local-only test harness. Never use this as a deployed entrypoint.
 import worker from '../src/worker.js';
+import gateway from './synthetic-ranking-gateway.mjs';
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
@@ -10,6 +11,7 @@ export default {
         return Response.json(results);
       } catch (error) { return Response.json({error:String(error)}, {status:500}); }
     }
+    if (env.TEST_GATEWAY === '1') return gateway.fetch(request, env, ctx);
     const mode = request.headers.get('X-Test-Rate');
     if (mode) {
       const limiter = {async limit() { if (mode === 'error') throw Error('test'); return {success: mode !== 'deny'}; }};
