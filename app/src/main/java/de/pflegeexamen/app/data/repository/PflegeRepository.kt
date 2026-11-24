@@ -30,6 +30,7 @@ import de.pflegeexamen.app.data.local.SourceDocumentEntity
 import de.pflegeexamen.app.data.local.StudyNoteEntity
 import de.pflegeexamen.app.data.local.StudyProfileEntity
 import de.pflegeexamen.app.data.ranking.HttpRankingClient
+import de.pflegeexamen.app.data.ranking.LEGACY_RANKING_DISABLED_MESSAGE
 import de.pflegeexamen.app.data.ranking.RankingPreferencesStore
 import de.pflegeexamen.app.data.ranking.RankingSyncResult
 import de.pflegeexamen.app.domain.ai.AiJsonResponseParser
@@ -50,7 +51,6 @@ import de.pflegeexamen.app.domain.model.CaseRelationRule
 import de.pflegeexamen.app.domain.model.ChunkInput
 import de.pflegeexamen.app.domain.model.DefaultCatalogs
 import de.pflegeexamen.app.domain.model.DetailDepth
-import de.pflegeexamen.app.domain.model.ExamRank
 import de.pflegeexamen.app.domain.model.FlashcardType
 import de.pflegeexamen.app.domain.model.LeaderboardSnapshot
 import de.pflegeexamen.app.domain.model.MasteryStatus
@@ -62,7 +62,6 @@ import de.pflegeexamen.app.domain.model.RankingSettings
 import de.pflegeexamen.app.domain.model.RawPage
 import de.pflegeexamen.app.domain.model.RetrievalOutcome
 import de.pflegeexamen.app.domain.model.RetrievedPassage
-import de.pflegeexamen.app.domain.model.ScoreSubmissionPayload
 import de.pflegeexamen.app.domain.model.SelfEvaluation
 import de.pflegeexamen.app.domain.model.SourceCitation
 import de.pflegeexamen.app.domain.model.SourceType
@@ -747,35 +746,11 @@ class PflegeRepository(
     suspend fun testRankingConnection(endpointUrl: String): Pair<Boolean, String> =
         rankingClient.testConnection(endpointUrl)
 
+    // Never report a cached snapshot as a successful sync for the retired XP ranking.
+    // Keep existing preferences and snapshots untouched; they may contain user data.
+    @Suppress("UNUSED_PARAMETER")
     suspend fun syncRanking(forceEvenIfNotDue: Boolean = false): RankingSyncResult =
-        withContext(Dispatchers.IO) {
-            val settings = rankingPreferencesStore.currentSettings()
-            val cached = rankingPreferencesStore.currentSnapshot()
-            if (!settings.isEndpointConfigured()) {
-                return@withContext RankingSyncResult.NotConfigured
-            }
-            if (!forceEvenIfNotDue && !RankingEngine.isHourlySyncDue(settings.lastSyncMillis, cached)) {
-                val snap = cached ?: return@withContext RankingSyncResult.NotConfigured
-                return@withContext RankingSyncResult.Success(
-                    snapshot = snap,
-                    statusMessage = "Aktuelles stündliches Ranking ist noch gültig."
-                )
-            }
-
-            val profile = profileDao.getProfile() ?: StudyProfileEntity()
-            val payload = ScoreSubmissionPayload(
-                userId = settings.userId,
-                username = settings.username.ifBlank { "Azubi" },
-                totalXp = profile.totalXp,
-                streakDays = profile.streakDays,
-                rankTitle = ExamRank.forXp(profile.totalXp).title
-            )
-            val result = rankingClient.syncWithEndpoint(settings, payload)
-            if (result is RankingSyncResult.Success) {
-                rankingPreferencesStore.saveSyncResult(result.snapshot)
-            }
-            result
-        }
+        RankingSyncResult.Failure(LEGACY_RANKING_DISABLED_MESSAGE)
 
     suspend fun updateDailyGoal(goalPoints: Int) = withContext(Dispatchers.IO) {
         val current = profileDao.getProfile() ?: StudyProfileEntity()

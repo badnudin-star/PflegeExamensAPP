@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Restore
@@ -54,7 +53,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -76,9 +74,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.pflegeexamen.app.data.ai.AiCallResult
 import de.pflegeexamen.app.data.local.LearningCategoryEntity
 import de.pflegeexamen.app.data.local.StudyProfileEntity
-import de.pflegeexamen.app.data.ranking.RankingSyncResult
 import de.pflegeexamen.app.data.repository.PflegeRepository
-import de.pflegeexamen.app.domain.engine.RankingEngine
 import de.pflegeexamen.app.domain.model.AiProviderMode
 import de.pflegeexamen.app.domain.model.AiSettings
 import de.pflegeexamen.app.ui.theme.SuccessGreen
@@ -106,16 +102,10 @@ fun SettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val savedSettings by repository.aiSettings.collectAsStateWithLifecycle()
-    val savedRanking by repository.rankingSettings.collectAsStateWithLifecycle()
     val categories by repository.categories.collectAsStateWithLifecycle(initialValue = emptyList())
     val profile by repository.studyProfile.collectAsStateWithLifecycle(initialValue = StudyProfileEntity())
 
     var draftSettings by remember(savedSettings) { mutableStateOf(savedSettings) }
-    var draftUsername by remember(savedRanking.username) { mutableStateOf(savedRanking.username) }
-    var draftRankingOptIn by remember(savedRanking.rankingOptIn) { mutableStateOf(savedRanking.rankingOptIn) }
-    var draftRankingUrl by remember(savedRanking.endpointUrl) { mutableStateOf(savedRanking.endpointUrl) }
-    var isTestingRanking by remember { mutableStateOf(false) }
-    var rankingTestResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     var showGroqKey by remember { mutableStateOf(false) }
     var showGeminiKey by remember { mutableStateOf(false) }
@@ -197,105 +187,13 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                val usernameError = RankingEngine.validateUsername(draftUsername)
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = WarningOrange)
-                            Text("Benutzername & Stündliches Ranking (0 €)", style = MaterialTheme.typography.titleMedium)
-                        }
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Frühere XP-Rangliste", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            text = "Dein Pseudonym erscheint einmal pro Stunde im Community-Ranking. Es werden nur Benutzername, XP, Streak und Rang übertragen – niemals deine Quellen.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "Die frühere XP-Rangliste ist abgeschaltet. Es werden keine XP-Ranglistendaten übertragen. Gespeicherte Einstellungen bleiben erhalten.",
+                            style = MaterialTheme.typography.bodySmall
                         )
-                        OutlinedTextField(
-                            value = draftUsername,
-                            onValueChange = { draftUsername = it.take(24) },
-                            label = { Text("Benutzername (Pseudonym)") },
-                            singleLine = true,
-                            isError = usernameError != null,
-                            supportingText = {
-                                if (usernameError != null) Text(usernameError)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Eigenen XP-Stand senden", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = draftRankingOptIn,
-                                onCheckedChange = { draftRankingOptIn = it }
-                            )
-                        }
-                        OutlinedTextField(
-                            value = draftRankingUrl,
-                            onValueChange = { draftRankingUrl = it },
-                            label = { Text("Ranking-URL (Cloudflare Worker / GitHub JSON)") },
-                            placeholder = { Text("https://pflege-ranking.deinname.workers.dev") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    if (usernameError == null) {
-                                        repository.updateRankingSettings(
-                                            username = draftUsername,
-                                            rankingOptIn = draftRankingOptIn,
-                                            endpointUrl = draftRankingUrl
-                                        )
-                                        scope.launch {
-                                            val res = repository.syncRanking(forceEvenIfNotDue = true)
-                                            val msg = when (res) {
-                                                is RankingSyncResult.Success -> "Ranking gespeichert & synchronisiert."
-                                                is RankingSyncResult.NotConfigured -> "Benutzername gespeichert (noch keine Ranking-URL)."
-                                                is RankingSyncResult.Failure -> "Gespeichert, Sync-Hinweis: ${res.reason}"
-                                            }
-                                            snackbarHostState.showSnackbar(msg)
-                                        }
-                                    }
-                                },
-                                enabled = usernameError == null
-                            ) {
-                                Text("Speichern & Sync")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        isTestingRanking = true
-                                        rankingTestResult = repository.testRankingConnection(draftRankingUrl)
-                                        isTestingRanking = false
-                                    }
-                                },
-                                enabled = draftRankingUrl.isNotBlank() && !isTestingRanking
-                            ) {
-                                if (isTestingRanking) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Text("Verbindung testen")
-                                }
-                            }
-                        }
-                        rankingTestResult?.let { (ok, msg) ->
-                            Text(
-                                text = msg,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (ok) SuccessGreen else MaterialTheme.colorScheme.error
-                            )
-                        }
                     }
                 }
             }

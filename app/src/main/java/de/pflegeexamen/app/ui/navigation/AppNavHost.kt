@@ -23,7 +23,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -51,7 +49,6 @@ import de.pflegeexamen.app.ui.screens.preparation.PreparationScreen
 import de.pflegeexamen.app.ui.screens.ranking.RankingScreen
 import de.pflegeexamen.app.ui.screens.settings.SettingsScreen
 import de.pflegeexamen.app.ui.screens.sources.SourcesScreen
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class TopDestination(
@@ -74,18 +71,7 @@ fun PflegeExamenNavHost(repository: PflegeRepository) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val rankingSettings by repository.rankingSettings.collectAsStateWithLifecycle()
     var prepSubTab by remember { mutableIntStateOf(0) }
-
-    // Stündlicher Foreground-Check (ergänzt den nativen JobScheduler alle 60 Min.)
-    LaunchedEffect(rankingSettings.endpointUrl, rankingSettings.username, rankingSettings.rankingOptIn) {
-        while (true) {
-            if (rankingSettings.hasUsername() && rankingSettings.isEndpointConfigured()) {
-                repository.syncRanking(forceEvenIfNotDue = false)
-            }
-            delay(5L * 60L * 1000L)
-        }
-    }
 
     val showBottomBar = TopDestination.entries.any { it.route == currentRoute }
 
