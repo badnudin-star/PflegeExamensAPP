@@ -19,7 +19,8 @@ def main():
         return 1
     manual = bool(args)
     manual_label = 'Manueller Test' if args == ['--manual-test'] else 'Manueller Entwurf'
-    enabled = os.environ.get('ENABLED', '').strip()
+    # GitHub variables are strings; accept boolean spelling irrespective of case.
+    enabled = os.environ.get('ENABLED', '').strip().lower()
     confirmed = os.environ.get('CONFIRMED', '').strip()
     if manual and confirmed != 'true':
         ready, message, code = False, manual_label + ' nicht bestätigt; keine Daten übertragen.', 1

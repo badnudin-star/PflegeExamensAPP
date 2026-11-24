@@ -48,6 +48,17 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('::error title=Tagesquiz::', result.stdout)
         self.assertNotIn(secret, result.stdout + result.stderr + summary)
 
+    def test_case_insensitive_true_and_false_are_unambiguous(self):
+        settings = {'FOLDER': 'folder', 'MODEL': 'model', 'GOOGLE_CREDS': 'secret', 'GEMINI_API_KEY': 'key'}
+        for value in ('TRUE', 'True', ' tRuE '):
+            result, summary = self.run_report(**dict(settings, ENABLED=value))
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('Generierungsschalter: aktiviert', summary)
+        for value in ('FALSE', 'False', ' fAlSe '):
+            result, summary = self.run_report(ENABLED=value)
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('deaktiviert', summary)
+
     def test_invalid_switch_is_rejected_without_echoing_value(self):
         result, summary = self.run_report(ENABLED='true\n::error::secret')
         self.assertEqual(result.returncode, 1)
@@ -55,7 +66,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
     def test_invalid_switch_has_safe_actionable_category_without_echo(self):
-        for value, hint in [('TRUE', 'Groß- und Kleinschreibung'), ('"true"', 'Anführungszeichen'),
+        for value, hint in [('"true"', 'Anführungszeichen'),
                             ("'false'", 'Anführungszeichen'), ('yes', 'Ja/Nein-Werte'),
                             ('private::error::value', 'anderes ungültiges Format')]:
             with self.subTest(value=value):
