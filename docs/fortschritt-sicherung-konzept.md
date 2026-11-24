@@ -1,6 +1,6 @@
 # Lernfortschritt: Bestandsaufnahme und Sicherungskonzept
 
-**Status: Planung, keine implementierte Export- oder Wiederherstellungsfunktion.** Nicht als Anleitung zur Deinstallation verwenden. Weder diese Bestandsaufnahme noch Emulator-Tests belegen, dass ein Android-Backup auf einem echten Gerät wiederhergestellt werden kann.
+**Status: Experimenteller Formatbaustein, keine implementierte Export- oder Wiederherstellungsfunktion.** Nicht als Anleitung zur Deinstallation verwenden. Weder diese Bestandsaufnahme noch Emulator-Tests belegen, dass ein Android-Backup auf einem echten Gerät wiederhergestellt werden kann.
 
 ## Wo liegen Daten?
 
@@ -15,6 +15,12 @@
 | Experimenteller Quiz-Rankingzugang und offene Aktionen | No-Backup-Dateien für Token, ausstehende Abgabe und Löschjournal; Token zusätzlich mit Android-Keystore geschützt | Nicht Bestandteil eines normalen Fortschrittsexports. Ein optionaler Sicherungscode ist ein vollständiger Kontozugang, kein Fortschrittsbackup; offene Aktionen und Löschungen erfordern gesonderte Behandlung. |
 
 Android-Backupregeln sind derzeit eine Ausschlussliste: andere geeignete App-Daten sind grundsätzlich für Backup bzw. Geräteübertragung vorgesehen, sofern Android, Gerät und Dienst dies unterstützen. Das ist **keine Zusage**, dass die Sicherung aktuell, vollständig oder wiederherstellbar ist. Test- und Cache-Verzeichnisse sowie der No-Backup-Speicher sind davon zu unterscheiden. Der bestehende alte `.pflegebundle.zip`-Inhaltsexport umfasst ausgewählte Quellen, Themen, Operatoren und Einstellungen, aber nicht den vollständigen Fortschritt; er kann eine gespeicherte Ranking-URL enthalten.
+
+## Experimenteller Formatbaustein
+
+`PracticeProgressFormat` ist ein isolierter, nicht an die App-Oberfläche oder an gespeicherte Daten angeschlossener Codec für einen **Teilbereich**: Karten-IDs, Fall-IDs und lokale Quizstände. Das versionierte Array-Format enthält keine Kataloge, alten Room-Daten, Schlüssel oder Ranglistendaten. Die Grenzen und das Format sind experimentell und noch keine Kompatibilitätszusage. Unit-Tests verwenden künstliche Daten; der Codec liest und schreibt keine Dateien und führt keinen Import aus.
+
+Der Codec prüft Struktur, UTF-8, Größenbegrenzung des übergebenen Byte-Arrays, IDs, Daten, doppelte Einträge und die Grundstruktur der Quizstände. Bei einem späteren Dateizugriff muss die Größe **bereits beim Lesen** begrenzt werden. Die Strukturprüfung kann nicht feststellen, ob gespeicherte Antworten zu einem verfügbaren Quiz passen: Dazu muss vor einer späteren Verwendung `QuizSession.isValidFor` mit den genauen Fragen geprüft und ein abweichender oder fehlender Stand sichtbar behandelt werden. Auch die tatsächliche Vollständigkeit eines späteren Exports und Konsistenz über Speicher hinweg sind damit nicht geprüft. Erhebliche Arbeit und echte Wiederherstellungstests bleiben erforderlich.
 
 ## Anforderungen vor einer Implementierung
 
