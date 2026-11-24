@@ -22,14 +22,15 @@ function statements(source) {
   assert.equal(current.trim(), '', 'unparsed SQL');
   return result;
 }
-function runtime(catalogStatus = 'ok', rateLimit = 1000) {
+function runtime(catalogStatus = 'ok', rateLimit = 1000, gateway = false) {
   const rates = Object.fromEntries(['REGISTRATION_RATE','READ_RATE','AUTH_RATE','ACCOUNT_RATE'].map((name, i) =>
     [name, {namespace_id:String(81001+i), simple:{limit:rateLimit, period:60}}]));
+  const catalogUrl = gateway ? 'https://pflegeexamen-ranking-katalog-test.beispiel.workers.dev/content' : 'https://catalog.test/content';
   return new Miniflare({workers:[
-    {name:'ranking', modules:true, modulesRules:[{type:'ESModule',include:['**/*.js']}], scriptPath:fileURLToPath(new URL('fixtures/miniflare-harness.mjs',root)),
+    {name:'ranking', modules:true, modulesRules:[{type:'ESModule',include:['**/*.js','**/*.mjs']}], scriptPath:fileURLToPath(new URL('fixtures/miniflare-harness.mjs',root)),
       compatibilityDate:'2025-11-01', cf:false, d1Databases:['DB'], ratelimits:rates,
-      bindings:{QUIZ_CATALOG_URL:'https://catalog.test/content'}, outboundService:'catalog'},
-    {name:'catalog', modules:true, scriptPath:fileURLToPath(new URL('fixtures/miniflare-catalog.mjs',root)),
+      bindings:{QUIZ_CATALOG_URL:catalogUrl, ...(gateway ? {TEST_GATEWAY:'1', TEST_ONLY_KEY:'f0'.repeat(32)} : {})}, outboundService:'catalog'},
+    {name:'catalog', modules:true, scriptPath:fileURLToPath(new URL(gateway ? 'fixtures/synthetic-test-catalog.mjs' : 'fixtures/miniflare-catalog.mjs',root)),
       compatibilityDate:'2025-11-01', cf:false, bindings:{CATALOG_STATUS:catalogStatus}, outboundService:{network:{allow:[]}}}
   ]});
 }
@@ -233,6 +234,33 @@ test('Miniflare D1: concurrent account deletion and submission never resurrect a
       const board=await (await request(mf,'GET','/leaderboard')).json();
       assert.ok(!board.entries.some(entry=>entry.username === name));
     }
+  } finally {await mf.dispose();}
+});
+
+test('Miniflare: guarded synthetic gateway exercises the real worker with a test catalog', {timeout:30000}, async () => {
+  const mf=runtime('ok',1000,true);
+  const base='https://pflegeexamen-ranking-test.beispiel.workers.dev';
+  const key='f0'.repeat(32);
+  const call=(method,path,body,testKey=key) => mf.dispatchFetch(base+path, {method,
+    headers:{'X-Pflege-Test-Key':testKey,'Content-Type':'application/json','CF-Connecting-IP':'192.0.2.1',Authorization:'Bearer '+token},
+    ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+  try {
+    // This SQL harness exists only in local tests and must never be deployed.
+    await sql(mf, statements(file('schema.sql')));
+    assert.equal((await call('GET','/health',undefined,'00'.repeat(32))).status,404);
+    assert.equal((await call('GET','/health')).status,200);
+    assert.equal((await call('POST','/participants',{username:'Nur Test'})).status,201);
+    const quiz=await (await call('GET','/quiz/today')).json();
+    assert.equal(quiz.questions.length,50);
+    assert.ok(quiz.questions.every(q=>q.id.startsWith('synthetic-ranking-')));
+    const body={date:quiz.date,fingerprint:quiz.fingerprint,answers:quiz.questions.map(q=>({id:q.id,option:q.correctIndex}))};
+    assert.equal((await call('POST','/quiz/attempt',body)).status,201);
+    const result=await (await call('GET',`/quiz/attempt/result?date=${quiz.date}`)).json();
+    assert.equal(result.correct,50);
+    const deleted=await call('DELETE','/participants/me');
+    assert.equal(deleted.status,204);
+    assert.equal(deleted.headers.get('X-Quiz-Deletion-Receipt'),'v1');
+    assert.equal((await call('POST','/participants',{username:'Nur Test'})).status,410);
   } finally {await mf.dispose();}
 });
 
