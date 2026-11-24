@@ -124,6 +124,12 @@ class GeminiProbeTests(unittest.TestCase):
             self.assertIsNone(probe.probe(http, key, model))
             self.assertEqual(http.calls, [])
 
+    def test_model_override_is_allowlisted_and_local_to_probe(self):
+        self.assertEqual(probe.selected_model('configured', 'configured-model'), 'configured-model')
+        self.assertEqual(probe.selected_model('gemini-3.1-flash-lite', 'configured-model'), 'gemini-3.1-flash-lite')
+        for invalid in ('', 'configured-model', 'https://attacker', '../foo'):
+            self.assertIsNone(probe.selected_model(invalid, 'configured-model'))
+
     def test_confirmation_is_required_before_requests_are_imported_or_sent(self):
         env = {k: v for k, v in os.environ.items() if k not in ('CONFIRMED', 'GEMINI_API_KEY', 'GEMINI_MODEL')}
         env.update(CONFIRMED='false', GEMINI_API_KEY='private-key', GEMINI_MODEL='test-model')
