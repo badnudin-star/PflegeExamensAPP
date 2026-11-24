@@ -970,6 +970,7 @@ private fun QuizRankingScreen(openParticipation: () -> Unit, back: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Quiz-Rangliste", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
             item { Text("Nur gewertete Multiple-Choice-Quiz zählen. Deine lokale Übung wird nicht an eine Rangliste übertragen.") }
+            if (BuildConfig.RANKING_URL.isNotBlank()) item { RankingFairnessNotice() }
             if (BuildConfig.ENABLE_RANKED_PARTICIPATION && BuildConfig.RANKING_URL.isNotBlank()) item {
                 Button(onClick = openParticipation) { Text("Am Wertungsquiz teilnehmen") }
             }
@@ -996,6 +997,11 @@ private fun QuizRankingScreen(openParticipation: () -> Unit, back: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+internal fun RankingFairnessNotice() {
+    Text("Die Rangliste ist nicht manipulationssicher: Lösungen sind sichtbar und mehrere Konten möglich. Sie ist keine faire Prüfung.", style = MaterialTheme.typography.bodySmall)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

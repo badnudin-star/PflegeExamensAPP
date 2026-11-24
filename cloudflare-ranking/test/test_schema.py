@@ -105,6 +105,20 @@ class QuizSchemaTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM quiz_participants').fetchone()[0], 0)
         self.assertEqual(self.db.execute('SELECT total_xp FROM scores').fetchone()[0], 500000)
 
+    def test_snapshot_upsert_does_not_regress_time_or_deleted_generation(self):
+        sql = ("INSERT INTO quiz_hourly_snapshot(id, payload_json, generated_at) "
+               "SELECT 1, ?, ? WHERE (SELECT generation FROM quiz_snapshot_generation WHERE id = 1) = ? "
+               "ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, generated_at = excluded.generated_at "
+               "WHERE quiz_hourly_snapshot.generated_at < excluded.generated_at")
+        self.assertEqual(self.db.execute(sql, ('newer', 200, 0)).rowcount, 1)
+        self.assertEqual(self.db.execute(sql, ('older', 100, 0)).rowcount, 0)
+        self.assertEqual(self.db.execute(sql, ('same-time', 200, 0)).rowcount, 0)
+        self.assertEqual(self.db.execute('SELECT payload_json, generated_at FROM quiz_hourly_snapshot').fetchone(), ('newer', 200))
+        self.db.execute('DELETE FROM quiz_hourly_snapshot')
+        self.db.execute('UPDATE quiz_snapshot_generation SET generation = generation + 1')
+        self.assertEqual(self.db.execute(sql, ('pre-deletion', 300, 0)).rowcount, 0)
+        self.assertEqual(self.db.execute(sql, ('after-deletion', 400, 1)).rowcount, 1)
+
     def test_deletion_transaction_rolls_back_if_generation_update_fails(self):
         self.db.commit()
         self.db.execute('INSERT INTO quiz_attempts(participant_id, quiz_date, correct, total, submitted_at) VALUES (?, ?, ?, ?, ?)', ('p1', '2026-11-01', 10, 50, 1))
