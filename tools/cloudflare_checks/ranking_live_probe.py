@@ -15,7 +15,10 @@ MAX = 1024 * 1024
 
 
 def get(opener, path):
-    req = Request(ORIGIN + path, headers={'Accept':'application/json', 'Cache-Control':'no-cache'}, method='GET')
+    # Match the existing catalog synchronization probe's User-Agent: the
+    # default urllib agent is rejected by some Cloudflare edge configurations.
+    req = Request(ORIGIN + path, headers={'Accept':'application/json', 'Cache-Control':'no-cache',
+                                          'User-Agent':'python-requests/2.32.3'}, method='GET')
     try:
         response = opener.open(req, timeout=30)
     except HTTPError as exc:
