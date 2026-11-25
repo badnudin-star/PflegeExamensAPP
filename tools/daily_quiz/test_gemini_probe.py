@@ -96,6 +96,17 @@ class GeminiProbeTests(unittest.TestCase):
         self.assertEqual(without_schema['generationConfig'], {'responseMimeType': 'application/json'})
         self.assertIsNone(probe.json_mode_probe(Http([]), '', 'model'))
 
+    def test_plain_json_probe_only_uses_artificial_source(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.plain_json_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))
+        structured, plain = [call[1]['json'] for call in http.calls]
+        self.assertIn('responseSchema', structured['generationConfig'])
+        self.assertNotIn('generationConfig', plain)
+        text = plain['contents'][0]['parts'][0]['text']
+        self.assertIn('Ausschließlich'.lower(), text.lower())
+        self.assertIn('Fiktive Farbenwelt', text)
+        self.assertIsNone(probe.plain_json_probe(Http([]), '', 'model'))
+
     def test_realistic_response_validation_does_not_disclose_text(self):
         source = probe.synthetic_source(5000)
         items = [{'question': f'Frage {i}', 'options': ['eins', 'zwei', 'drei', 'vier'],

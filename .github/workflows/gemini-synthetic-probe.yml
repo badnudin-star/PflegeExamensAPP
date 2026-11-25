@@ -16,6 +16,7 @@ on:
           - compare
           - sizing
           - json-mode
+          - plain-json
         required: true
         default: basic
       model:
