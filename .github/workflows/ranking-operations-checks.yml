@@ -1,0 +1,50 @@
+name: Ranking-Betrieb und isolierten Restore prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Kosteninformationen lesen oder synthetischen Restore in neuer Test-D1 prüfen'
+        type: choice
+        options: [cost-audit, synthetic-restore]
+        required: true
+      confirm:
+        description: 'Bei Restore eine neue Test-D1 und mögliche Cloudflare-Kosten bestätigen; D1 bleibt bestehen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  check:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Modus validieren
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in cost-audit|synthetic-restore) ;; *) echo '::error::Ungültiger Modus.'; exit 1;; esac
+      - name: Schutz- und Funktionsprüfungen
+        run: |
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_cost_audit.py' -v
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_restore_synthetic.py' -v
+      - name: Tarif, Kostenwarnungen und D1-Metriken lesen
+        if: ${{ inputs.mode == 'cost-audit' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python tools/cloudflare_checks/cost_audit.py
+      - name: Restore mit künstlichen Daten in neu angelegter D1 prüfen
+        if: ${{ inputs.mode == 'synthetic-restore' && inputs.confirm == true }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESTORE_CONFIRM: ${{ inputs.confirm }}
+        run: python tools/cloudflare_checks/ranking_restore_synthetic.py
+      - name: Fehlende Restore-Bestätigung ablehnen
+        if: ${{ inputs.mode == 'synthetic-restore' && inputs.confirm != true }}
+        run: echo '::error::Restore-Test wurde nicht bestätigt.'; exit 1
