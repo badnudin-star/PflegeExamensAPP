@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Sicherheitstests ausführen
-        run: python -m unittest discover -s tools/cloudflare_checks -v
+        run: |
+          python -m pip install -r tools/cloudflare_checks/requirements-backup.txt
+          python -m unittest discover -s tools/cloudflare_checks -v
       - name: Token auf nicht vorhandenem Quiztag prüfen
         env:
           CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
