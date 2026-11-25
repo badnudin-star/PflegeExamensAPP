@@ -100,6 +100,19 @@ def realistic_probe(http, key, model):
     return sized_probe(http, key, model, (5000, 12000))
 
 
+def json_mode_probe(http, key, model):
+    """Compare the same synthetic prompt with and without the provider schema."""
+    if not key or not re.fullmatch(r'[A-Za-z0-9._-]+', model):
+        return None
+    source = synthetic_source(1000)
+    with_schema = gemini_body('Fiktive Farbenwelt', source)
+    import copy
+    without_schema = copy.deepcopy(with_schema)
+    del without_schema['generationConfig']['responseSchema']
+    return (request_status(http, key, model, with_schema, source),
+            request_status(http, key, model, without_schema, source))
+
+
 def comparison_probe(http, key, model):
     """Vary one dimension at a time: source length vs. requested output count."""
     if not key or not re.fullmatch(r'[A-Za-z0-9._-]+', model):
@@ -128,10 +141,11 @@ def main():
     # requests is imported only in the entry point; tests can inject a fake transport.
     import requests
     profile = os.environ.get('PROBE_PROFILE', 'basic')
-    if profile not in ('basic', 'realistic', 'compare', 'sizing'):
+    if profile not in ('basic', 'realistic', 'compare', 'sizing', 'json-mode'):
         print('::error title=Gemini-Test::Ungültiges Testprofil; keine Anfrage gesendet.')
         return 1
     run = {'basic': probe, 'realistic': realistic_probe, 'compare': comparison_probe,
+           'json-mode': json_mode_probe,
            'sizing': lambda http, key, model: sized_probe(http, key, model, (1000, 2000))}[profile]
     model = selected_model(os.environ.get('PROBE_MODEL', 'configured'), os.environ.get('GEMINI_MODEL', ''))
     if model is None:
@@ -146,6 +160,7 @@ def main():
         'realistic': ('Künstliche Quelle ca. 5000 Zeichen', 'Künstliche Quelle ca. 12000 Zeichen'),
         'compare': ('Kurze Quelle, zehn Fragen angefordert', 'Quelle ca. 5000 Zeichen, eine Frage angefordert'),
         'sizing': ('Künstliche Quelle ca. 1000 Zeichen', 'Künstliche Quelle ca. 2000 Zeichen'),
+        'json-mode': ('Mit JSON-Schema', 'Nur JSON-Modus ohne Schema'),
     }[profile]
     lines = [
         '### Gemini-Test mit ausschließlich künstlichem Inhalt', '',
@@ -160,7 +175,7 @@ def main():
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
-    success = 'HTTP 200, zehn Quizfragen technisch gültig' if profile in ('realistic', 'sizing') else 'HTTP 200, Antworttext vorhanden'
+    success = 'HTTP 200, zehn Quizfragen technisch gültig' if profile in ('realistic', 'sizing', 'json-mode') else 'HTTP 200, Antworttext vorhanden'
     return 0 if all(item == success for item in results) else 1
 
 

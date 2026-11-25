@@ -87,6 +87,15 @@ class GeminiProbeTests(unittest.TestCase):
         self.assertEqual(long, expected)
         self.assertEqual(probe.comparison_probe(Http([]), '', 'model'), None)
 
+    def test_json_mode_compares_same_prompt_and_schema_only(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.json_mode_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))
+        with_schema, without_schema = [call[1]['json'] for call in http.calls]
+        self.assertEqual(with_schema['contents'], without_schema['contents'])
+        self.assertEqual(with_schema['generationConfig']['responseSchema'], quiz_pipeline.SCHEMA)
+        self.assertEqual(without_schema['generationConfig'], {'responseMimeType': 'application/json'})
+        self.assertIsNone(probe.json_mode_probe(Http([]), '', 'model'))
+
     def test_realistic_response_validation_does_not_disclose_text(self):
         source = probe.synthetic_source(5000)
         items = [{'question': f'Frage {i}', 'options': ['eins', 'zwei', 'drei', 'vier'],
