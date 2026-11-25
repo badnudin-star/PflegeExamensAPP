@@ -1,4 +1,6 @@
 from pathlib import Path
+import contextlib
+import io
 import tempfile
 import unittest
 from compare_release_certificates import compare
@@ -25,9 +27,9 @@ class RankingReleaseGuardTests(unittest.TestCase):
             a.write_text(cert)
             # Hex is case-insensitive; the report labels remain exact.
             b.write_text('Signer #1 certificate SHA-256 digest: ' + 'A'*64 + '\n')
-            compare(a, b)
+            with contextlib.redirect_stdout(io.StringIO()): compare(a, b)
             b.write_text('Signer #1 certificate SHA-256 digest: ' + 'b'*64 + '\n')
-            with self.assertRaises(ValueError): compare(a, b)
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError): compare(a, b)
             b.write_text(cert + 'Signer #2 certificate SHA-256 digest: ' + 'a'*64 + '\n')
             with self.assertRaises(ValueError): compare(a, b)
             b.write_text('not a report')
