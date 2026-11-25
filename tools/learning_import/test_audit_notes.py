@@ -18,7 +18,7 @@ class AuditNotesTests(unittest.TestCase):
     def run_audit(self):
         def extract(data): return data.decode()
         with patch.object(audit_notes, 'extract_pdf', side_effect=extract), \
-             patch.object(audit_notes, 'inspect_pdf', return_value={'pages': 2, 'images': 1, 'empty_pages': 0}):
+             patch.object(audit_notes, 'inspect_pdf', return_value={'pages': 2, 'images': 1, 'image_pages': [1], 'empty_pages': [2]}):
             return audit_notes.audit(self.catalog, self.indexed, lambda f: f['name'].encode())
 
     def test_checks_all_mapped_sources_and_both_variants(self):
@@ -26,6 +26,8 @@ class AuditNotesTests(unittest.TestCase):
         self.assertEqual(result['topics'], 42)
         self.assertEqual(result['mismatches'], [])
         self.assertEqual(result['image_files'], result['files'])
+        self.assertEqual(result['empty_pages'], result['files'])
+        self.assertEqual(result['findings'][0], (topic_candidates(0)[0][0], [1], [2]))
         self.catalog['notes'][0]['short'] = 'truncated'
         self.catalog['notes'][1]['balanced'] = 'different'
         self.assertEqual(self.run_audit()['mismatches'], [TOPICS[0][1], TOPICS[1][1]])
