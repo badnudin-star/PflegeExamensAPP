@@ -19,7 +19,7 @@ def get(opener, path):
     try:
         response = opener.open(req, timeout=30)
     except HTTPError as exc:
-        if exc.code != 404: raise
+        if exc.code != 404: raise PreflightError(f'{path}: HTTP {exc.code}') from None
         response = exc
     with response:
         status = response.status
@@ -34,7 +34,10 @@ def run(env, opener):
     token, account = env.get('CLOUDFLARE_API_TOKEN', '').strip(), env.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
     if not token or not re.fullmatch(r'[0-9a-fA-F]{32}', account): raise PreflightError('invalid configuration')
     base = 'https://api.cloudflare.com/client/v4/accounts/' + account
-    settings = request(opener, base, token, '/workers/scripts/' + WORKER + '/settings').get('result')
+    try:
+        settings = request(opener, base, token, '/workers/scripts/' + WORKER + '/settings').get('result')
+    except HTTPError as exc:
+        raise PreflightError(f'Cloudflare-Worker-Einstellungen: HTTP {exc.code}') from None
     bindings = settings.get('bindings') if isinstance(settings, dict) else None
     if not isinstance(bindings, list): raise PreflightError('worker bindings missing')
     def binding(name):
@@ -71,6 +74,9 @@ def main():
     try: run(os.environ, build_opener(NoRedirect()))
     except HTTPError as exc:
         print(f'::error::Prüfung fehlgeschlagen (HTTP {exc.code}); Rangliste nicht als funktionsfähig bestätigen.')
+        return 1
+    except PreflightError as exc:
+        print(f'::error::Prüfung fehlgeschlagen: {exc}; Rangliste nicht als funktionsfähig bestätigen.')
         return 1
     except (ValueError, KeyError, TypeError, OSError, URLError):
         print('::error::Prüfung fehlgeschlagen oder Antwort ungültig; Rangliste nicht als funktionsfähig bestätigen.')
