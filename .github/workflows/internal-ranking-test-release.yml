@@ -81,7 +81,7 @@ jobs:
           "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/current-certs.txt"
           "$APKSIGNER" verify --print-certs "$PREVIOUS" > "$RUNNER_TEMP/previous-certs.txt"
           python tools/android_checks/compare_release_certificates.py "$RUNNER_TEMP/previous-certs.txt" "$RUNNER_TEMP/current-certs.txt"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='de.pflegeexamen.app' versionCode='14' versionName='3.0.3'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='de.pflegeexamen.app' versionCode='15' versionName='3.0.4'"
           python tools/android_checks/verify_release_apk.py "$APK" app/src/main/assets/learning_content.json
       - name: Interne Test-APK als zeitlich begrenztes Artifact bereitstellen
         uses: actions/upload-artifact@v7
