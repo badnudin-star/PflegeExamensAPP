@@ -1,6 +1,6 @@
 # Rangliste: Inbetriebnahme und Betrieb
 
-Stand: Vorbereitung; die Rangliste ist in der signierten App weiterhin ausgeschaltet. Der Nutzer möchte eine freiwillige, manipulierbare Spaßrangliste und hat die Einrichtung mit möglichen Cloudflare-Kosten beauftragt. Sie ist keine Prüfung. Pseudonyme und summierte richtige Antworten sind öffentlich; öffentliche Lösungen und Mehrfachkonten erlauben Manipulation. Die lokale Übung wird nicht automatisch gewertet.
+Stand 25.11.2026: Der separate Ranking-Worker wurde bereitgestellt. Die bisherige signierte App hat die Rangliste noch nicht aktiviert; ein gesonderter Workflow bereitet eine interne Test-APK mit Teilnahme vor. Der Nutzer möchte eine freiwillige, manipulierbare Spaßrangliste und hat die Einrichtung mit möglichen Cloudflare-Kosten beauftragt. Sie ist keine Prüfung. Pseudonyme und summierte richtige Antworten sind öffentlich; öffentliche Lösungen und Mehrfachkonten erlauben Manipulation. Die lokale Übung wird nicht automatisch gewertet.
 
 ## Kosten und Grenzen
 
@@ -12,7 +12,7 @@ Der main-Workflow `Separate Ranglisten-Datenbank vorbereiten` prüft zunächst d
 
 Vor einem erneuten Versuch muss der Cloudflare-Zugang für GitHub Actions geprüft werden. Für das Anlegen und Initialisieren ist D1-Schreibzugriff erforderlich, für einen neuen Worker laut [Cloudflare](https://developers.cloudflare.com/workers/authorization/workers/) Workers-Admin auf Produktebene; vorhandene Berechtigungen anderer Workflows dürfen nicht versehentlich entzogen werden. Zugriff möglichst eng begrenzen und nach Einrichtung reduzieren. Niemals Token im Chat, Repository oder Protokoll veröffentlichen.
 
-Nach Bereitstellung der Berechtigung sind zusätzlich erforderlich: neue D1-ID unabhängig überprüfen; Schema nur auf dieser D1 anwenden; Worker mit korrekten Rate-Limit-Bindings und Service Binding zum existierenden Content-Worker einrichten; funktionierendes heutiges Quiz und `/leaderboard` überprüfen; neue signierte APK mit der korrekten HTTPS-Adresse und aktivierter Teilnahme erstellen. Die vorliegende Release-Konfiguration schaltet die Teilnahme ausdrücklich aus und darf nicht ohne getesteten Rollout geändert werden. Ein leeres `/health` allein bestätigt weder Datenbank, Quiz noch Bewertung.
+Nach Aktualisierung der Berechtigung wurde eine eigene D1 mit ID `f7dba2f6-722f-4086-af6a-a101dd4da996` angelegt und nach Identitäts- und Leerheitsprüfung initialisiert. Der Worker `pflege-examen-ranking` wurde mit Service Binding zum Inhalts-Worker bereitgestellt. [Live-Prüfung 45559350099](https://github.com/badnudin-star/PflegeExamensAPP/actions/runs/45559350099) bestätigte Bindings und öffentliche Ranglistenabfrage; das heutige Quiz fehlte, daher wurde keine Abgabe getestet. [Emulatorlauf 45560818694](https://github.com/badnudin-star/PflegeExamensAPP/actions/runs/45560818694) bestätigte die öffentliche Ranglistenabfrage über den echten Android-Transport. Das ist weder ein Test der Abgabe noch eines echten Geräts. Ein leeres `/health` allein bestätigt weder Datenbank, Quiz noch Bewertung. Der standardmäßige Release-Workflow lässt die Teilnahme weiterhin aus; für einen internen Test gibt es einen separaten manuellen Workflow.
 
 ## Löschung und Wiederherstellung
 
