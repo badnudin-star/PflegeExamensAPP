@@ -106,8 +106,21 @@ def main():
     try:
         run(build_opener(NoRedirect()), secrets.token_hex(32), 'Probe-' + secrets.token_hex(6),
             dt.datetime.now(ZoneInfo('Europe/Berlin')))
-    except (ProbeError, PreflightError, OSError, URLError, ValueError):
-        print('::error title=Ranglisten-Wertungstest::Test nicht vollständig erfolgreich; keine Ende-zu-Ende-Freigabe.')
+    except (ProbeError, PreflightError, OSError, URLError, ValueError) as exc:
+        # Only fixed, non-sensitive categories; never print the response, token,
+        # quiz contents, answers, query body, or arbitrary exception text.
+        safe_messages = {
+            'Kein heutiges Quiz; kein Testkonto angelegt',
+            'Quizabruf fehlgeschlagen; kein Testkonto angelegt',
+            'Quiz oder Testzeit ungültig', 'Quiztag oder Prüfsumme ungültig',
+            'Quiz enthält nicht genau 50 Fragen', 'Quizfrage ungültig',
+            'Quiz-IDs nicht eindeutig', 'Registrierung nicht bestätigt',
+            'Abgabe oder Wertung nicht bestätigt', 'Doppelabgabe wurde nicht eindeutig abgelehnt',
+            'Ergebnis oder Abgabe-Hash nicht bestätigt', 'Testkontolöschung nicht bestätigt',
+            'Kontolöschung nicht abschließend bestätigt',
+        }
+        reason = str(exc) if type(exc) is ProbeError and str(exc) in safe_messages else 'Netzwerk- oder Prüfungsfehler'
+        print('::error title=Ranglisten-Wertungstest::' + reason + '. Keine Ende-zu-Ende-Freigabe.')
         return 1
     return 0
 

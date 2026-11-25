@@ -52,6 +52,15 @@ class AttemptProbeTests(unittest.TestCase):
         self.assertNotIn(TOKEN, output.getvalue())
         self.assertNotIn('frage-', output.getvalue())
 
+    def test_main_reports_missing_quiz_without_exposing_arbitrary_exceptions(self):
+        for error, expected in ((probe.ProbeError('Kein heutiges Quiz; kein Testkonto angelegt'), 'Kein heutiges Quiz'),
+                                (probe.ProbeError('private-token'), 'Netzwerk- oder Prüfungsfehler')):
+            output = io.StringIO()
+            with patch.object(probe, 'run', side_effect=error), contextlib.redirect_stdout(output):
+                self.assertEqual(probe.main(), 1)
+            self.assertIn(expected, output.getvalue())
+            self.assertNotIn('private-token', output.getvalue())
+
     def test_unrelated_conflict_is_not_treated_as_duplicate(self):
         calls = []
         attempt, expected = probe.build_attempt(QUIZ, NOW)
