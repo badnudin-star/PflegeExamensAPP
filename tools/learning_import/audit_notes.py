@@ -33,14 +33,17 @@ def inspect_pdf(content):
     pdf = PdfReader(io.BytesIO(content), strict=True)
     if pdf.is_encrypted or not 1 <= len(pdf.pages) <= 100:
         raise ValueError('invalid PDF')
-    empty_pages = 0
+    empty_pages = []
+    image_pages = []
     images = 0
-    for page in pdf.pages:
-        if not (page.extract_text() or '').strip(): empty_pages += 1
+    for number, page in enumerate(pdf.pages, 1):
+        if not (page.extract_text() or '').strip(): empty_pages.append(number)
         # Includes pypdf-discoverable XObject and inline images, but does not
         # establish whether charts are vector drawings, legible or meaningful.
-        images += len(page.images)
-    return {'pages': len(pdf.pages), 'empty_pages': empty_pages, 'images': images}
+        count = len(page.images)
+        if count: image_pages.append(number)
+        images += count
+    return {'pages': len(pdf.pages), 'empty_pages': empty_pages, 'image_pages': image_pages, 'images': images}
 
 
 def audit(catalog, indexed, get_pdf):
@@ -61,11 +64,13 @@ def audit(catalog, indexed, get_pdf):
                 note['sources'] != ['Lernzettel: ' + main, 'Lernzettel: ' + simple]):
             mismatches.append(title)
     image_files = sum(stats['images'] > 0 for _, stats in source.values())
-    image_pages = sum(stats['images'] for _, stats in source.values())
-    blank_pages = sum(stats['empty_pages'] for _, stats in source.values())
+    image_count = sum(stats['images'] for _, stats in source.values())
+    blank_pages = sum(len(stats['empty_pages']) for _, stats in source.values())
     pages = sum(stats['pages'] for _, stats in source.values())
+    findings = [(name, stats['image_pages'], stats['empty_pages']) for name, (_, stats) in source.items()
+                if stats['image_pages'] or stats['empty_pages']]
     return {'topics':len(TOPICS), 'files':len(source), 'pages':pages, 'mismatches':mismatches,
-            'image_files':image_files, 'image_count':image_pages, 'empty_pages':blank_pages}
+            'image_files':image_files, 'image_count':image_count, 'empty_pages':blank_pages, 'findings':findings}
 
 
 def main():
@@ -85,8 +90,11 @@ def main():
     print(f"::notice title=Lernzettel-Abgleich::{result['topics']} Themen, {result['files']} PDFs, {result['pages']} Seiten. Textabweichungen: {len(result['mismatches'])}; bildhaltige PDFs: {result['image_files']}; erkannte Bilder: {result['image_count']}; Seiten ohne Text: {result['empty_pages']}.")
     for title in result['mismatches']:
         print(f'::warning title=Abweichung::{title}')
+    for name, image_pages, empty_pages in result['findings']:
+        # Names come from the explicit, fixed topic mappings, not arbitrary Drive metadata.
+        print(f"::warning title=PDF-Prüfhinweis::{name}: Bild auf Seite(n) {image_pages or '-'}; ohne extrahierbaren Text auf Seite(n) {empty_pages or '-'}.")
     print('::warning title=Grenzen::Abgleich der extrahierten Texte, keine visuelle oder fachliche Vollständigkeitsprüfung. Tabellen, Grafiken, Bildinhalte und Vektorgrafiken können fehlen oder falsch angeordnet sein.')
-    return 1 if result['mismatches'] or result['empty_pages'] else 0
+    return 1 if result['mismatches'] or result['empty_pages'] or result['image_count'] else 0
 
 
 if __name__ == '__main__':
