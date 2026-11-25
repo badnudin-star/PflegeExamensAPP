@@ -93,7 +93,7 @@ def run(env, opener):
         raise
     if not isinstance(created, dict) or created.get('name') != NAME or not UUID.fullmatch(str(created.get('uuid', ''))):
         raise PreflightError('creation response ambiguous; inspect manually before retry')
-    print('Neue separate Ranking-D1 erstellt: ' + created['uuid'])
+    print('::notice title=Neue separate Ranking-D1::' + created['uuid'])
     print('Schema und Worker wurden noch nicht eingerichtet; die Datenbank ist zunächst leer.')
 
 
