@@ -96,6 +96,17 @@ class GeminiProbeTests(unittest.TestCase):
         self.assertEqual(without_schema['generationConfig'], {'responseMimeType': 'application/json'})
         self.assertIsNone(probe.json_mode_probe(Http([]), '', 'model'))
 
+    def test_api_version_probe_uses_same_synthetic_prompt_on_both_versions(self):
+        http = Http([Response(503), Response(503)])
+        self.assertEqual(probe.api_version_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))
+        self.assertEqual(len(http.calls), 2)
+        self.assertIn('/v1/models/', http.calls[0][0])
+        self.assertIn('/v1beta/models/', http.calls[1][0])
+        self.assertEqual(http.calls[0][1]['json'], http.calls[1][1]['json'])
+        self.assertEqual(http.calls[0][1]['json'], quiz_pipeline.gemini_body('Fiktive Farbenwelt', probe.synthetic_source(1000)))
+        self.assertIsNone(probe.api_version_probe(Http([]), '', 'model'))
+        with self.assertRaises(ValueError): probe.request_status(Http([]), 'key', 'model', {}, version='../bad')
+
     def test_plain_json_probe_only_uses_artificial_source(self):
         http = Http([Response(503), Response(503)])
         self.assertEqual(probe.plain_json_probe(http, 'private-key', 'model'), ('HTTP 503', 'HTTP 503'))
