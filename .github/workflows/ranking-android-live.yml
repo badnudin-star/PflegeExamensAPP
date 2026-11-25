@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Öffentlichen Ranglisten-Lesezugriff im Emulator testen'
+        description: 'Rangliste und ein synthetisches Produktionskonto im Emulator testen und löschen'
         type: boolean
         required: true
         default: false
@@ -42,6 +42,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: |
+            adb logcat -c
+            adb logcat -s 'RankingLiveProbe:I' '*:S' &
+            LOGPID=$!
+            trap 'kill "$LOGPID" 2>/dev/null || true' EXIT
             chmod +x ./gradlew
             ./gradlew connectedDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.class=de.pflegeexamen.app.integration.RankingLiveNetworkTest
       - name: Ausführung des Live-Tests bestätigen
@@ -51,11 +55,12 @@ jobs:
           import xml.etree.ElementTree as ET
           cases = [case for path in Path('app/build/outputs/androidTest-results/connected').rglob('*.xml')
                    for case in ET.parse(path).iter('testcase')
-                   if case.get('classname') == 'de.pflegeexamen.app.integration.RankingLiveNetworkTest'
-                   and case.get('name') == 'publicRankingLoadsUsingTheActualAndroidTransport']
-          if len(cases) != 1 or any(cases[0].find(k) is not None for k in ('failure', 'error', 'skipped')):
-              raise SystemExit('Live-Test nicht eindeutig erfolgreich ausgeführt.')
-          print('Android-Ranglisten-Lesetest ausgeführt.')
+                   if case.get('classname') == 'de.pflegeexamen.app.integration.RankingLiveNetworkTest']
+          expected = {'publicRankingLoadsUsingTheActualAndroidTransport', 'syntheticAccountUsesActualAndroidHttpsTransports'}
+          if len(cases) != 2 or {c.get('name') for c in cases} != expected or any(
+                  c.find(k) is not None for c in cases for k in ('failure', 'error', 'skipped')):
+              raise SystemExit('Live-Tests nicht eindeutig erfolgreich ausgeführt.')
+          print('Android-Ranglisten-Lese- und synthetischer Kontotest ausgeführt.')
           PY
       - name: Testergebnisse bereitstellen
         if: always()
