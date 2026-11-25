@@ -1,0 +1,24 @@
+name: Synthetisches Ranglisten-Testkonto prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Ein Testkonto in der produktiven Ranking-D1 anlegen und anschließend löschen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  check:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Prüflogik testen
+        run: python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_live_account_probe.py' -v
+      - name: Testkonto anlegen, prüfen und löschen
+        run: python tools/cloudflare_checks/ranking_live_account_probe.py
