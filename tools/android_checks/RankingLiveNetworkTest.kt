@@ -60,5 +60,6 @@ class RankingLiveNetworkTest {
         val after = registration.send("GET", "$origin/participants/me", token, null)
         assertEquals("Deleted account still readable or status uncertain", 404, after.status)
         Log.i("RankingLiveProbe", "Synthetic account deletion confirmed: name=$name tokenSHA256=$hash")
+        Unit // JUnit requires a void test method, not Log.i's Int return value.
     }
 }
