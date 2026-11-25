@@ -9,6 +9,7 @@ on:
         default: false
   schedule:
     - cron: '12 4 * * *'
+    - cron: '12 10 * * *'
 permissions:
   contents: read
 concurrency:
@@ -18,7 +19,7 @@ jobs:
   draft:
     runs-on: ubuntu-latest
     outputs:
-      ready: ${{ steps.configured.outputs.ready }}
+      ready: ${{ steps.configured.outputs.ready == 'true' && steps.today.outputs.skip != 'true' }}
       sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
@@ -38,8 +39,14 @@ jobs:
       - name: Abhängigkeiten installieren
         if: steps.configured.outputs.ready == 'true'
         run: pip install -r tools/learning_import/requirements.txt
+      - name: Heutigen Quiztag vor Generierung prüfen
+        id: today
+        if: ${{ steps.configured.outputs.ready == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_today == true)) }}
+        env:
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+        run: python tools/daily_quiz/automatic_preflight.py
       - name: Entwurf mit Quellenbelegen erstellen
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.configured.outputs.ready == 'true' && steps.today.outputs.skip != 'true'
         env:
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -54,13 +61,13 @@ jobs:
           python tools/daily_quiz/quiz_pipeline.py generate --folder "$LEARNING_DRIVE_FOLDER_ID" --model "$GEMINI_MODEL" --output "$RUNNER_TEMP/quiz-draft.json"
       - name: Entwurfsprüfsumme festhalten
         id: digest
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.configured.outputs.ready == 'true' && steps.today.outputs.skip != 'true'
         run: echo "sha256=$(sha256sum "$RUNNER_TEMP/quiz-draft.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Offline-Prüfansicht erstellen
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.configured.outputs.ready == 'true' && steps.today.outputs.skip != 'true'
         run: python tools/daily_quiz/review_sheet.py "$RUNNER_TEMP/quiz-draft.json" "$RUNNER_TEMP/quiz-review.html"
       - name: Entwurf zur fachlichen Prüfung bereitstellen
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.configured.outputs.ready == 'true' && steps.today.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: tagesquiz-entwurf
