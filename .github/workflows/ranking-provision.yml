@@ -1,0 +1,37 @@
+name: Separate Ranglisten-Datenbank vorbereiten
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Nur prüfen oder eine neue, separate leere D1 anlegen'
+        type: choice
+        options: [inspect, create]
+        required: true
+      confirm:
+        description: 'Anlegen der separaten Ranglisten-D1 und mögliche Cloudflare-Kosten bestätigen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ranking-provision
+  cancel-in-progress: false
+jobs:
+  provision:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Schutzlogik testen
+        run: python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_provision.py' -v
+      - name: Prüfen oder neue leere Datenbank anlegen
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RANKING_PROVISION_MODE: ${{ inputs.mode }}
+          RANKING_CONFIRM: ${{ inputs.confirm }}
+        run: python tools/cloudflare_checks/ranking_provision.py
