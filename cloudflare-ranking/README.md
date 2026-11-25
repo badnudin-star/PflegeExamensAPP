@@ -1,5 +1,7 @@
 # Quiz-Rangliste: serverseitiger Entwurf
 
+**Aktueller Hinweis (25.11.2026):** Der separate Ranking-Worker wurde bereitgestellt; Bindings und öffentlicher Lesezugriff wurden geprüft. Ein vollständiger Abgabe- und echter Gerätetest stehen noch aus. Der bisherige signierte Standard-Build lässt die Teilnahme weiterhin aus; siehe [Betriebsstatus](../docs/rangliste-betrieb.md). Die folgenden Statushinweise sind teilweise historische Entwicklungsstände.
+
 **Status: experimentell, nicht für die produktive App veröffentlicht.** Ein späterer isolierter Cloudflare-Test mit künstlichen Daten und einer angepassten Test-Worker-Kopie ist [separat dokumentiert](../docs/rangliste-isolierter-cloudflare-test.md); er ist keine Produktionsfreigabe. Die historischen Aussagen zur Vorbereitung und zu nicht erfolgten Deployments unten beziehen sich auf den jeweiligen Entwurfsstand. Die App enthält eine standardmäßig deaktivierte Teilnahme- und Löschoberfläche sowie eine vorbereitete Ranglisten-Leseansicht. Ohne konfigurierte Adresse erfolgt kein Ranking-Aufruf. Der alte Worker, der beliebige `totalXp` vom Client annahm, wurde ersetzt. Alte Lernpunkte, Streaks und Rangtitel werden nicht übernommen.
 
 ## Funktionsweise des Entwurfs

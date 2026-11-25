@@ -1,0 +1,92 @@
+name: Interne Ranking-Test-APK signieren
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Interne Test-APK mit aktiver Ranking-Teilnahme erstellen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Branch und Bestätigung ohne Secrets prüfen
+        env:
+          CONFIRMED: ${{ inputs.confirm }}
+        run: python tools/android_checks/check_release_request.py
+  release:
+    needs: preflight
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    environment: internal-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ORG_GRADLE_PROJECT_contentUrl: ${{ vars.CONTENT_URL || 'https://pflegeexamen-content.badnudin.workers.dev/content' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Geprüften öffentlichen Offline-Katalog einbinden
+        run: python tools/learning_import/bundle_published.py --url "$ORG_GRADLE_PROJECT_contentUrl"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Schlüsseldatei temporär geschützt bereitstellen
+        env:
+          PFLEGE_RELEASE_KEYSTORE_BASE64: ${{ secrets.PFLEGE_RELEASE_KEYSTORE_BASE64 }}
+          PFLEGE_RELEASE_STORE_PASSWORD: ${{ secrets.PFLEGE_RELEASE_STORE_PASSWORD }}
+          PFLEGE_RELEASE_KEY_ALIAS: ${{ secrets.PFLEGE_RELEASE_KEY_ALIAS }}
+          PFLEGE_RELEASE_KEY_PASSWORD: ${{ secrets.PFLEGE_RELEASE_KEY_PASSWORD }}
+        run: python tools/android_checks/prepare_release_key.py
+      - name: Interne Ranking-Test-APK bauen
+        env:
+          PFLEGE_RELEASE_STORE_PASSWORD: ${{ secrets.PFLEGE_RELEASE_STORE_PASSWORD }}
+          PFLEGE_RELEASE_KEY_ALIAS: ${{ secrets.PFLEGE_RELEASE_KEY_ALIAS }}
+          PFLEGE_RELEASE_KEY_PASSWORD: ${{ secrets.PFLEGE_RELEASE_KEY_PASSWORD }}
+        run: |
+          export PFLEGE_RELEASE_KEYSTORE="$RUNNER_TEMP/pflege-release-signing.keystore"
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon --quiet -PrankingUrl=https://pflege-examen-ranking.badnudin.workers.dev/leaderboard -PenableRankedParticipation=true
+          python tools/android_checks/verify_ranking_buildconfig.py app/build/generated/source/buildConfig/release/de/pflegeexamen/app/BuildConfig.java
+      - name: Temporäre Schlüsseldatei entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/pflege-release-signing.keystore"
+      - name: Vorherige signierte App zum Zertifikatsvergleich laden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/45343367864" | jq -e \
+            '.conclusion == "success" and .head_branch == "main" and .path == ".github/workflows/internal-release.yml"' >/dev/null
+          gh run download 45343367864 --name PflegeExamen-intern-signiert --dir "$RUNNER_TEMP/previous-release"
+          test -f "$RUNNER_TEMP/previous-release/app-release.apk"
+      - name: Signatur, Update-Kompatibilität und Offline-Katalog prüfen
+        run: |
+          set -eu
+          APK=app/build/outputs/apk/release/app-release.apk
+          PREVIOUS="$RUNNER_TEMP/previous-release/app-release.apk"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          test -f "$APK" && test -n "$APKSIGNER" && test -n "$AAPT"
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/current-certs.txt"
+          "$APKSIGNER" verify --print-certs "$PREVIOUS" > "$RUNNER_TEMP/previous-certs.txt"
+          python tools/android_checks/compare_release_certificates.py "$RUNNER_TEMP/previous-certs.txt" "$RUNNER_TEMP/current-certs.txt"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='de.pflegeexamen.app' versionCode='14' versionName='3.0.3'"
+          python tools/android_checks/verify_release_apk.py "$APK" app/src/main/assets/learning_content.json
+      - name: Interne Test-APK als zeitlich begrenztes Artifact bereitstellen
+        uses: actions/upload-artifact@v7
+        with:
+          name: PflegeExamen-Rangliste-intern-test
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
