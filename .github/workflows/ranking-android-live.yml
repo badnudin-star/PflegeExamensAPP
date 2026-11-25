@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Rangliste und ein synthetisches Produktionskonto im Emulator testen und löschen'
+        description: 'Rangliste, Quizabgabe und Löschung eines synthetischen Produktionskontos im Emulator testen'
         type: boolean
         required: true
         default: false
