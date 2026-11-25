@@ -1,0 +1,24 @@
+name: Synthetischen Ranglistenversuch live prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Ein synthetisches Konto erstellen, einen echten Tagesquizversuch abgeben und das Konto wieder löschen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  check:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Prüflogik testen
+        run: python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_live_attempt_probe.py' -v
+      - name: Quizversuch prüfen und synthetisches Konto löschen
+        run: python tools/cloudflare_checks/ranking_live_attempt_probe.py
