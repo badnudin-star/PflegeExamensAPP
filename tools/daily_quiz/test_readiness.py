@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 WORKFLOW = ROOT.parents[1] / '.github' / 'workflows' / 'quiz-readiness.yml'
-KEYS = ('ENABLED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')
+KEYS = ('ENABLED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY', 'NO_BILLING_VERIFIED')
 
 
 class ReadinessTests(unittest.TestCase):
@@ -76,6 +76,17 @@ class ReadinessTests(unittest.TestCase):
                 self.assertIn('::notice title=Tagesquiz::Hinweis zum Generierungsschalter:', result.stdout)
                 if value.startswith('private'):
                     self.assertNotIn(value, result.stdout + result.stderr + summary)
+
+    def test_cost_approval_is_reported_but_never_claims_tariff_verification(self):
+        for value in ('', 'false', 'TRUE'):
+            result, summary = self.run_report(NO_BILLING_VERIFIED=value)
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('nicht bestätigt; Generierung pausiert', summary)
+        result, summary = self.run_report(NO_BILLING_VERIFIED='true')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('Gemini-Kostenfreigabe: selbst bestätigt', summary)
+        self.assertIn('nicht auf Gültigkeit geprüft', summary)
+        self.assertIn('vars.GEMINI_NO_BILLING_VERIFIED', WORKFLOW.read_text())
 
     def test_workflow_is_manual_and_contains_no_generation_or_publication(self):
         workflow = WORKFLOW.read_text()

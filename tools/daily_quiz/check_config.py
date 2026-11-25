@@ -33,12 +33,18 @@ def main():
         label = manual_label if manual else 'Quizgenerierung'
         if missing:
             ready, message, code = False, label + ': Konfiguration unvollständig: ' + ', '.join(missing), 1
+        elif os.environ.get('NO_BILLING_VERIFIED', '').strip() != 'true':
+            ready = False
+            message = label + ': pausiert, weil ein kostenfreier Gemini-Zugang ohne Abrechnung nicht bestätigt ist; keine Anfrage gesendet.'
+            code = 1 if manual else 0
         else:
-            ready, message, code = True, label + ': Konfiguration vorhanden (Zugänge noch nicht geprüft).', 0
+            ready, message, code = True, label + ': Konfiguration und Kostenfreigabe vorhanden (Zugänge und Abrechnung nicht automatisch geprüft).', 0
     print(message)
     # Message text contains only fixed labels, never configuration values.
     if code:
         print('::error title=Tagesquiz::' + message)
+    elif not ready and 'pausiert' in message:
+        print('::warning title=Tagesquiz::' + message)
     if os.environ.get('GITHUB_OUTPUT'):
         with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
             f.write(f'ready={str(ready).lower()}\n')

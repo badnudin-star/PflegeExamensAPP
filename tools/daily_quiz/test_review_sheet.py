@@ -67,7 +67,7 @@ class ConfigTests(unittest.TestCase):
     def config(self, values, *args):
         with tempfile.TemporaryDirectory() as temp:
             output, summary = Path(temp) / 'output', Path(temp) / 'summary'
-            env = {k: v for k, v in os.environ.items() if k not in ('ENABLED', 'CONFIRMED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY')}
+            env = {k: v for k, v in os.environ.items() if k not in ('ENABLED', 'CONFIRMED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY', 'NO_BILLING_VERIFIED')}
             env.update(values, GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
             result = subprocess.run([sys.executable, str(ROOT / 'check_config.py'), *args], env=env, capture_output=True, text=True)
             return result, output.read_text(), summary.read_text()
@@ -92,14 +92,14 @@ class ConfigTests(unittest.TestCase):
         self.assertNotIn('injected', invalid.stdout + invalid.stderr)
 
     def test_configured_is_ready_but_does_not_claim_connections_work(self):
-        result, output, summary = self.config({'ENABLED':'true', 'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'})
+        result, output, summary = self.config({'ENABLED':'true', 'NO_BILLING_VERIFIED':'true', 'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output, 'ready=true\n')
-        self.assertIn('noch nicht geprüft', summary)
+        self.assertIn('nicht automatisch geprüft', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
     def test_scheduled_boolean_switch_is_case_insensitive_but_fails_closed(self):
-        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2', 'NO_BILLING_VERIFIED':'true'}
         for value in ('true', 'True', 'TRUE', ' tRuE '):
             result, output, _ = self.config({**configured, 'ENABLED':value})
             self.assertEqual(result.returncode, 0)
@@ -113,8 +113,30 @@ class ConfigTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(output, 'ready=false\n')
 
-    def test_manual_test_requires_explicit_confirmation_and_complete_config(self):
+    def test_cost_guard_pauses_scheduled_and_blocks_manual_generation(self):
         configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        for flag in ('', 'false', 'TRUE', '1'):
+            result, output, summary = self.config({**configured, 'ENABLED':'true', 'NO_BILLING_VERIFIED':flag})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=false\n')
+            self.assertIn('pausiert', summary)
+            self.assertIn('keine Anfrage gesendet', summary)
+            self.assertIn('::warning', result.stdout)
+            manual, output, _ = self.config({**configured, 'CONFIRMED':'true', 'NO_BILLING_VERIFIED':flag}, '--manual-draft')
+            self.assertNotEqual(manual.returncode, 0)
+            self.assertEqual(output, 'ready=false\n')
+
+    def test_all_generation_workflows_wire_cost_guard_into_config_and_generator(self):
+        root = ROOT.parents[1] / '.github' / 'workflows'
+        for name in ('daily-quiz-draft.yml', 'quiz-manual-draft.yml', 'quiz-manual-test.yml'):
+            workflow = (root / name).read_text()
+            self.assertEqual(workflow.count('NO_BILLING_VERIFIED: ${{ vars.GEMINI_NO_BILLING_VERIFIED }}'), 2, name)
+            self.assertLess(workflow.index('check_config.py'), workflow.index('quiz_pipeline.py generate'))
+        probe = (root / 'gemini-synthetic-probe.yml').read_text()
+        self.assertIn('NO_BILLING_VERIFIED: ${{ vars.GEMINI_NO_BILLING_VERIFIED }}', probe)
+
+    def test_manual_test_requires_explicit_confirmation_and_complete_config(self):
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2', 'NO_BILLING_VERIFIED':'true'}
         for confirmation in ('', 'false', 'TRUE'):
             result, output, summary = self.config({**configured, 'CONFIRMED':confirmation}, '--manual-test')
             self.assertNotEqual(result.returncode, 0)
@@ -128,11 +150,11 @@ class ConfigTests(unittest.TestCase):
         result, output, summary = self.config({**configured, 'CONFIRMED':'true', 'ENABLED':'false'}, '--manual-test')
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output, 'ready=true\n')
-        self.assertIn('noch nicht geprüft', summary)
+        self.assertIn('nicht automatisch geprüft', summary)
         self.assertNotIn('secret', result.stdout + result.stderr + summary)
 
     def test_manual_draft_requires_confirmation_and_does_not_enable_schedule(self):
-        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2', 'NO_BILLING_VERIFIED':'true'}
         result, output, _ = self.config(configured, '--manual-draft')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(output, 'ready=false\n')

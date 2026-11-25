@@ -169,6 +169,14 @@ class GeminiProbeTests(unittest.TestCase):
         self.assertIn('keine Anfrage gesendet', result.stdout)
         self.assertNotIn('private-key', result.stdout + result.stderr)
 
+    def test_cost_guard_blocks_probe_before_requests_are_imported(self):
+        env = {k: v for k, v in os.environ.items() if k not in ('CONFIRMED', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'NO_BILLING_VERIFIED')}
+        env.update(CONFIRMED='true', GEMINI_API_KEY='private-key', GEMINI_MODEL='test-model')
+        result = subprocess.run([sys.executable, str(ROOT / 'probe_gemini.py')], env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('keine Anfrage gesendet', result.stdout)
+        self.assertNotIn('private-key', result.stdout + result.stderr)
+
     def test_workflow_has_no_drive_or_publisher_secrets_and_requires_confirmation(self):
         workflow = (ROOT.parents[1] / '.github' / 'workflows' / 'gemini-synthetic-probe.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)
