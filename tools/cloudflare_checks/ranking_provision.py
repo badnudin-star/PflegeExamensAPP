@@ -86,7 +86,11 @@ def run(env, opener):
         print('Nur geprüft; keine Datenbank erstellt und kein Worker bereitgestellt.')
         return
     # A lost response is ambiguous: do not retry or adopt a same-named DB.
-    created = request(opener, base, token, '/d1/database', 'POST', {'name':NAME}).get('result')
+    try:
+        created = request(opener, base, token, '/d1/database', 'POST', {'name':NAME}).get('result')
+    except HTTPError as exc:
+        print(f'::error::Anlegen der D1 wurde von Cloudflare mit HTTP {exc.code} abgelehnt. Vor erneutem Versuch Ressourcenbestand prüfen.')
+        raise
     if not isinstance(created, dict) or created.get('name') != NAME or not UUID.fullmatch(str(created.get('uuid', ''))):
         raise PreflightError('creation response ambiguous; inspect manually before retry')
     print('Neue separate Ranking-D1 erstellt: ' + created['uuid'])
