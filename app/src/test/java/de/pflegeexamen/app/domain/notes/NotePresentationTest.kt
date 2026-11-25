@@ -37,6 +37,24 @@ class NotePresentationTest {
         assertTrue(NotePresentation.sections(text).flatMap { it.paragraphs }.joinToString().contains("Quellen und Einordnung"))
         assertTrue(NotePresentation.sections("").isEmpty())
     }
+    @Test fun `full text mode preserves every character including sources tables and empty lines`() {
+        val raw = "EXAMENSVORBEREITUNG · LERNZETTEL\n1\n" +
+            (1..65).joinToString("\n") { "Zeile $it   Spalte\tInhalt" } + "\n\nQUELLEN UND GRENZEN\nVerweis\n"
+        val blocks = NotePresentation.fullTextBlocks(raw)
+        assertEquals(raw, blocks.joinToString("\n") { it.text })
+        assertTrue(blocks.size > 1)
+        assertTrue(blocks.none { it.isHeading })
+        assertTrue(NotePresentation.fullTextBlocks("").isEmpty())
+    }
+
+    @Test fun `all bundled variants can be reconstructed from full text blocks`() {
+        val catalog = requireNotNull(de.pflegeexamen.app.domain.content.LearningCatalogCodec.parse(
+            java.io.File("src/main/assets/learning_content.json").readText()))
+        for (note in catalog.notes) for (raw in listOf(note.short, note.detailed)) {
+            assertEquals(note.topic, raw, NotePresentation.fullTextBlocks(raw).joinToString("\n") { it.text })
+        }
+    }
+
     @Test fun `outline uses display block indices and preserves repeated headings`() {
         val blocks = listOf(
             NoteBlock("Einleitung"), NoteBlock("Grundlagen", true), NoteBlock("Text"),

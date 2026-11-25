@@ -73,6 +73,13 @@ object NotePresentation {
     fun blocks(raw: String): List<NoteBlock> = sections(raw).flatMap { section ->
         listOfNotNull(section.heading?.let { NoteBlock(it, true) }) + section.paragraphs.map { NoteBlock(it) }
     }
+
+    /** Complete extracted text, without removing headers, sources or table rows.
+     *  Group lines to avoid laying out an entire long document as one Text node.
+     *  This is not a PDF renderer: images and extraction errors are not recovered.
+     */
+    fun fullTextBlocks(raw: String): List<NoteBlock> = if (raw.isEmpty()) emptyList() else
+        raw.split('\n').chunked(30).map { NoteBlock(it.joinToString("\n")) }
     /** Use the already displayed headings; preserve order and duplicate labels. */
     fun headings(blocks: List<NoteBlock>): List<NoteHeading> = blocks.mapIndexedNotNull { index, block ->
         if (block.isHeading && block.text.isNotBlank()) NoteHeading(index, block.text) else null

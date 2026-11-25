@@ -1,0 +1,31 @@
+name: Lernzettel schreibgeschützt abgleichen
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r tools/learning_import/requirements.txt
+      - name: Quellen und veröffentlichten Katalog lesend vergleichen
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+        run: |
+          set -eu
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/audit-drive-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/learning_import/audit_notes.py

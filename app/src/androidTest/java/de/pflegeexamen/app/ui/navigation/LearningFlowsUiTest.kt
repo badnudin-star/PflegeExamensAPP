@@ -394,6 +394,16 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("ZWEITER ABSCHNITT").assertIsDisplayed()
     }
 
+    @Test fun noteFullTextCanShowHiddenExtractedSourcesAndReturn() {
+        val note = "EXAMENSVORBEREITUNG · LERNZETTEL\n1\nGRUNDLAGEN\nLerntext.\nQUELLEN UND GRENZEN\nSynthetischer Quellenbegriff"
+        compose.setContent { PflegeExamenTheme { NoteScreen("Testthema", "Neu", note, "", null, {}, {}, {}) } }
+        compose.onNodeWithText("Synthetischer Quellenbegriff", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Vollständigen Text anzeigen").performClick()
+        compose.onNodeWithText("Synthetischer Quellenbegriff", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Aufbereitete Ansicht").performScrollTo().performClick()
+        compose.onNodeWithText("Synthetischer Quellenbegriff", substring = true).assertDoesNotExist()
+    }
+
     @Test fun noteSearchJumpsToMatchAndRespectsLaterHeadingChoice() {
         val filler = (1..35).joinToString("\n\n") { "Langer Übungsabsatz Nummer $it mit etwas Text." }
         val note = "EXAMENSVORBEREITUNG · LERNZETTEL\n1\nEINLEITUNG\n$filler\n\nABSCHLUSS\nHier steht das Nadelwort als Fundstelle."
