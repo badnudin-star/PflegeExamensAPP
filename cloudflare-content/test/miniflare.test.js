@@ -189,3 +189,46 @@ test('Python archive tools and worker perform a complete isolated backup/prune/r
     await mf.dispose();
   }
 });
+
+test('Python automatic publisher verifies a synthetic day against isolated Miniflare D1', {timeout:60000}, async () => {
+  const {createServer} = await import('node:http');
+  const {spawn} = await import('node:child_process');
+  const {once} = await import('node:events');
+  const mf = runtime();
+  let server;
+  try {
+    await sql(mf,statements(file('schema.sql')));
+    server=createServer(async (req,res) => {
+      try {
+        const url = new URL(req.url, 'https://content.test');
+        if (!['/content','/admin/content','/quiz-archive/2026-11-18'].includes(url.pathname)) {
+          res.writeHead(404).end(); return;
+        }
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const body=Buffer.concat(chunks);
+        const headers={};
+        for (const name of ['authorization','content-type','if-match','cache-control'])
+          if (req.headers[name]) headers[name]=req.headers[name];
+        const response=await mf.dispatchFetch(url.toString(), {method:req.method,headers,...(body.length ? {body} : {})});
+        res.writeHead(response.status, {'content-type':response.headers.get('content-type') || 'application/json'});
+        res.end(Buffer.from(await response.arrayBuffer()));
+      } catch {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      }
+    });
+    server.listen(0,'127.0.0.1');
+    await once(server,'listening');
+    const python=spawn('python3',[fileURLToPath(new URL('fixtures/automatic-quiz-flow.py',root)),String(server.address().port)],
+      {env:{PATH:process.env.PATH,PYTHONIOENCODING:'utf-8'},stdio:['ignore','pipe','pipe'],timeout:35000});
+    let stdout='',stderr='';
+    python.stdout.on('data',x=>{stdout+=x;}); python.stderr.on('data',x=>{stderr+=x;});
+    const [code]=await once(python,'close');
+    assert.equal(code,0,stderr);
+    assert.match(stdout,/synthetic automatic quiz flow passed/);
+  } finally {
+    if (server) await new Promise((resolve,reject)=>server.close(error => error ? reject(error) : resolve()));
+    await mf.dispose();
+  }
+});
