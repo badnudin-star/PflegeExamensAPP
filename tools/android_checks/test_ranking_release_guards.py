@@ -28,6 +28,9 @@ class RankingReleaseGuardTests(unittest.TestCase):
             # Hex is case-insensitive; the report labels remain exact.
             b.write_text('Signer #1 certificate SHA-256 digest: ' + 'A'*64 + '\n')
             with contextlib.redirect_stdout(io.StringIO()): compare(a, b)
+            a.write_text('V2 Signer: certificate SHA-256 digest: ' + 'a'*64 + '\n')
+            b.write_text('V3 Signer: certificate SHA-256 digest: ' + 'A'*64 + '\n')
+            with contextlib.redirect_stdout(io.StringIO()): compare(a, b)
             b.write_text('Signer #1 certificate SHA-256 digest: ' + 'b'*64 + '\n')
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError): compare(a, b)
             b.write_text(cert + 'Signer #2 certificate SHA-256 digest: ' + 'a'*64 + '\n')
