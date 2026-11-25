@@ -61,10 +61,13 @@ def run(env, opener):
         if not isinstance(values, list) or not isinstance(info, dict):
             raise PreflightError('invalid D1 list')
         found.extend(x for x in values if isinstance(x, dict) and x.get('name') == NAME)
-        total_pages = info.get('total_pages')
-        if not isinstance(total_pages, int) or total_pages < 0 or total_pages > 100:
+        count, current, per_page, total = (info.get(k) for k in ('count', 'page', 'per_page', 'total_count'))
+        if (any(type(v) is not int for v in (count, current, per_page, total)) or
+            current != page or count != len(values) or per_page < 1 or total < 0 or total > 10000 or count > per_page):
             raise PreflightError('invalid D1 pagination')
-        if page >= max(1, total_pages): break
+        if page * per_page >= total: break
+        if count != per_page:
+            raise PreflightError('incomplete D1 list')
     else:
         raise PreflightError('too many D1 pages')
     if found:

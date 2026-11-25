@@ -26,7 +26,7 @@ class Opener:
         if path == '/workers/scripts/pflegeexamen-content/settings':
             return Reply({'bindings':[{'name':'DB', 'type':'d1', 'id':self.binding}]})
         if path.startswith('/d1/database?'):
-            return Reply(self.dbs, {'total_pages':1})
+            return Reply(self.dbs, {'count':len(self.dbs), 'page':1, 'per_page':100, 'total_count':len(self.dbs)})
         if path == '/workers/scripts/pflege-examen-ranking/settings':
             if self.worker_exists: return Reply({'bindings':[]})
             raise HTTPError(req.full_url, 404, 'not found', {}, io.BytesIO())
