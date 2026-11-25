@@ -1,0 +1,26 @@
+name: Öffentlichen Ranglisten-Snapshot live prüfen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Synthetisches Konto und echte Wertung bis zum nächsten stündlichen Snapshot öffentlich anzeigen, danach löschen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  check:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Prüflogik testen
+        run: |
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_live_attempt_probe.py' -v
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_live_snapshot_probe.py' -v
+      - name: Snapshot und Löschung prüfen
+        run: python tools/cloudflare_checks/ranking_live_snapshot_probe.py

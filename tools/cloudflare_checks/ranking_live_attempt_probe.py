@@ -53,7 +53,7 @@ def build_attempt(quiz, now):
             'answers': [{'id': ident, 'option': 0} for ident in ids]}, score
 
 
-def run(opener, token, username, now, pause=time.sleep):
+def run(opener, token, username, now, pause=time.sleep, on_recorded=None):
     # The read preflight happens before creating any test account.
     status, quiz = get(opener, '/quiz/today')
     if status == 404 and quiz.get('error') == 'Heute ist noch kein Quiz veröffentlicht.':
@@ -81,6 +81,8 @@ def run(opener, token, username, now, pause=time.sleep):
         if status != 200 or json.loads(raw) != {'date': attempt['date'], 'correct': expected,
                                                 'total': 50, 'payloadHash': payload_hash}:
             raise ProbeError('Ergebnis oder Abgabe-Hash nicht bestätigt')
+        if on_recorded is not None:
+            on_recorded(opener, username, expected)
     finally:
         # A failed/timed-out registration may still have reached the server.
         for i in range(3):
@@ -96,6 +98,7 @@ def run(opener, token, username, now, pause=time.sleep):
         if not cleanup_confirmed:
             print(f'::error::Testkontolöschung nicht bestätigt. Testname={username}; Token-SHA256={token_hash}. Verwaltung muss gezielt prüfen.')
             raise ProbeError('Testkontolöschung nicht bestätigt')
+        print('::notice::Löschbeleg für synthetisches Konto bestätigt.', flush=True)
     status, _, _ = call(opener, 'GET', '/participants/me', token)
     if status != 404:
         raise ProbeError('Kontolöschung nicht abschließend bestätigt')
