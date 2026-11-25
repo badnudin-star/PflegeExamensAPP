@@ -1,6 +1,12 @@
-name: Tagesquiz-Entwurf erstellen
+name: Tagesquiz erstellen und automatisch veröffentlichen
 on:
   workflow_dispatch:
+    inputs:
+      publish_today:
+        description: 'Heutiges Quiz ohne fachliche Prüfung veröffentlichen'
+        type: boolean
+        required: true
+        default: false
   schedule:
     - cron: '12 4 * * *'
 permissions:
@@ -11,6 +17,9 @@ concurrency:
 jobs:
   draft:
     runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.configured.outputs.ready }}
+      sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - name: Freigabe und Konfiguration prüfen
@@ -43,6 +52,10 @@ jobs:
           printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
           unset GOOGLE_CREDS
           python tools/daily_quiz/quiz_pipeline.py generate --folder "$LEARNING_DRIVE_FOLDER_ID" --model "$GEMINI_MODEL" --output "$RUNNER_TEMP/quiz-draft.json"
+      - name: Entwurfsprüfsumme festhalten
+        id: digest
+        if: steps.configured.outputs.ready == 'true'
+        run: echo "sha256=$(sha256sum "$RUNNER_TEMP/quiz-draft.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Offline-Prüfansicht erstellen
         if: steps.configured.outputs.ready == 'true'
         run: python tools/daily_quiz/review_sheet.py "$RUNNER_TEMP/quiz-draft.json" "$RUNNER_TEMP/quiz-review.html"
@@ -56,3 +69,30 @@ jobs:
             ${{ runner.temp }}/quiz-review.html
           if-no-files-found: error
           retention-days: 7
+  publish:
+    needs: draft
+    if: ${{ github.ref == 'refs/heads/main' && needs.draft.outputs.ready == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_today == true)) }}
+    concurrency:
+      group: learning-content-publication
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          name: tagesquiz-entwurf
+          path: ${{ runner.temp }}/quiz
+      - name: Abhängigkeiten installieren
+        run: pip install -r tools/learning_import/requirements.txt
+      - name: Heutiges Quiz ohne fachliche Prüfung veröffentlichen
+        env:
+          HASH: ${{ needs.draft.outputs.sha256 }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+        run: python tools/daily_quiz/publish_automatic.py --draft "$RUNNER_TEMP/quiz/quiz-draft.json" --sha256 "$HASH" --worker "$CONTENT_WORKER_ORIGIN"
