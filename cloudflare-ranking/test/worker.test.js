@@ -413,3 +413,52 @@ test('result receipt hashes exact UTF-8 bytes of winning request, not a later co
     assert.equal((await worker.fetch(request('GET',`/quiz/attempt/result?date=${day()}`,undefined,token),e)).status,503);
   } finally { globalThis.fetch=original; }
 });
+
+test('Python live attempt probe verifies synthetic Worker grading and deletion over loopback', {timeout:30000}, async () => {
+  const {createServer} = await import('node:http');
+  const {spawn} = await import('node:child_process');
+  const {once} = await import('node:events');
+  const {fileURLToPath} = await import('node:url');
+  const e = {...env(), QUIZ_CATALOG_TRANSPORT:'service',
+    QUIZ_CATALOG_SERVICE:{async fetch() { return new Response(JSON.stringify({schemaVersion:1,quizzes:questions()})); }}};
+  const allowed = new Set(['/quiz/today','/participants','/participants/me','/quiz/attempt','/quiz/attempt/result']);
+  const server = createServer(async (req,res) => {
+    try {
+      const url = new URL(req.url, 'https://rank.test');
+      if (!allowed.has(url.pathname)) { res.writeHead(404).end(); return; }
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = Buffer.concat(chunks);
+      const headers = {'CF-Connecting-IP':'192.0.2.1'};
+      for (const name of ['authorization','content-type','accept','user-agent'])
+        if (req.headers[name]) headers[name] = req.headers[name];
+      const request = new Request(url, {method:req.method,headers,...(body.length ? {body} : {})});
+      const response = await worker.fetch(request,e);
+      const outgoing = {};
+      for (const name of ['content-type','x-quiz-deletion-receipt'])
+        if (response.headers.has(name)) outgoing[name] = response.headers.get(name);
+      res.writeHead(response.status,outgoing);
+      res.end(Buffer.from(await response.arrayBuffer()));
+    } catch {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
+  });
+  try {
+    server.listen(0,'127.0.0.1');
+    await once(server,'listening');
+    const python = spawn('python3',[fileURLToPath(new URL('../fixtures/live-attempt-flow.py',import.meta.url)),String(server.address().port)],
+      {env:{PATH:process.env.PATH,PYTHONIOENCODING:'utf-8'},stdio:['ignore','pipe','pipe'],timeout:20000});
+    let stdout='', stderr='';
+    python.stdout.on('data', x => stdout += x);
+    python.stderr.on('data', x => stderr += x);
+    const [code] = await once(python,'close');
+    assert.equal(code,0,stderr);
+    assert.match(stdout,/synthetic live-attempt probe passed/);
+    assert.equal(e.DB.state.participants.length,0);
+    assert.equal(e.DB.state.attempts.length,0);
+    assert.equal(e.DB.state.deletedTokens.length,1);
+  } finally {
+    await new Promise((resolve,reject)=>server.close(error=>error ? reject(error) : resolve()));
+  }
+});

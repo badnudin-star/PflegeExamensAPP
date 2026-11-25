@@ -348,3 +348,51 @@ test('Miniflare rate-limit binding throttles repeated reads', {timeout:30000}, a
     assert.equal((await request(mf,'GET','/leaderboard')).status,429);
   } finally {await mf.dispose();}
 });
+
+test('Python live attempt probe exercises isolated Miniflare D1 through a loopback bridge', {timeout:30000}, async () => {
+  const {createServer} = await import('node:http');
+  const {spawn} = await import('node:child_process');
+  const {once} = await import('node:events');
+  const mf = runtime('ok', 1000, false, true);
+  let server;
+  try {
+    await sql(mf, statements(file('schema.sql')));
+    const allowed = new Set(['/quiz/today','/participants','/participants/me','/quiz/attempt','/quiz/attempt/result']);
+    server = createServer(async (req,res) => {
+      try {
+        const url = new URL(req.url,'https://ranking.test');
+        if (!allowed.has(url.pathname)) { res.writeHead(404).end(); return; }
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const body=Buffer.concat(chunks);
+        const headers={'CF-Connecting-IP':'192.0.2.1'};
+        for (const name of ['authorization','content-type','accept','user-agent'])
+          if (req.headers[name]) headers[name]=req.headers[name];
+        const response=await mf.dispatchFetch(url.toString(),{method:req.method,headers,...(body.length ? {body} : {})});
+        const outgoing={};
+        for (const name of ['content-type','x-quiz-deletion-receipt'])
+          if (response.headers.has(name)) outgoing[name]=response.headers.get(name);
+        res.writeHead(response.status,outgoing);
+        res.end(Buffer.from(await response.arrayBuffer()));
+      } catch {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      }
+    });
+    server.listen(0,'127.0.0.1');
+    await once(server,'listening');
+    const python=spawn('python3',[fileURLToPath(new URL('fixtures/live-attempt-flow.py',root)),String(server.address().port)],
+      {env:{PATH:process.env.PATH,PYTHONIOENCODING:'utf-8'},stdio:['ignore','pipe','pipe'],timeout:20000});
+    let stdout='', stderr='';
+    python.stdout.on('data',x=>stdout+=x);
+    python.stderr.on('data',x=>stderr+=x);
+    const [code]=await once(python,'close');
+    assert.equal(code,0,stderr);
+    assert.match(stdout,/synthetic live-attempt probe passed/);
+    const rows=await sql(mf,[{sql:'SELECT (SELECT count(*) FROM quiz_participants) AS participants, (SELECT count(*) FROM quiz_attempts) AS attempts, (SELECT count(*) FROM quiz_deleted_tokens) AS deleted'}]);
+    assert.deepEqual(rows[0].results[0],{participants:0,attempts:0,deleted:1});
+  } finally {
+    if (server) await new Promise((resolve,reject)=>server.close(error=>error ? reject(error) : resolve()));
+    await mf.dispose();
+  }
+});
