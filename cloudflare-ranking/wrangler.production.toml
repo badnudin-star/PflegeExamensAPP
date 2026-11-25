@@ -1,0 +1,43 @@
+# Explicitly provisioned dedicated ranking database. No secrets belong here.
+name = "pflege-examen-ranking"
+main = "src/worker.js"
+compatibility_date = "2025-11-01"
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = false
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+QUIZ_CATALOG_URL = "https://pflegeexamen-content.badnudin.workers.dev/content"
+QUIZ_CATALOG_TRANSPORT = "service"
+
+[[services]]
+binding = "QUIZ_CATALOG_SERVICE"
+service = "pflegeexamen-content"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pflegeexamen-ranking-prod"
+database_id = "f7dba2f6-722f-4086-af6a-a101dd4da996"
+
+# Approximate per-location rate limits; these do not cap global spending.
+[[ratelimits]]
+name = "REGISTRATION_RATE"
+namespace_id = "74751001"
+simple = { limit = 5, period = 60 }
+[[ratelimits]]
+name = "READ_RATE"
+namespace_id = "74751002"
+simple = { limit = 120, period = 60 }
+[[ratelimits]]
+name = "AUTH_RATE"
+namespace_id = "74751003"
+simple = { limit = 60, period = 60 }
+[[ratelimits]]
+name = "ACCOUNT_RATE"
+namespace_id = "74751004"
+simple = { limit = 20, period = 60 }
