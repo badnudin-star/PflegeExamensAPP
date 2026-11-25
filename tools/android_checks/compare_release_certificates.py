@@ -4,12 +4,14 @@ from pathlib import Path
 import re
 import sys
 
-PATTERN = re.compile(r'^Signer #(\d+) certificate SHA-256 digest: ([0-9a-fA-F]{64})$', re.MULTILINE)
+# SDK versions use either "Signer #1" or e.g. "V2 Signer:".
+PATTERN = re.compile(r'^(Signer #\d+|V[1-4] Signer:) certificate SHA-256 digest: ([0-9a-fA-F]{64})$', re.MULTILINE)
 
 def compare(previous, current):
     old = PATTERN.findall(Path(previous).read_text(encoding='utf-8'))
     new = PATTERN.findall(Path(current).read_text(encoding='utf-8'))
-    if len(old) != 1 or len(new) != 1 or old[0][0] != '1' or new[0][0] != '1':
+    valid_label = lambda s: s == 'Signer #1' or bool(re.fullmatch(r'V[1-4] Signer:', s))
+    if len(old) != 1 or len(new) != 1 or not valid_label(old[0][0]) or not valid_label(new[0][0]):
         raise ValueError(f'Signaturausgabe nicht eindeutig: alt={len(old)}, neu={len(new)}')
     # Certificate fingerprints are public, unlike signing keys or passwords.
     print('::notice title=Vorheriges öffentliches Signierzertifikat::' + old[0][1].lower())
