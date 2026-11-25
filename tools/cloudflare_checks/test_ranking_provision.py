@@ -41,7 +41,10 @@ class ProvisionTests(unittest.TestCase):
         opener = Opener(); run(ENV, opener)
         self.assertTrue(all(r.get_method() == 'GET' for r in opener.requests))
     def test_creation_is_confirmed_and_creates_only_exact_separate_name(self):
-        opener = Opener(); run({**ENV, 'RANKING_PROVISION_MODE':'create', 'RANKING_CONFIRM':'true'}, opener)
+        opener = Opener(); output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            run({**ENV, 'RANKING_PROVISION_MODE':'create', 'RANKING_CONFIRM':'true'}, opener)
+        self.assertIn('::notice title=Neue separate Ranking-D1::12345678-1234-1234-1234-123456789abc', output.getvalue())
         post = [r for r in opener.requests if r.get_method() == 'POST']
         self.assertEqual(len(post), 1)
         self.assertEqual(json.loads(post[0].data), {'name': NAME})
