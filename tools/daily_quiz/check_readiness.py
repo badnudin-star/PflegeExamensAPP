@@ -29,6 +29,7 @@ def main():
     lines = [
         '### Tagesquiz: schreibgeschützte Konfigurationsprüfung', '',
         f'- Generierungsschalter: {state}.',
+        '- Gemini-Kostenfreigabe: ' + ('selbst bestätigt' if os.environ.get('NO_BILLING_VERIFIED', '').strip() == 'true' else 'nicht bestätigt; Generierung pausiert') + '.',
         '- Es wurden keine Inhalte übertragen, keine Verbindungen getestet und keine Einstellungen geändert.',
     ]
     if hint:

@@ -27,6 +27,7 @@ jobs:
         id: configured
         env:
           ENABLED: ${{ vars.QUIZ_GENERATION_ENABLED }}
+          NO_BILLING_VERIFIED: ${{ vars.GEMINI_NO_BILLING_VERIFIED }}
           FOLDER: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
           MODEL: ${{ vars.GEMINI_MODEL }}
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
@@ -50,6 +51,7 @@ jobs:
         env:
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NO_BILLING_VERIFIED: ${{ vars.GEMINI_NO_BILLING_VERIFIED }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
         run: |

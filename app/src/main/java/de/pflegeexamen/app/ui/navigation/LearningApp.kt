@@ -74,6 +74,9 @@ import de.pflegeexamen.app.domain.notes.NoteHeading
 import de.pflegeexamen.app.domain.notes.NoteMatch
 import de.pflegeexamen.app.domain.notes.NoteSearchIndex
 import de.pflegeexamen.app.domain.notes.NoteSearchHit
+import de.pflegeexamen.app.domain.quiz.berlinQuizDay
+import de.pflegeexamen.app.domain.quiz.loadedQuizDayMessage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -829,6 +832,12 @@ private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, Strin
 internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openArchive: (() -> Unit)? = null,
     modifier: Modifier = Modifier, openNote: (Int, String) -> Unit) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
+    val today by produceState(initialValue = berlinQuizDay()) {
+        while (true) {
+            delay(60_000)
+            value = berlinQuizDay()
+        }
+    }
     var selectedDate by rememberSaveable(dates) { mutableStateOf(dates.firstOrNull()) }
     val quiz = remember(catalog.quizzes, selectedDate) { catalog.quizzes.filter { it.published == selectedDate }.sortedBy { it.id } }
     var session by remember(selectedDate, quiz, progress) { mutableStateOf(selectedDate?.let { progress.load(it, quiz) }) }
@@ -858,7 +867,10 @@ internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, o
         Text("Multiple-Choice-Quiz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Vier Antwortmöglichkeiten · eine Antwort ist richtig", style = MaterialTheme.typography.bodyMedium)
         Text("Dein Übungsfortschritt wird nur auf diesem Gerät gespeichert und nicht für die Rangliste gewertet.", style = MaterialTheme.typography.bodySmall)
-        if (openArchive != null) OutlinedButton(onClick = openArchive) { Text("Frühere Quiztage im Archiv") }
+        if (openArchive != null) {
+            Text(loadedQuizDayMessage(catalog.quizzes.map { it.published }, today), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = openArchive) { Text("Frühere Quiztage im Archiv") }
+        }
         if (dates.isNotEmpty()) {
             var menuOpen by remember { mutableStateOf(false) }
             Box {
@@ -869,10 +881,10 @@ internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, o
             }
         }
         val current = session
-        if (quiz.isEmpty() || current == null) Text("Noch keine Quizfragen veröffentlicht.")
+        if (quiz.isEmpty() || current == null) Text("Im geladenen Inhaltsstand sind keine Quizfragen enthalten.")
         else if (current.index >= quiz.size) {
             Text("Übung beendet: ${current.correctCount(quiz)} von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge)
-            Text("Eine Ranglistenwertung ist noch nicht eingerichtet.")
+            Text("Diese lokale Übung zählt nicht für die Rangliste.")
             if (!reviewing) {
                 val wrongCount = current.reviewIndices(quiz, onlyWrong = true).size
                 Button(onClick = { onlyWrong = false; reviewPosition = 0; reviewing = true; scope.launch { scroll.scrollTo(0) } }) {
@@ -1039,7 +1051,7 @@ private fun AppSettings(store: PublishedContentStore, back: () -> Unit) {
             OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Android-Bedienhilfen öffnen") }
             HorizontalDivider()
             Text("Datenschutz", style = MaterialTheme.typography.titleLarge)
-            Text("Für die spätere Rangliste ist eine gesonderte Einrichtung erforderlich. Bisher werden keine alten Lernpunkte übermittelt.")
+            Text("Die Rangliste ist freiwillig und nutzt einen separaten Zugang. Lokale Übungsfortschritte und frühere Lernpunkte werden nicht automatisch übertragen.")
             ProgressBackupNotice()
         }
     }

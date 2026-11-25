@@ -19,7 +19,7 @@ Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu 
 ## Verbindung und Rückmeldung
 
 - Flugmodus wieder ausschalten und in den Einstellungen die Aktualisierungsprüfung testen. Bei einem fehlgeschlagenen Abruf soll die vorhandene Offline-Kopie erhalten bleiben. Bei gesetzter oder anders konfigurierter Serveradresse können Ergebnisse abweichen.
-- Die Rangliste und die tägliche Quizgenerierung sind noch nicht für den Betrieb eingerichtet. Lokale Quizpunkte zählen nicht für ein Ranking.
+- Die Rangliste ist für die interne signierte App eingerichtet und freiwillig. Lokale Quizübungen zählen nicht für die Rangliste; eine gewertete Teilnahme erfolgt separat. Die automatische Gemini-Generierung ist bis zur bestätigten Kostenprüfung pausiert; ältere Fragen bleiben im geladenen Inhaltsstand verfügbar.
 - Für einen Fehler sind Android-Version, Gerätemodell, App-Version, genaue Schritte und das beobachtete Verhalten hilfreich. Screenshots können Lerninhalte oder persönliche Informationen enthalten; vor dem Teilen prüfen. Keine Zugangsdaten oder Schlüssel weitergeben.
 
 Ein einzelner Gerätetest ersetzt keine Tests auf weiteren Android-Versionen. Emulator-Tests mit synthetischen Daten prüfen nur ausgewählte Abläufe.

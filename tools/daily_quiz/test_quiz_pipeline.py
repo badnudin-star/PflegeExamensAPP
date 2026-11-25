@@ -22,6 +22,12 @@ class QuizTests(unittest.TestCase):
         from import_notes import topic_candidates
         index={name:{'name':name} for t in qp.select_topics(DATE) for name in topic_candidates(qp.TOPICS.index(t))[0]}
         return qp.create_draft(index,lambda f:SOURCE+' weiterer Text'*10,gen,DATE)
+    def test_generator_cli_requires_cost_confirmation_before_any_network(self):
+        with patch.dict('os.environ', {'NO_BILLING_VERIFIED': '', 'GEMINI_API_KEY': 'secret'}), \
+             patch.object(sys, 'argv', ['quiz_pipeline.py', 'generate', '--folder', 'folder', '--model', 'model', '--output', 'unused.json']):
+            with self.assertRaisesRegex(ValueError, 'keine Anfrage gesendet'):
+                qp.main()
+
     def test_draft_exactly_50_and_topics_rotate(self):
         d=self.draft();self.assertEqual(len(d['quizzes']),50)
         self.assertEqual(len({q['topic'] for q in d['quizzes']}),5)

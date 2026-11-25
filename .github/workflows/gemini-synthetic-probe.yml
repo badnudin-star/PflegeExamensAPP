@@ -53,6 +53,7 @@ jobs:
       - name: Zwei künstliche Anfragen ohne Nutzerdaten
         env:
           CONFIRMED: ${{ inputs.confirm }}
+          NO_BILLING_VERIFIED: ${{ vars.GEMINI_NO_BILLING_VERIFIED }}
           PROBE_PROFILE: ${{ inputs.profile }}
           PROBE_MODEL: ${{ inputs.model }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -863,11 +863,31 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Richtig").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Nächste Frage").performScrollTo().performClick()
         compose.onNodeWithText("Übung beendet: 1 von 2 richtig.").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Eine Ranglistenwertung ist noch nicht eingerichtet.").assertExists()
+        compose.onNodeWithText("Diese lokale Übung zählt nicht für die Rangliste.").assertExists()
         compose.onNodeWithText("1 falsch beantwortete Fragen ansehen").performScrollTo().performClick()
         compose.onNodeWithText("Erste Testfrage?").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Deine Antwort: Falsch eins").assertExists()
         compose.onNodeWithText("Richtige Antwort: Richtig eins").assertExists()
+    }
+
+    @Test fun localQuizReportsOnlyLoadedTodayAndOffersArchive() {
+        val memory = object : QuizProgressPersistence {
+            override fun load(date: String): String? = null
+            override fun save(date: String, value: String) { }
+            override fun remove(date: String) { }
+        }
+        val today = de.pflegeexamen.app.domain.quiz.berlinQuizDay().toString()
+        val question = PublishedQuiz("today", today, "Test", "Testfrage?", listOf("A", "B", "C", "D"), 0, "Erklärung", listOf("Test"))
+        val catalog = mutableStateOf(LearningCatalog())
+        var opened = false
+        compose.setContent {
+            PflegeExamenTheme { QuizScreen(catalog.value, QuizProgressStore(memory), openArchive = { opened = true }) { _, _ -> } }
+        }
+        compose.onNodeWithText("Für heute sind im geladenen Inhaltsstand keine Quizfragen enthalten.", substring = true).assertExists()
+        compose.onNodeWithText("Im geladenen Inhaltsstand sind keine Quizfragen enthalten.").assertExists()
+        compose.onNodeWithText("Frühere Quiztage im Archiv").performClick()
+        compose.runOnIdle { assertTrue(opened); catalog.value = LearningCatalog(quizzes = listOf(question)) }
+        compose.onNodeWithText("Heute im geladenen Inhaltsstand: 1 Frage.").assertExists()
     }
 
     @Test fun topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange() {
