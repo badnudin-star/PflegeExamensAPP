@@ -4,7 +4,7 @@ Android-Lernapp für die schriftliche Prüfung in der generalistischen Pflegeaus
 
 ## Lernen
 
-- **Lernzettel:** Pro Thema stehen die verfügbaren Bereiche „Neu“ und „Einfach“ bereit. Eine Volltextsuche führt zur ersten Fundstelle; Pfeile im Lernzettel wechseln zu weiteren Treffern. Die verwendeten PDF-Texte werden extern zugeordnet; Quellenangaben bleiben intern erhalten, werden aber nicht unter den Lernzetteln angezeigt.
+- **Lernzettel:** Pro Thema stehen die verfügbaren Bereiche „Neu“ und „Einfach“ bereit. Eine Suche führt zur ersten Fundstelle; Pfeile im Lernzettel wechseln zu weiteren Treffern. In der aufbereiteten Ansicht werden Quellenabschnitte ausgeblendet. Über „Vollständigen Text anzeigen“ ist der gesamte extrahierte Text einschließlich Quellen zugänglich; Bilder und das PDF-Layout werden dadurch nicht wiederhergestellt.
 - **Karteikarten:** Thematisch oder zufällig lernen; einzelne bekannte Karten lassen sich aus- und wieder einblenden. Die lokale Suche findet Karten nach Thema, Frage oder Antwort, ohne die Lösung in der Übersicht anzuzeigen. Beim Lernen werden nur passende sichtbare Karten verwendet.
 - **Fallbeispiele:** Nach Prüfungstag sortiert, mit Antworten direkt unter den jeweiligen Fragen zum Aufklappen.
 - **MC-Quiz:** Veröffentlichte Fragen können in der App lokal geübt werden. Der Fortschritt wird pro Quiz auf dem Gerät gespeichert und kann nach einer Unterbrechung fortgesetzt oder zurückgesetzt werden; bei geänderten Quizinhalten beginnt die Übung erneut. Der tägliche Ablauf ist auf Wunsch für die automatische Veröffentlichung von 50 KI-generierten Fragen ohne fachliche Prüfung vorgesehen; Fehler, Ausfälle und fachlich falsche Antworten sind möglich. Näheres unter [`tools/daily_quiz`](tools/daily_quiz/README.md).

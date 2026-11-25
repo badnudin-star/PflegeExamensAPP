@@ -12,7 +12,7 @@ Die laufende Synchronisation verwendet `QuellenExamen/Lernzettel/Schriftliches E
 - Worker, Datenbank und Token gemäß `cloudflare-content/README.md` betreiben. Der Inhaltsendpunkt ist öffentlich, nicht privat. Jede Veröffentlichung muss zur öffentlichen Verbreitung freigegeben sein.
 - Nach Änderungen Workflow `Lernzettel aktualisieren` manuell oder planmäßig ausführen. Es wird nur bei Änderungen mit Revisions- und Konfliktschutz veröffentlicht. Eine neue APK bauen und installieren; bestehende APKs ohne Inhaltsadresse erhalten keine Aktualisierungen.
 
-Tests: `python -m unittest discover -s tools/learning_import -v`. Neue PDF-Inhalte und Darstellung vor Weitergabe prüfen; insbesondere Textreihenfolge, Tabellen und eingebettete Abbildungen können bei der Extraktion verloren gehen.
+Tests: `python -m unittest discover -s tools/learning_import -v`. Der manuelle Workflow `Lernzettel schreibgeschützt abgleichen` vergleicht die aktuell ausgewählten PDFs mit beiden Textvarianten des veröffentlichten Katalogs, prüft die Quell-Checksummen und meldet erkannte PDF-Bilder sowie Seiten ohne Text. Er veröffentlicht nichts und gibt keine Lerninhalte aus. Auch bei übereinstimmendem Text sind Extraktionsreihenfolge, fachlicher Inhalt, Vektorgrafiken, Bildinhalte und Tabellen nicht vollständig geprüft. Neue PDF-Inhalte und Darstellung vor Weitergabe prüfen. Die App kann über „Vollständigen Text anzeigen“ auch zuvor ausgeblendete extrahierte Quellen anzeigen; sie rendert dabei weder die PDF-Originalseite noch deren Abbildungen.
 
 ## Offline-Katalog im lokalen Build aktualisieren
 

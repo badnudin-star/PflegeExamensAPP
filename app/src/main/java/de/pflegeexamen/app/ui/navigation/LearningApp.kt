@@ -323,14 +323,18 @@ private data class NoteJump(val blockIndex: Int, val offset: Int?, val sequence:
 @Composable
 internal fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
     openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit) {
-    val blocks = remember(body) { NotePresentation.blocks(body) }
+    var showFullText by rememberSaveable(body) { mutableStateOf(false) }
+    val blocks = remember(body, showFullText) {
+        if (showFullText) NotePresentation.fullTextBlocks(body) else NotePresentation.blocks(body)
+    }
     val headings = remember(blocks) { NotePresentation.headings(blocks) }
     var showContents by rememberSaveable(body) { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    var positioned by rememberSaveable(body, query) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var positioned by rememberSaveable(body, query, showFullText) { mutableStateOf(false) }
     val firstMatch = remember(blocks, query) { NotePresentation.nextMatch(blocks, query) }
-    var selectedBlock by rememberSaveable(body, query) { mutableIntStateOf(firstMatch?.blockIndex ?: -1) }
-    var selectedOffset by rememberSaveable(body, query) { mutableIntStateOf(firstMatch?.offset ?: -1) }
+    var selectedBlock by rememberSaveable(body, query, showFullText) { mutableIntStateOf(firstMatch?.blockIndex ?: -1) }
+    var selectedOffset by rememberSaveable(body, query, showFullText) { mutableIntStateOf(firstMatch?.offset ?: -1) }
     val selected = remember(blocks, query, selectedBlock, selectedOffset, firstMatch) {
         NoteMatch(selectedBlock, selectedOffset).takeIf { NotePresentation.isMatch(blocks, query, it) } ?: firstMatch
     }
@@ -338,10 +342,10 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
     val next = remember(blocks, query, selected) { selected?.let { NotePresentation.nextMatch(blocks, query, it) } }
     // Text layout offsets allow jumps to a particular occurrence inside a long paragraph.
     // Only composed items are retained, and pending jumps are cancelled by later choices.
-    val layouts = remember(body) { mutableStateMapOf<Int, TextLayoutResult>() }
+    val layouts = remember(body, showFullText) { mutableStateMapOf<Int, TextLayoutResult>() }
     val density = LocalDensity.current
-    var sequence by remember(body, query) { mutableIntStateOf(0) }
-    var jump by remember(body, query) { mutableStateOf<NoteJump?>(null) }
+    var sequence by remember(body, query, showFullText) { mutableIntStateOf(0) }
+    var jump by remember(body, query, showFullText) { mutableStateOf<NoteJump?>(null) }
     fun jumpTo(blockIndex: Int, offset: Int?) {
         sequence++
         jump = NoteJump(blockIndex, offset, sequence)
@@ -352,7 +356,7 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
         positioned = true
         jumpTo(match.blockIndex, match.offset)
     }
-    LaunchedEffect(body, query, firstMatch) {
+    LaunchedEffect(body, query, firstMatch, showFullText) {
         if (!positioned && firstMatch != null) jumpTo(firstMatch.blockIndex, firstMatch.offset)
     }
     LaunchedEffect(jump) {
@@ -406,6 +410,13 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
                         style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text("Inhalte und aktuelle Vorgaben vor der Anwendung prüfen.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = {
+                        showFullText = !showFullText
+                        scope.launch { listState.scrollToItem(0) }
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (showFullText) "Aufbereitete Ansicht" else "Vollständigen Text anzeigen")
+                    }
+                    if (showFullText) Text("Vollständiger extrahierter Text inklusive Quellen. Bilder und PDF-Layout sind nicht enthalten.", style = MaterialTheme.typography.bodySmall)
                     if (counts != null) {
                         if (counts.total == 0) {
                             Text("Für dieses Thema sind keine Karteikarten verfügbar.", style = MaterialTheme.typography.bodySmall)
