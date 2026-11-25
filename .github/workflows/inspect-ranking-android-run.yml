@@ -1,0 +1,48 @@
+name: Android-Ranglisten-Test diagnostizieren
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Actions-Laufnummer des Android-Ranglistentests'
+        type: string
+        required: true
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Testlauf und Ergebnisse prüfen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -eu
+          case "$RUN_ID" in *[!0-9]*|'') exit 1;; esac
+          gh run download "$RUN_ID" --name ranking-android-live-results --dir "$RUNNER_TEMP/results"
+          gh run view "$RUN_ID" --log > "$RUNNER_TEMP/log"
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root = Path(os.environ['RUNNER_TEMP'])
+          for path in (root / 'results').rglob('*.xml'):
+              for case in ET.parse(path).iter('testcase'):
+                  name = case.get('name', '')
+                  if not re.fullmatch('[A-Za-z0-9_]+', name): continue
+                  result = next((k for k in ('failure', 'error', 'skipped') if case.find(k) is not None), 'success')
+                  print(f'::notice title=Android-Test::{name}: {result}')
+                  if result in ('failure', 'error'):
+                      message = case.find(result).get('message', '')
+                      # Failures in this test contain fixed assertion text, no credentials.
+                      message = message.replace('%', '%25').replace('\n', ' ')[:500]
+                      print(f'::notice title=Testfehler::{message}')
+          for line in (root / 'log').read_text(errors='replace').splitlines():
+              match = re.search(r'(Synthetic account(?: deletion confirmed)?|Deletion unconfirmed): name=(Probe-[0-9a-f]{12}) tokenSHA256=([0-9a-f]{64})', line)
+              if match:
+                  print('::notice title=Synthetisches Testkonto::' + match.group(0))
+          PY
