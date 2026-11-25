@@ -19,6 +19,7 @@ apk/
 # Private study-note exports: never publish to this public repository.
 app/src/main/assets/private/
 __pycache__/
+/.venv/
 
 # Node.js dependencies and local Worker emulation state
 node_modules/
