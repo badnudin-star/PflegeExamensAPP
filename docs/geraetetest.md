@@ -24,6 +24,8 @@ Der Nutzer hat bestätigt, die App erfolgreich auf einem Smartphone getestet zu 
 
 Ein einzelner Gerätetest ersetzt keine Tests auf weiteren Android-Versionen. Emulator-Tests mit synthetischen Daten prüfen nur ausgewählte Abläufe.
 
+Der manuelle Workflow **„Signiertes App-Update im Emulator prüfen“** ist für einen Offline-Update-Test von 3.0.4 auf 3.0.5 vorbereitet. Er prüft Ursprung, Version und Signatur der beiden internen Artifacts, installiert 3.0.4 auf einem frischen Emulator, hinterlegt eine künstliche Kartenfortschrittsdatei und prüft nach `adb install -r` der 3.0.5, dass die Datei unverändert vorhanden ist. Dies prüft weder einen vollständigen echten Lernfortschritt noch das Update auf einem physischen Gerät. Die beiden zeitlich begrenzten Artifacts müssen noch vorhanden sein; der Test verwendet kein Nutzergerät und keine echten persönlichen Daten.
+
 
 ## Backup und Gerätewechsel
 
