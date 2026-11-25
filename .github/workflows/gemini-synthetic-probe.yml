@@ -17,6 +17,7 @@ on:
           - sizing
           - json-mode
           - plain-json
+          - api-version
         required: true
         default: basic
       model:
