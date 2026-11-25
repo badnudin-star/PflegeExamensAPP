@@ -1,0 +1,39 @@
+name: Vergangenes Quiz einmalig für heute kopieren
+on:
+  workflow_dispatch:
+    inputs:
+      source_date:
+        description: 'Datum des archivierten Quiz im Format JJJJ-MM-TT'
+        type: string
+        required: true
+      confirm:
+        description: 'Quizkopie ohne fachliche Prüfung für alle App-Nutzenden heute veröffentlichen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: learning-content-publication
+  cancel-in-progress: false
+jobs:
+  copy:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Abhängigkeiten installieren
+        run: pip install -r tools/learning_import/requirements.txt
+      - name: Archivtag ohne Überschreiben für heute veröffentlichen
+        env:
+          CONFIRMED: ${{ inputs.confirm }}
+          SOURCE_DATE: ${{ inputs.source_date }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+        run: python tools/daily_quiz/reuse_archived_quiz.py --source-date "$SOURCE_DATE" --worker "$CONTENT_WORKER_ORIGIN"
