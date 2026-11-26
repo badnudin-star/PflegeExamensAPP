@@ -71,3 +71,25 @@ test('Miniflare D1 journal accepts writes and prevents replacement or removal', 
     await assert.rejects(db.prepare('UPDATE deletion_journal SET recorded_at = 999').run());
   } finally {await mf.dispose();}
 });
+
+test('synthetic old snapshot plus separate journal excludes both completed and interrupted deletions', async () => {
+  const {db: journalDb, d1} = fixture();
+  const backup = new DatabaseSync(':memory:');
+  const restored = new DatabaseSync(':memory:');
+  try {
+    const schema = 'CREATE TABLE accounts(token_hash TEXT PRIMARY KEY, username TEXT NOT NULL);';
+    backup.exec(schema); restored.exec(schema);
+    const completed = '11'.repeat(32), interrupted = '22'.repeat(32), active = '33'.repeat(32);
+    for (const [hash, name] of [[completed, 'synthetic completed'], [interrupted, 'synthetic interrupted'], [active, 'synthetic active']])
+      backup.prepare('INSERT INTO accounts VALUES (?, ?)').run(hash, name);
+    // Simulate one completed deletion and one failure after journaling but before
+    // primary deletion. During a safe restore both must be excluded.
+    await recordDeletion(d1, completed, 10);
+    await recordDeletion(d1, interrupted, 20);
+    for (const row of backup.prepare('SELECT token_hash, username FROM accounts').all()) {
+      const blocked = journalDb.prepare('SELECT 1 FROM deletion_journal WHERE token_hash=?').get(row.token_hash);
+      if (!blocked) restored.prepare('INSERT INTO accounts VALUES (?, ?)').run(row.token_hash, row.username);
+    }
+    assert.deepEqual(restored.prepare('SELECT username FROM accounts').all().map(row => row.username), ['synthetic active']);
+  } finally {journalDb.close(); backup.close(); restored.close();}
+});
