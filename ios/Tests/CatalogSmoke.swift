@@ -3,7 +3,8 @@ import PDFKit
 
 @main
 struct CatalogSmoke {
-    static func main() throws {
+    static func main() async throws {
+        try await RankingAccountSmoke.run()
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
         let raw = try Data(contentsOf: url)
         let catalog = try Catalog.decode(raw)
