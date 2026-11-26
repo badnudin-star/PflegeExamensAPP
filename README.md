@@ -47,4 +47,4 @@ Ein manuell bestätigter GitHub-Actions-Build für eine signierte interne APK is
 
 ### Android- und iOS-Builds
 
-Anleitung für die bestehende signierte Android-APK, den alternativen Vertrieb mit AltStore Classic und die **noch nicht auf einem iPhone getestete iOS-Vorschau**: [Android und iOS: Build und Verteilung](docs/android-ios-builds.md).
+Anleitung für die bestehende signierte Android-APK, den alternativen Vertrieb mit SideStore und die **noch nicht auf einem iPhone getestete iOS-Vorschau**: [Android und iOS: Build und Verteilung](docs/android-ios-builds.md).

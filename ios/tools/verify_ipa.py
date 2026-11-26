@@ -45,4 +45,4 @@ if __name__ == '__main__':
     info, catalog = verify(sys.argv[1])
     print(f"Nicht signierte iPhone-Vorschau {info['CFBundleShortVersionString']} "
           f"(Build {info['CFBundleVersion']}), Katalogrevision {catalog['revision']}. "
-          'Format geprüft; Installation mit AltStore noch nicht getestet.')
+          'Format geprüft; Installation mit SideStore noch nicht getestet.')

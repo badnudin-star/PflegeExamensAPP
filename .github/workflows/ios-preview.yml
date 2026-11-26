@@ -33,7 +33,11 @@ jobs:
           cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
       - name: Katalog einlesen und ungültiges Schema ablehnen
         run: |
-          swiftc ios/PflegeExamen/Catalog.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke"
+          set -o pipefail
+          swiftc ios/PflegeExamen/Catalog.swift ios/PflegeExamen/CatalogStore.swift ios/PflegeExamen/ProgressStore.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke" 2>&1 | tee "$RUNNER_TEMP/swift-smoke.log" || {
+            python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); print("::error title=Swift test build::" + " | ".join(lines[-12:]).replace("%", "%25"))' "$RUNNER_TEMP/swift-smoke.log"
+            exit 1
+          }
           "$RUNNER_TEMP/catalog-smoke" ios/PflegeExamen/learning_content.json
       - name: Vorschau für iOS-Simulator bauen
         run: |
@@ -63,7 +67,7 @@ jobs:
           retention-days: 7
 
   iphone-ipa:
-    name: Nicht signierte iPhone-IPA-Vorschau für AltStore Classic
+    name: Nicht signierte iPhone-IPA-Vorschau für SideStore
     runs-on: macos-15
     timeout-minutes: 25
     steps:
@@ -87,12 +91,12 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/ios-device/Build/Products/Release-iphoneos/PflegeExamen.app" "$RUNNER_TEMP/Payload/"
-          ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
-          python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
-          shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
+          ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
+          python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
+          shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
       - uses: actions/upload-artifact@v7
         with:
-          name: PflegeExamen-iOS-Classic-IPA-Vorschau-UNSIGNIERT
-          path: ${{ runner.temp }}/PflegeExamen-iOS-Classic-Vorschau.ipa
+          name: PflegeExamen-iOS-SideStore-IPA-Vorschau-UNSIGNIERT
+          path: ${{ runner.temp }}/PflegeExamen-iOS-SideStore-Vorschau.ipa
           if-no-files-found: error
           retention-days: 7
