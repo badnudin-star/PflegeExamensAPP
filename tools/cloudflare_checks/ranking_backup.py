@@ -113,7 +113,19 @@ def capture(opener, base, token, source_id, source_name):
             raise PreflightError('invalid query')
         return result[0]['results']
     objects = rows(OBJECT_SQL)
-    if {(row['type'],row['name']) for row in objects} != OBJECTS: raise PreflightError('schema mismatch')
+    names = {(row['type'],row['name']) for row in objects}
+    guarded = OBJECTS | {('table','quiz_journal_delete_permits'), ('trigger','quiz_participant_requires_journal_permit')}
+    if names == guarded:
+        # Keep existing format-1 backups readable; only accept the exact reviewed
+        # guard schema and an empty transient permit table for new captures.
+        from ranking_journal_backfill import expected_schema
+        schema = rows("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,7) != 'sqlite_' AND substr(name,1,4) != '_cf_' ORDER BY type,name")
+        if [(row['type'],row['name'],row['sql']) for row in schema] != expected_schema(True):
+            raise PreflightError('guard schema mismatch')
+        if rows('SELECT COUNT(*) AS n FROM quiz_journal_delete_permits') != [{'n':0}]:
+            raise PreflightError('outstanding deletion permit')
+    elif names != OBJECTS:
+        raise PreflightError('schema mismatch')
     result = rows(snapshot_query())
     if len(result)!=1 or not isinstance(result[0],dict) or set(result[0]) != {*FIELDS,'generation'}:
         raise PreflightError('invalid snapshot')

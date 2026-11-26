@@ -1,0 +1,96 @@
+import Foundation
+import Combine
+
+struct RankingEntry: Decodable, Identifiable {
+    let rank: Int
+    let username: String
+    let points: Int
+    let quizzes: Int
+    var id: Int { rank }
+}
+struct RankingSnapshot: Decodable {
+    let generatedAtMillis: Int64
+    let nextUpdateAtMillis: Int64
+    let totalParticipants: Int
+    let entries: [RankingEntry]
+    static func decode(_ data: Data) throws -> RankingSnapshot {
+        guard data.count <= 128 * 1024 else { throw CatalogError.invalid }
+        let snapshot = try JSONDecoder().decode(RankingSnapshot.self, from: data)
+        guard snapshot.generatedAtMillis > 0, snapshot.generatedAtMillis <= 253_402_300_799_999,
+              snapshot.nextUpdateAtMillis > snapshot.generatedAtMillis,
+              snapshot.nextUpdateAtMillis - snapshot.generatedAtMillis <= 3_600_000,
+              snapshot.entries.count <= 100, snapshot.totalParticipants >= snapshot.entries.count else { throw CatalogError.invalid }
+        for (index, entry) in snapshot.entries.enumerated() {
+            guard entry.rank == index + 1, !entry.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  entry.username.utf16.count <= 24,
+                  entry.username.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
+                  entry.quizzes > 0, entry.quizzes <= Int.max / 50,
+                  entry.points >= 0, entry.points <= entry.quizzes * 50,
+                  index == 0 || snapshot.entries[index - 1].points >= entry.points else { throw CatalogError.invalid }
+        }
+        return snapshot
+    }
+}
+
+// Read-only. No token, registration, score, answer or retry is ever sent.
+final class RankingStore: ObservableObject {
+    @Published private(set) var snapshot: RankingSnapshot?
+    @Published private(set) var loading = false
+    @Published private(set) var error = false
+    private var fetcher: LimitedCatalogFetch?
+    func load() {
+        guard !loading else { return }
+        loading = true; error = false
+        let fetch = LimitedCatalogFetch(endpoint: .leaderboard) { [weak self] result in
+            guard let self = self else { return }
+            defer { self.loading = false; self.fetcher = nil }
+            do { self.snapshot = try RankingSnapshot.decode(result.get()) }
+            catch { self.error = true }
+        }
+        fetcher = fetch; fetch.start()
+    }
+}
+
+// Public daily ranked quiz: the fingerprint is an opaque server version, not a
+// locally verified hash. This parser and endpoint are not yet connected to UI.
+struct RankedQuizQuestion: Decodable, Identifiable {
+    let id: String
+    let topic: String
+    let question: String
+    let options: [String]
+    let correctIndex: Int
+    let explanation: String
+}
+struct RankedQuizPayload: Decodable {
+    let date: String
+    let fingerprint: String
+    let questions: [RankedQuizQuestion]
+    static func decode(_ raw: Data) throws -> RankedQuizPayload {
+        guard raw.count <= 1024 * 1024 else { throw CatalogError.invalid }
+        let quiz = try JSONDecoder().decode(RankedQuizPayload.self, from: raw)
+        try quiz.validate()
+        return quiz
+    }
+    func validate() throws {
+        func text(_ value: String) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard validArchiveDate(date), validRankingHash(fingerprint), questions.count == 50,
+              Set(questions.map(\.id)).count == 50,
+              questions.allSatisfy({ question in
+                  text(question.id) && question.id.utf16.count <= 200 &&
+                  question.id.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) } &&
+                  text(question.topic) && text(question.question) && text(question.explanation) &&
+                  question.options.count == 4 && question.options.allSatisfy(text) &&
+                  Set(question.options).count == 4 && (0...3).contains(question.correctIndex)
+              }) else { throw CatalogError.invalid }
+    }
+}
+
+struct HTTPSRankedQuizFetcher: RankedQuizFetching {
+    func load() async throws -> RankedQuizPayload {
+        let raw: Data = try await withCheckedThrowingContinuation { continuation in
+            let fetcher = LimitedCatalogFetch(endpoint: .rankedToday) { result in continuation.resume(with: result) }
+            fetcher.start()
+        }
+        return try RankedQuizPayload.decode(raw)
+    }
+}

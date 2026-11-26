@@ -1,4 +1,5 @@
 import copy
+from unittest.mock import patch
 import sys
 import tempfile
 import unittest
@@ -32,6 +33,27 @@ class CardImportTest(unittest.TestCase):
         self.assertEqual([c['topic'] for c in cards], [t[1] for t in importer.TOPICS])
         self.assertEqual(cards[0]['id'], 'card-01-001')
         self.assertIn('Quelle S. 1', cards[0]['sources'])
+
+    def test_drive_snapshot_imports_real_workbooks_and_keeps_existing_ids(self):
+        from openpyxl import load_workbook
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'learning_import'))
+        from sync_practice import import_practice
+        original = importer.read_cards(self.paths)
+        name = next(iter(self.paths))
+        book = load_workbook(self.paths[name])
+        book.worksheets[1]['C3'] = 'Korrigierte Antwort'
+        book.worksheets[1].append([2, 'Neue Frage?', 'Neue Antwort.', 'Quelle S. 2'])
+        book.save(self.paths[name])
+        files = [{'name': name} for name in self.paths]
+        base = {'cards': original, 'cases': [], 'notes': [], 'quizzes': []}
+        with patch('sync_practice.inventory', return_value=files), \
+             patch('sync_practice.download', side_effect=lambda drive, f: self.paths[f['name']].read_bytes()):
+            result = import_practice(base, object(), 'cards')
+        by_id = {card['id']: card for card in result['cards']}
+        self.assertEqual(by_id['card-01-001']['back'], 'Korrigierte Antwort')
+        self.assertEqual(by_id['card-01-002']['front'], 'Neue Frage?')
+        self.assertTrue({c['id'] for c in original}.issubset(by_id))
+        self.assertEqual(base['cards'][0]['back'], 'Antwort.')
 
     def test_missing_and_wrong_heading_are_rejected(self):
         from openpyxl import load_workbook

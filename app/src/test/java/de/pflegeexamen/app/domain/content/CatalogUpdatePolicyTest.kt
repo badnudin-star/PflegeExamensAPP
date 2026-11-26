@@ -48,6 +48,20 @@ class CatalogUpdatePolicyTest {
         assertEquals(RefreshDecision.UPDATE, CatalogUpdatePolicy.decideRefresh(base, base.copy(revision = 6)))
     }
 
+    @Test fun `higher revision accepts updated cards and cases without changing identities`() {
+        val updated = base.copy(
+            revision = 6,
+            cards = listOf(base.cards[0].copy(front = "Neue Frage", back = "Neue Antwort")),
+            cases = listOf(base.cases[0].copy(text = "Neue Fallsituation", questions = listOf(
+                base.cases[0].questions[0].copy(answer = "Neue Musterlösung")
+            )))
+        )
+        assertEquals(RefreshDecision.UPDATE, CatalogUpdatePolicy.decideRefresh(base, updated))
+        assertTrue(CatalogUpdatePolicy.canUseAtStartup(base, updated))
+        assertEquals("Neue Antwort", updated.cards[0].back)
+        assertEquals("Neue Musterlösung", updated.cases[0].questions[0].answer)
+    }
+
     @Test fun `policy checks identity not medical correctness or text equality`() {
         val corrected = base.copy(revision = 6, cards = listOf(base.cards[0].copy(back = "anderer Text")))
         assertTrue(CatalogUpdatePolicy.canRefresh(base, corrected))

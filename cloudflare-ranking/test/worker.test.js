@@ -27,6 +27,7 @@ function database() {
         if (args[2] !== state.generation || (state.snapshot !== null && state.snapshotTime >= args[1])) return {meta:{changes:0}};
         state.snapshot=args[0]; state.snapshotTime=args[1]; return {meta:{changes:1}};
       }
+      if (sql.includes('INSERT INTO quiz_journal_delete_permits') || sql.includes('DELETE FROM quiz_journal_delete_permits')) return {meta:{changes:1}};
       if (sql.includes('DELETE FROM quiz_attempt_closures')) { for (let i=closures.length-1; i>=0; i--) if (closures[i].id===args[0]) closures.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_attempts')) { for (let i=attempts.length-1; i>=0; i--) if (attempts[i].id===args[0]) attempts.splice(i,1); return {meta:{changes:1}}; }
       if (sql.includes('DELETE FROM quiz_participants')) { for (let i=participants.length-1; i>=0; i--) if (participants[i].id===args[0]) { deletedTokens.push(participants[i].hash); participants.splice(i,1); } return {meta:{changes:1}}; }
@@ -63,7 +64,14 @@ function request(method, path, data, token) {
 }
 function env() {
   const allowed = {async limit() {return {success:true};}};
-  return {DB:database(), QUIZ_CATALOG_URL:'https://catalog.test/content',
+  const rows = new Map();
+  const journal = {rows, prepare(sql) {
+    let args = [];
+    return {bind(...values) {args=values; return this;},
+      async run() {if (!rows.has(args[0])) rows.set(args[0], args[1]); return {success:true};},
+      async first() {return rows.has(args[0]) ? {token_hash:args[0], recorded_at:rows.get(args[0])} : null;}};
+  }};
+  return {DB:database(), DELETION_JOURNAL:journal, QUIZ_CATALOG_URL:'https://catalog.test/content',
     REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
 }
 const answerSet = questions => questions.map((q,i)=>({id:q.id, option:i%4}));

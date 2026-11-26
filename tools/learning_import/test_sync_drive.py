@@ -71,6 +71,38 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(update['cards'],remote['cards'])
         self.assertEqual(update['revision'],3)
         self.assertEqual(http.puts[0][1]['headers']['If-Match'],'2')
+    def test_practice_only_change_publishes_and_preserves_other_sections(self):
+        first = Http(); self.run_sync(first)
+        remote = json.loads(first.puts[0][1]['data'])
+        card = {'id':'card-01-001', 'topic':remote['notes'][0]['topic'], 'front':'Frage', 'back':'Antwort', 'sources':['Quelle']}
+        remote['cards'] = [card]
+        http = Http(remote)
+        def update(candidate, drive, cards_folder, cases_folder):
+            self.assertEqual(cards_folder, 'cards')
+            candidate['cards'] = [dict(card, back='Korrigiert')]
+            return candidate
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'), patch('sync_drive.import_practice', side_effect=update):
+            self.assertEqual(sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN, 'cards'), 'published')
+        sent = json.loads(http.puts[0][1]['data'])
+        self.assertEqual(sent['cards'][0]['back'], 'Korrigiert')
+        self.assertEqual(sent['quizzes'], remote['quizzes'])
+        self.assertEqual(sent['revision'], remote['revision'] + 1)
+        self.assertEqual(http.puts[0][1]['headers']['If-Match'], str(remote['revision']))
+
+    def test_read_only_check_exercises_import_without_put_for_changes_or_no_changes(self):
+        http = Http()
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'):
+            result = sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN, check_only=True)
+        self.assertEqual(result, 'checked-changed')
+        self.assertEqual(http.puts, [])
+        first = Http(); self.run_sync(first)
+        remote = json.loads(first.puts[0][1]['data'])
+        http = Http(remote)
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=lambda _, f: f['name'] + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'):
+            result = sync(http, 'https://worker.example', BUNDLED, 'folder', object(), TOKEN, check_only=True)
+        self.assertEqual(result, 'checked-unchanged')
+        self.assertEqual(http.puts, [])
+
     def test_parallel_update_and_invalid_source_abort(self):
         http=Http(None,409)
         with self.assertRaisesRegex(ValueError,'parallel'): self.run_sync(http)

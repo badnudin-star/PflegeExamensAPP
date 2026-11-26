@@ -48,6 +48,17 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(api.paths[-1],('/d1/database/'+SOURCE+'/query','POST'))
         self.assertNotIn('secret', str(data))
 
+    def test_guarded_schema_keeps_format_and_rejects_outstanding_permit(self):
+        from ranking_journal_backfill import GUARD
+        api=FakeApi(); api.db.executescript(GUARD.read_text())
+        with patch.object(backup,'request',side_effect=api.call):
+            data=backup.capture(None,'base','secret',SOURCE,NAME)
+        self.assertEqual(data['participants'],fixture()['participants'])
+        self.assertEqual(backup.validate(fixture(),SOURCE,NAME),fixture())
+        api.db.execute('INSERT INTO quiz_journal_delete_permits VALUES (?)', ('d'*64,))
+        with patch.object(backup,'request',side_effect=api.call), self.assertRaises(PreflightError):
+            backup.capture(None,'base','secret',SOURCE,NAME)
+
     def test_conflicting_or_inconsistent_rows_rejected(self):
         for change in ('deleted_live','orphan','bad_hash','same_day_closure','bad_number','bad_date'):
             data=copy.deepcopy(fixture())

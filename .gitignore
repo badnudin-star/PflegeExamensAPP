@@ -24,3 +24,9 @@ __pycache__/
 # Node.js dependencies and local Worker emulation state
 node_modules/
 .wrangler/
+
+# Generated validated catalog for the iOS preview; sourced from the public Android snapshot.
+ios/PflegeExamen/learning_content.json
+
+# Build-generated iOS PDF resources, never commit Drive PDFs.
+ios/PflegeExamen/note_pdfs/

@@ -1,0 +1,66 @@
+name: iPhone-Vorschau mit Original-PDFs bauen
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Geprüften main-Stand mit den passenden Original-PDFs als nicht signierte Test-IPA bauen
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  device:
+    # Never expose Drive credentials to PR code or an unreviewed branch.
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    environment: internal-release
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Katalog und PDF-Abhängigkeiten vorbereiten
+        run: |
+          python -m pip install -r tools/learning_import/requirements.txt
+          python tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
+          cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
+      - name: Passende PDFs aus Drive prüfen und einbinden
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+        run: |
+          set -eu
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/ios-drive-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/learning_import/bundle_note_pdfs.py
+          cp -R app/src/main/assets/private/note_pdfs ios/PflegeExamen/note_pdfs
+      - name: iPhone-IPA bauen und prüfen
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/PflegeExamen.xcodeproj -scheme PflegeExamen -configuration Release \
+            -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/ios-device" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/xcode-device.log" || {
+              python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); matches=[x for x in lines if "error:" in x.lower()]; print("::error title=iPhone build::" + (" | ".join(matches[-8:]) or "Build failed; see job log").replace("%", "%25"))' "$RUNNER_TEMP/xcode-device.log"
+              exit 1
+          }
+          mkdir "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/ios-device/Build/Products/Release-iphoneos/PflegeExamen.app" "$RUNNER_TEMP/Payload/"
+          ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa"
+          python ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa" ios/PflegeExamen/note_pdfs
+          shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PflegeExamen-iOS-SideStore-PDF-Vorschau-UNSIGNIERT
+          path: ${{ runner.temp }}/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa
+          if-no-files-found: error
+          retention-days: 7

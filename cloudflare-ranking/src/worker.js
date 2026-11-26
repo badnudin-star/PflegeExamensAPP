@@ -1,4 +1,5 @@
 // Draft quiz-only ranking. No client-submitted XP, streak or direct score is accepted.
+import {recordDeletion} from './deletion-journal.js';
 const HOUR = 60 * 60 * 1000;
 const MAX_BODY = 64 * 1024;
 const MAX_CATALOG = 8 * 1024 * 1024;
@@ -209,25 +210,34 @@ export default {
       if (request.method === 'DELETE' && path === '/participants/me') {
         const token = bearer(request);
         if (!token) return json({error:'Nicht autorisiert.'}, 401);
+        const tokenHash = await digest(token);
         const user = await participant(request, env);
         if (!user) {
-          // Only a durable deletion barrier confirms a prior deletion. An unknown
-          // token could still have a registration in flight and is NOT a receipt.
-          const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(await digest(token)).first();
-          return deleted ? deletedReceipt() : json({error:'Nicht autorisiert.'}, 401);
+          // Unknown tokens must not create journal entries or receive receipts.
+          const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(tokenHash).first();
+          if (!deleted) return json({error:'Nicht autorisiert.'}, 401);
+          // Retries for older deletions also require a verified journal entry.
+          await recordDeletion(env.DELETION_JOURNAL, tokenHash);
+          return deletedReceipt();
         }
+        // Never acknowledge or start a primary deletion before the separate
+        // journal is durably written and read back. If the subsequent batch
+        // fails, the conservative journal entry remains and retry is safe.
+        await recordDeletion(env.DELETION_JOURNAL, tokenHash);
         // The participant DELETE trigger writes a permanent barrier within this
         // D1 transaction. It also protects old worker versions during rollout.
         // Invalidate the snapshot and advance its generation atomically.
         await env.DB.batch([
+          env.DB.prepare('INSERT INTO quiz_journal_delete_permits(token_hash) VALUES (?)').bind(tokenHash),
           env.DB.prepare('DELETE FROM quiz_attempts WHERE participant_id = ?').bind(user.id),
           env.DB.prepare('DELETE FROM quiz_attempt_closures WHERE participant_id = ?').bind(user.id),
           env.DB.prepare('DELETE FROM quiz_participants WHERE id = ?').bind(user.id),
+          env.DB.prepare('DELETE FROM quiz_journal_delete_permits WHERE token_hash = ?').bind(tokenHash),
           env.DB.prepare('DELETE FROM quiz_hourly_snapshot WHERE id = 1'),
           env.DB.prepare('UPDATE quiz_snapshot_generation SET generation = generation + 1 WHERE id = 1')
         ]);
         // Verify the required migration/trigger before promising a durable receipt.
-        const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(await digest(token)).first();
+        const deleted = await env.DB.prepare('SELECT token_hash FROM quiz_deleted_tokens WHERE token_hash = ?').bind(tokenHash).first();
         if (!deleted) throw new Error('missing deletion barrier');
         return deletedReceipt();
       }
