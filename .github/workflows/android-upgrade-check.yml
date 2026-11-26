@@ -12,7 +12,7 @@ permissions:
   actions: read
 jobs:
   upgrade:
-    if: ${{ inputs.confirm == true }}
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

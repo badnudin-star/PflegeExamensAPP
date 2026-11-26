@@ -16,8 +16,11 @@ class UpgradeWorkflowTests(unittest.TestCase):
         self.assertIn('internal-release.yml', workflow)
         self.assertIn('.conclusion == "success"', workflow)
         self.assertIn('compare_release_certificates.py', workflow)
-        self.assertIn('versionCode=\'15\' versionName=\'3.0.4\'', workflow)
-        self.assertIn('versionCode=\'16\' versionName=\'3.0.5\'', workflow)
+        self.assertIn('versionCode=\'17\' versionName=\'3.0.6\'', workflow)
+        self.assertIn('versionCode=\'19\' versionName=\'3.0.8\'', workflow)
+        self.assertIn('gh release download v3.0.8', workflow)
+        self.assertIn('cmp "$RUNNER_TEMP/new-apk/app-release.apk" "$RUNNER_TEMP/public-apk/PflegeExamen-vc19.apk"', workflow)
+        self.assertIn('script: bash tools/android_checks/upgrade_smoke.sh "$RUNNER_TEMP/old-apk/app-release.apk" "$RUNNER_TEMP/public-apk/PflegeExamen-vc19.apk"', workflow)
         self.assertNotIn('secrets.', workflow)
 
     def test_script_is_shell_valid_and_restricts_to_emulator(self):
