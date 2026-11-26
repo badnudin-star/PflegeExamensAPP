@@ -19,6 +19,10 @@ android {
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && uri.query == null && uri.path == "/content"
     }.getOrDefault(false)) { "contentUrl muss eine öffentliche HTTPS-URL mit Pfad /content sein." }
 
+    // Only explicitly enabled for the signed public distribution; no custom update host.
+    val enableAppUpdates = providers.gradleProperty("enableAppUpdates").orElse("false").get()
+    require(enableAppUpdates == "true" || enableAppUpdates == "false") { "enableAppUpdates muss true oder false sein." }
+
     // Build-time switches only, never user settings. Participation is experimental and off by default.
     val enableRankedParticipation = providers.gradleProperty("enableRankedParticipation").orElse("false").get()
     require(enableRankedParticipation == "true" || enableRankedParticipation == "false") { "enableRankedParticipation muss true oder false sein." }
@@ -36,8 +40,9 @@ android {
         buildConfigField("String", "CONTENT_URL", "\"$contentUrl\"")
         buildConfigField("String", "RANKING_URL", "\"$rankingUrl\"")
         buildConfigField("boolean", "ENABLE_RANKED_PARTICIPATION", enableRankedParticipation)
-        versionCode = 18
-        versionName = "3.0.7"
+        buildConfigField("boolean", "ENABLE_APP_UPDATES", enableAppUpdates)
+        versionCode = 19
+        versionName = "3.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

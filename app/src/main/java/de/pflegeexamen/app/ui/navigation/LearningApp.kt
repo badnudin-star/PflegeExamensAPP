@@ -1063,6 +1063,12 @@ private fun AppSettings(store: PublishedContentStore, back: () -> Unit) {
                     ContentRefreshResult.UNAVAILABLE -> "Die Prüfung oder das Speichern war nicht möglich. Der Offline-Stand bleibt erhalten. Bitte später erneut versuchen."
                 }, style = MaterialTheme.typography.bodyMedium)
             }
+            if (BuildConfig.ENABLE_APP_UPDATES) {
+                (context.applicationContext as? de.pflegeexamen.app.PflegeExamenApp)?.let { app ->
+                    HorizontalDivider()
+                    AppUpdateSettings(app.appUpdates)
+                }
+            }
             HorizontalDivider()
             Text("Darstellung & Bedienung", style = MaterialTheme.typography.titleLarge)
             Text("Schriftgröße, Kontrast und weitere Bedienhilfen kannst du in den Android-Einstellungen ändern.")
