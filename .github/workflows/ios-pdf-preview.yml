@@ -56,7 +56,7 @@ jobs:
           mkdir "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/ios-device/Build/Products/Release-iphoneos/PflegeExamen.app" "$RUNNER_TEMP/Payload/"
           ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa"
-          python ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa"
+          python ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa" ios/PflegeExamen/note_pdfs
           shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-PDF-Vorschau.ipa"
       - uses: actions/upload-artifact@v7
         with:

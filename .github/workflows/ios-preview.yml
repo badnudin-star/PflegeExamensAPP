@@ -80,8 +80,16 @@ jobs:
         run: |
           python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
           cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
-          mkdir -p ios/PflegeExamen/note_pdfs
-          echo '{}' > ios/PflegeExamen/note_pdfs/manifest.json
+      - name: Öffentliche Original-PDFs prüfen und einbinden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pdf-env"
+          "$RUNNER_TEMP/pdf-env/bin/pip" install 'pypdf>=5,<7'
+          gh release download v3.0.8 --repo badnudin-star/PflegeExamensAPP \
+            --pattern PflegeExamen-vc19.apk --dir "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pdf-env/bin/python" ios/tools/bundle_public_apk_pdfs.py \
+            "$RUNNER_TEMP/PflegeExamen-vc19.apk" ios/PflegeExamen/learning_content.json ios/PflegeExamen/note_pdfs
       - name: Vorschau für iPhone-Geräte bauen (ohne Signatur)
         run: |
           set -o pipefail
@@ -96,7 +104,7 @@ jobs:
           mkdir "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/ios-device/Build/Products/Release-iphoneos/PflegeExamen.app" "$RUNNER_TEMP/Payload/"
           ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
-          python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
+          python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa" ios/PflegeExamen/note_pdfs
           shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
           # Synthetic URLs: validate source generation only; never upload or publish this draft.
           python3 ios/tools/make_sidestore_source.py --ipa "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa" \

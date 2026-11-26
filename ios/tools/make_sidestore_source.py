@@ -59,7 +59,7 @@ def make_source(ipa, download_url, icon_url, date):
         'apps': [{
             'name': 'PflegeExamen Vorschau', 'bundleIdentifier': info['CFBundleIdentifier'],
             'developerName': 'PflegeExamen', 'subtitle': 'Technische iPhone-Vorschau',
-            'localizedDescription': 'Unvollständige Vorschau. Ranglistenteilnahme und Gerätetest fehlen; Original-PDFs nur im speziell gebündelten Build.',
+            'localizedDescription': 'Unvollständige Vorschau. Ranglistenteilnahme und Gerätetest fehlen; Original-PDFs nur bei übereinstimmendem Inhalt.',
             'iconURL': icon_url, 'tintColor': '0E6B6E',
             'versions': [{'version': version, 'buildVersion': build, 'date': date,
                           'localizedDescription': 'Nicht auf einem iPhone getestete Vorschau.',

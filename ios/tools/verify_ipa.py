@@ -11,7 +11,7 @@ APP = 'Payload/PflegeExamen.app/'
 MAX_FILE = 20 * 1024 * 1024
 
 
-def verify(path):
+def verify(path, pdf_directory=None):
     with zipfile.ZipFile(path) as archive:
         files = archive.infolist()
         names = [entry.filename for entry in files]
@@ -38,11 +38,22 @@ def verify(path):
         catalog = json.loads(archive.read(APP + 'learning_content.json'))
         if catalog.get('schemaVersion') != 1 or not catalog.get('notes'):
             raise ValueError('Offline-Katalog fehlt oder ist ungültig')
+        if pdf_directory is not None:
+            from pathlib import Path
+            directory = Path(pdf_directory)
+            expected = {item.name for item in directory.iterdir() if item.is_file()}
+            prefix = APP + 'note_pdfs/'
+            actual = {name[len(prefix):] for name in names if name.startswith(prefix) and not name.endswith('/')}
+            if not expected or actual != expected or 'manifest.json' not in expected:
+                raise ValueError('IPA-PDF-Verzeichnis unvollständig')
+            for name in expected:
+                if archive.read(prefix + name) != (directory / name).read_bytes():
+                    raise ValueError('IPA-PDF-Datei weicht ab')
         return info, catalog
 
 
 if __name__ == '__main__':
-    info, catalog = verify(sys.argv[1])
+    info, catalog = verify(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
     print(f"Nicht signierte iPhone-Vorschau {info['CFBundleShortVersionString']} "
           f"(Build {info['CFBundleVersion']}), Katalogrevision {catalog['revision']}. "
           'Format geprüft; Installation mit SideStore noch nicht getestet.')

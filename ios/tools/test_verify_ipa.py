@@ -19,6 +19,20 @@ class VerifyIpaTests(unittest.TestCase):
             z.writestr(prefix + 'learning_content.json', json.dumps({'schemaVersion': 1, 'notes': [1]}))
             if extra: z.writestr(extra, 'x')
 
+    def test_pdf_bundle_must_match(self):
+        with tempfile.TemporaryDirectory() as d:
+            ipa = Path(d) / 'app.ipa'
+            pdfs = Path(d) / 'pdfs'; pdfs.mkdir()
+            (pdfs / 'manifest.json').write_text('{}')
+            (pdfs / 'note.pdf').write_bytes(b'PDF')
+            self.make(ipa)
+            with zipfile.ZipFile(ipa, 'a') as z:
+                for item in pdfs.iterdir():
+                    z.write(item, 'Payload/PflegeExamen.app/note_pdfs/' + item.name)
+            verify(ipa, pdfs)
+            (pdfs / 'note.pdf').write_bytes(b'changed')
+            with self.assertRaises(ValueError): verify(ipa, pdfs)
+
     def test_package_and_rejections(self):
         with tempfile.TemporaryDirectory() as d:
             ipa = Path(d) / 'app.ipa'

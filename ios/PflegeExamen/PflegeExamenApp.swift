@@ -40,7 +40,7 @@ struct NotesView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("iOS-Vorschau: Original-PDFs sind nur in speziell gebündelten Builds verfügbar; die Rangliste ist nur lesbar.")
+                    Text("iOS-Vorschau: Original-PDFs müssen zum aktuellen Text passen; die Rangliste ist nur lesbar.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Themen") {
@@ -341,7 +341,7 @@ struct SettingsView: View {
                     Text("Markierungen bleiben auf diesem Gerät. Beim Löschen der App können sie verloren gehen; es gibt keine Synchronisierung mit Android.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Vorschau") {
-                    Text("Original-PDFs nur in speziell gebündelten Builds; keine Ranglistenteilnahme oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
+                    Text("Original-PDFs müssen zum aktuellen Text passen; keine Ranglistenteilnahme oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
                 }
             }.navigationTitle("Mehr")
         }
