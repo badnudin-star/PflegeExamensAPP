@@ -28,7 +28,7 @@ function runtime(catalogStatus = 'ok', rateLimit = 1000, gateway = false, servic
   const catalogUrl = gateway ? 'https://pflegeexamen-ranking-katalog-test.beispiel.workers.dev/content' : 'https://catalog.test/content';
   return new Miniflare({workers:[
     {name:'ranking', modules:true, modulesRules:[{type:'ESModule',include:['**/*.js','**/*.mjs']}], scriptPath:fileURLToPath(new URL('fixtures/miniflare-harness.mjs',root)),
-      compatibilityDate:'2025-11-01', cf:false, d1Databases:['DB'], ratelimits:rates,
+      compatibilityDate:'2025-11-01', cf:false, d1Databases:['DB','DELETION_JOURNAL'], ratelimits:rates,
       bindings:{QUIZ_CATALOG_URL:catalogUrl, ...(gateway ? {TEST_GATEWAY:'1', TEST_ONLY_KEY:'f0'.repeat(32)} : {}),
         ...(service ? {QUIZ_CATALOG_TRANSPORT:'service'} : {})},
       ...(service ? {serviceBindings:{QUIZ_CATALOG_SERVICE:'catalog'}, outboundService:{network:{allow:[]}}} : {outboundService:'catalog'})},
@@ -36,10 +36,20 @@ function runtime(catalogStatus = 'ok', rateLimit = 1000, gateway = false, servic
       compatibilityDate:'2025-11-01', cf:false, bindings:{CATALOG_STATUS:catalogStatus}, outboundService:{network:{allow:[]}}}
   ]});
 }
+const initializedJournals = new WeakSet();
 async function sql(mf, queries) {
+  if (!initializedJournals.has(mf)) {
+    const journal = await mf.getD1Database('DELETION_JOURNAL');
+    await journal.batch(statements(file('journal-schema.sql')).map(s => journal.prepare(s.sql)));
+    initializedJournals.add(mf);
+  }
   const r=await mf.dispatchFetch('https://ranking.test/__test/sql', {method:'POST',body:JSON.stringify({statements:queries})});
   const data=await r.json();
   assert.equal(r.status, 200, JSON.stringify(data));
+  if (queries.some(q => q.sql.includes('CREATE TABLE IF NOT EXISTS quiz_snapshot_generation'))) {
+    const db = await mf.getD1Database('DB');
+    await db.batch(statements(file('migrations/0004_journal_delete_guard.sql')).map(s => db.prepare(s.sql)));
+  }
   return data;
 }
 const token = 'ac'.repeat(32), second = 'bd'.repeat(32);

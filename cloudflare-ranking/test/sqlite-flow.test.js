@@ -12,6 +12,7 @@ function db() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(readFileSync(new URL('../schema.sql', import.meta.url),'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0004_journal_delete_guard.sql', import.meta.url),'utf8'));
   return {
     sqlite, failBatch: false,
     prepare(sql) {
@@ -41,7 +42,15 @@ const req = (method, path, body, auth = token) => new Request('https://rank.test
 });
 function environment() {
   const allowed = {async limit() {return {success:true};}};
-  return {DB:db(), QUIZ_CATALOG_URL:'https://catalog.test/content', REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
+  const journal = new DatabaseSync(':memory:');
+  journal.exec(readFileSync(new URL('../journal-schema.sql', import.meta.url), 'utf8'));
+  const binding = {sqlite:journal, prepare(sql) {
+    let args = [];
+    return {bind(...values) {args=values; return this;},
+      async first() {return journal.prepare(sql).get(...args) ?? null;},
+      async run() {journal.prepare(sql).run(...args); return {success:true};}};
+  }};
+  return {DB:db(), DELETION_JOURNAL:binding, QUIZ_CATALOG_URL:'https://catalog.test/content', REGISTRATION_RATE:allowed, READ_RATE:allowed, AUTH_RATE:allowed, ACCOUNT_RATE:allowed};
 }
 
 test('real SQLite schema scores and deletes an account atomically; no old XP involved', async () => {
@@ -200,4 +209,43 @@ test('two devices using the same account still share one daily attempt and a del
     assert.equal((await worker.fetch(req('POST','/participants',{username:'Testperson'}),e)).status,410);
     assert.equal((await worker.fetch(req('POST','/quiz/attempt',body),e)).status,401);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('independent journal gates deletion, survives partial failure, and confirms retry without logging unknown tokens', async () => {
+  const e = environment();
+  const hash = createHash('sha256').update(token).digest('hex');
+  try {
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Synthetisch'}),e)).status,201);
+    // An unavailable journal must not remove the account or acknowledge deletion.
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),{...e, DELETION_JOURNAL:undefined})).status,503);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+    assert.equal(e.DELETION_JOURNAL.sqlite.prepare('SELECT COUNT(*) n FROM deletion_journal').get().n,0);
+    // A journal entry can precede a failed main transaction; it must not vanish.
+    e.DB.failBatch = true;
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,503);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+    assert.equal(e.DELETION_JOURNAL.sqlite.prepare('SELECT COUNT(*) n FROM deletion_journal WHERE token_hash=?').get(hash).n,1);
+    e.DB.failBatch = false;
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_deleted_tokens WHERE token_hash=?').get(hash).n,1);
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,204);
+    assert.equal((await worker.fetch(req('DELETE','/participants/me',undefined,'ff'.repeat(32)),e)).status,401);
+    assert.equal(e.DELETION_JOURNAL.sqlite.prepare('SELECT COUNT(*) n FROM deletion_journal').get().n,1);
+    // Even if the primary barrier exists, an unavailable journal is no receipt.
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),{...e, DELETION_JOURNAL:undefined})).status,503);
+  } finally {e.DB.sqlite.close(); e.DELETION_JOURNAL.sqlite.close();}
+});
+
+test('migration blocks a legacy deletion and failed batches leave no permit', async () => {
+  const e = environment();
+  try {
+    assert.equal((await worker.fetch(req('POST','/participants',{username:'Synthetisch'}),e)).status,201);
+    assert.throws(() => e.DB.sqlite.prepare('DELETE FROM quiz_participants').run());
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+    e.DB.failBatch = true;
+    assert.equal((await worker.fetch(req('DELETE','/participants/me'),e)).status,503);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_journal_delete_permits').get().n,0);
+    assert.equal(e.DB.sqlite.prepare('SELECT COUNT(*) n FROM quiz_participants').get().n,1);
+  } finally {e.DB.sqlite.close(); e.DELETION_JOURNAL.sqlite.close();}
 });
