@@ -29,3 +29,31 @@ jobs:
           printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
           unset GOOGLE_CREDS
           python tools/learning_import/audit_notes.py
+  practice-audit:
+    # This job only reads Drive and the public catalog. It has no publish token.
+    if: ${{ vars.PRACTICE_CARDS_FOLDER_ID != '' || vars.PRACTICE_CASES_FOLDER_ID != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r tools/learning_import/requirements.txt
+      - name: Karteikarten und Fälle schreibgeschützt prüfen
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          PRACTICE_CARDS_FOLDER_ID: ${{ vars.PRACTICE_CARDS_FOLDER_ID }}
+          PRACTICE_CASES_FOLDER_ID: ${{ vars.PRACTICE_CASES_FOLDER_ID }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+        run: |
+          set -eu
+          test -n "$GOOGLE_CREDS"
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/practice-audit-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/learning_import/audit_practice.py
