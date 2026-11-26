@@ -124,6 +124,8 @@ struct CardsView: View {
                     }
                     Text("\(filtered.count) Karten · \(catalog.cards.filter { progress.learned.contains($0.id) }.count) als gelernt markiert")
                         .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink("Passende Karten lernen") { CardSessionView(cards: filtered, shuffle: false) }.disabled(filtered.isEmpty)
+                    NavigationLink("Zufällig lernen") { CardSessionView(cards: filtered, shuffle: true) }.disabled(filtered.isEmpty)
                 }
                 Section {
                     ForEach(filtered) { card in
@@ -152,6 +154,33 @@ struct CardDetailView: View {
             SourcesView(sources: card.sources)
         }.frame(maxWidth: .infinity, alignment: .leading).padding() }
         .navigationTitle(card.topic).navigationBarTitleDisplayMode(.inline)
+    }
+}
+struct CardSessionView: View {
+    @State private var cards: [Card]
+    @State private var index = 0
+    @State private var answerVisible = false
+    @EnvironmentObject private var progress: ProgressStore
+    init(cards: [Card], shuffle: Bool) { _cards = State(initialValue: shuffle ? cards.shuffled() : cards) }
+    var body: some View {
+        ScrollView {
+            if cards.indices.contains(index) {
+                let card = cards[index]
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Karte \(index + 1) von \(cards.count) · \(card.topic)").font(.footnote).foregroundStyle(.secondary)
+                    Text(card.front).font(.headline)
+                    Button(answerVisible ? "Antwort ausblenden" : "Antwort anzeigen") { answerVisible.toggle() }.buttonStyle(.bordered)
+                    if answerVisible { Text(card.back).textSelection(.enabled); SourcesView(sources: card.sources) }
+                    Button(progress.learned.contains(card.id) ? "Wieder als offen markieren" : "Als gelernt markieren") { progress.toggleLearned(card.id) }.buttonStyle(.bordered)
+                    Button(progress.favorites.contains(card.id) ? "Aus Merkliste entfernen" : "Zur Merkliste hinzufügen") { progress.toggleFavorite(card.id) }.buttonStyle(.bordered)
+                    HStack {
+                        Button("Zurück") { index -= 1; answerVisible = false }.disabled(index == 0)
+                        Spacer()
+                        Button("Weiter") { index += 1; answerVisible = false }.disabled(index + 1 >= cards.count)
+                    }.buttonStyle(.bordered)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding()
+            } else { Text("Keine Karten verfügbar.").padding() }
+        }.navigationTitle("Karten lernen").navigationBarTitleDisplayMode(.inline)
     }
 }
 struct CasesView: View {
