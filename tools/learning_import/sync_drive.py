@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from import_notes import TOPICS, MAX_CATALOG, assemble, list_folder, download_text
 from catalog_capacity import report_capacity
+from sync_practice import import_practice
 
 
 def origin(value):
@@ -55,7 +56,7 @@ def read_remote(http, url):
     return catalog
 
 
-def sync(http, url, bundled, folder, drive, token):
+def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder=""):
     url = origin(url)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', folder): raise ValueError('Ungültige Ordner-ID')
     if len(token) < 32: raise ValueError('Publikations-Secret nicht eingerichtet')
@@ -72,11 +73,14 @@ def sync(http, url, bundled, folder, drive, token):
             raise ValueError(f"Quellenabschnitt fehlt: {f['name']}")
         return value
     payload = assemble(base, before, extract)
+    candidate = import_practice(json.loads(payload), drive, cards_folder, cases_folder)
+    payload = (json.dumps(candidate, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
+    if len(payload) > MAX_CATALOG: raise ValueError('Katalog überschreitet das 8-MB-Limit')
     report_capacity(len(payload), 'notes_candidate')
-    candidate = validate_base(json.loads(payload))
+    candidate = validate_base(candidate)
     if before != list_folder(drive, folder):
         raise ValueError('Drive-Ordner während des Imports geändert; kein Update veröffentlicht')
-    if remote is not None and candidate['notes'] == remote['notes']:
+    if remote is not None and all(candidate[k] == remote[k] for k in ('notes', 'cards', 'cases')):
         return 'unchanged'
     response = http.put(url + '/admin/content', data=payload,
         headers={'Authorization':'Bearer ' + token, 'Content-Type':'application/json', 'If-Match':str(remote['revision'] if remote else 0)},
@@ -97,8 +101,9 @@ def main():
     from google.auth.transport.requests import AuthorizedSession
     credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/drive.readonly'])
     result = sync(requests.Session(), args.worker, json.loads(args.bundled.read_text(encoding='utf-8')),
-                  args.folder, AuthorizedSession(credentials), os.environ.get('CONTENT_PUBLISH_TOKEN',''))
-    print('Aktualisierter Katalog veröffentlicht.' if result == 'published' else 'Keine Änderung der Lernzettel.')
+                  args.folder, AuthorizedSession(credentials), os.environ.get('CONTENT_PUBLISH_TOKEN',''),
+                  os.environ.get('PRACTICE_CARDS_FOLDER_ID', ''), os.environ.get('PRACTICE_CASES_FOLDER_ID', ''))
+    print('Aktualisierter Katalog veröffentlicht.' if result == 'published' else 'Keine Änderung des Inhaltskatalogs.')
 
 
 if __name__ == '__main__':

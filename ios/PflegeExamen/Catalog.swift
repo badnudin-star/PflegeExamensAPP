@@ -108,7 +108,10 @@ struct CatalogSnapshot {
     init(_ data: Data) throws { self.data = data; self.catalog = try Catalog.decode(data) }
     func replacing(with raw: Data) throws -> CatalogSnapshot {
         let next = try CatalogSnapshot(raw)
-        guard Set(next.catalog.notes.map(\.topic)) == Set(catalog.notes.map(\.topic)) else { throw CatalogError.incomplete }
+        guard Set(next.catalog.notes.map(\.topic)) == Set(catalog.notes.map(\.topic)),
+              Set(catalog.cards.map(\.id)).isSubset(of: Set(next.catalog.cards.map(\.id))),
+              Set(catalog.cases.map(\.id)).isSubset(of: Set(next.catalog.cases.map(\.id)))
+        else { throw CatalogError.incomplete }
         guard next.catalog.revision >= catalog.revision else { throw CatalogError.older }
         if next.catalog.revision == catalog.revision {
             let oldObject = try JSONSerialization.jsonObject(with: data) as? NSDictionary

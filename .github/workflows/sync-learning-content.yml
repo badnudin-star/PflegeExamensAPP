@@ -42,6 +42,8 @@ jobs:
           CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
           CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
           LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+          PRACTICE_CARDS_FOLDER_ID: ${{ vars.PRACTICE_CARDS_FOLDER_ID }}
+          PRACTICE_CASES_FOLDER_ID: ${{ vars.PRACTICE_CASES_FOLDER_ID }}
         run: |
           umask 077
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/learning-drive-credentials.json"

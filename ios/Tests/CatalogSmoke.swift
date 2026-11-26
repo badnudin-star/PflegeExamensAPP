@@ -39,12 +39,23 @@ struct CatalogSmoke {
         precondition(!unchanged)
         var object = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
         object["revision"] = catalog.revision + 1
+        var cards = object["cards"] as! [[String: Any]]
+        var cases = object["cases"] as! [[String: Any]]
+        precondition(!cards.isEmpty && !cases.isEmpty)
+        cards[0]["back"] = "Aktualisierte Kartenantwort"
+        cases[0]["text"] = "Aktualisierte Fallsituation"
+        object["cards"] = cards
+        object["cases"] = cases
         let newer = try JSONSerialization.data(withJSONObject: object)
         let updated = try store.applyDownloaded(newer)
         precondition(updated)
         precondition(store.snapshot?.catalog.revision == catalog.revision + 1)
+        precondition(store.snapshot?.catalog.cards[0].back == "Aktualisierte Kartenantwort")
+        precondition(store.snapshot?.catalog.cases[0].text == "Aktualisierte Fallsituation")
         let reopened = CatalogStore(bundleURL: url, fileURL: stored)
         precondition(reopened.snapshot?.catalog.revision == catalog.revision + 1)
+        precondition(reopened.snapshot?.catalog.cards[0].back == "Aktualisierte Kartenantwort")
+        precondition(reopened.snapshot?.catalog.cases[0].text == "Aktualisierte Fallsituation")
         func rejected(_ data: Data) {
             do { try store.applyDownloaded(data); fatalError("Ungültiges Update akzeptiert") } catch {}
             precondition(store.snapshot?.catalog.revision == catalog.revision + 1)
@@ -56,8 +67,14 @@ struct CatalogSmoke {
         rejected(try JSONSerialization.data(withJSONObject: object)) // same revision conflict
         object.removeValue(forKey: "unexpectedChange")
         object["revision"] = catalog.revision + 2
+        object["cards"] = []
+        rejected(try JSONSerialization.data(withJSONObject: object)) // missing cards
+        object["cards"] = cards
+        object["cases"] = []
+        rejected(try JSONSerialization.data(withJSONObject: object)) // missing cases
+        object["cases"] = cases
         object["notes"] = []
-        rejected(try JSONSerialization.data(withJSONObject: object)) // incomplete
+        rejected(try JSONSerialization.data(withJSONObject: object)) // missing notes
         rejected(Data("{}".utf8))
         print("Katalogupdate: Persistenz, Rollback, Konflikt und Fehlerfall geprüft")
 
