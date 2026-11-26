@@ -50,3 +50,34 @@ final class RankingStore: ObservableObject {
         fetcher = fetch; fetch.start()
     }
 }
+
+// Public daily ranked quiz: the fingerprint is an opaque server version, not a
+// locally verified hash. This parser and endpoint are not yet connected to UI.
+struct RankedQuizQuestion: Decodable, Identifiable {
+    let id: String
+    let topic: String
+    let question: String
+    let options: [String]
+    let correctIndex: Int
+    let explanation: String
+}
+struct RankedQuizPayload: Decodable {
+    let date: String
+    let fingerprint: String
+    let questions: [RankedQuizQuestion]
+    static func decode(_ raw: Data) throws -> RankedQuizPayload {
+        guard raw.count <= 1024 * 1024 else { throw CatalogError.invalid }
+        let quiz = try JSONDecoder().decode(RankedQuizPayload.self, from: raw)
+        func text(_ value: String) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard validArchiveDate(quiz.date), validRankingHash(quiz.fingerprint), quiz.questions.count == 50,
+              Set(quiz.questions.map(\.id)).count == 50,
+              quiz.questions.allSatisfy({ question in
+                  text(question.id) && question.id.utf16.count <= 200 &&
+                  question.id.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) } &&
+                  text(question.topic) && text(question.question) && text(question.explanation) &&
+                  question.options.count == 4 && question.options.allSatisfy(text) &&
+                  Set(question.options).count == 4 && (0...3).contains(question.correctIndex)
+              }) else { throw CatalogError.invalid }
+        return quiz
+    }
+}

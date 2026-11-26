@@ -109,6 +109,35 @@ enum RankedAttemptState: Equatable {
     case busy, deletionPending, storageUnavailable, noAccount, invalidInput, pending
     case uncertain(String), differentAttempt(String), recorded(String, Int), closed(String), none
 }
+// Account recovery is a bearer credential, not an export of local learning progress.
+func normalizeRankingRecovery(_ input: String) -> String? {
+    guard input.utf16.count <= 128 else { return nil }
+    let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    let patterns = [#"^[0-9a-fA-F]{64}$"#, #"^[0-9a-fA-F]{8}(?:[- ][0-9a-fA-F]{8}){7}$"#]
+    guard patterns.contains(where: { text.range(of: $0, options: .regularExpression) != nil }) else { return nil }
+    let normalized = text.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: " ", with: "").lowercased()
+    return validRankingHash(normalized) ? normalized : nil
+}
+enum RankingRecoveryState: Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    case ready(String), restored(String), busy, deletionPending, noAccount, invalidCode
+    case existingDifferentAccount, pendingAccountMismatch, storageUnavailable, unavailable
+    // Prevent inadvertent disclosure in ordinary diagnostic printing.
+    var description: String {
+        switch self {
+        case .ready: return "ready(<redacted>)"
+        case .restored: return "restored(<redacted>)"
+        case .busy: return "busy"
+        case .deletionPending: return "deletionPending"
+        case .noAccount: return "noAccount"
+        case .invalidCode: return "invalidCode"
+        case .existingDifferentAccount: return "existingDifferentAccount"
+        case .pendingAccountMismatch: return "pendingAccountMismatch"
+        case .storageUnavailable: return "storageUnavailable"
+        case .unavailable: return "unavailable"
+        }
+    }
+    var debugDescription: String { description }
+}
 enum RankingAccountState: Equatable {
     case notPrepared, notRegistered, registered(String), invalidName, nameConflict, busy
     case storageUnavailable, deletionPending, uncertain, deleted, noAccount
@@ -185,6 +214,41 @@ actor RankingAccount {
             if (reply.status == 200 || reply.status == 201), username(reply) == name { return .registered(name) }
             return .uncertain
         } catch { return .uncertain }
+    }
+    // Display only after explicit user action; never send a recovery code except
+    // as the bearer header to the fixed account-status endpoint.
+    func recoveryCode() -> RankingRecoveryState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            guard let current = try token() else { return .noAccount }
+            let chunks = stride(from: 0, to: 64, by: 8).map { start in
+                let from = current.index(current.startIndex, offsetBy: start)
+                let to = current.index(from, offsetBy: 8)
+                return String(current[from..<to])
+            }
+            return .ready(chunks.joined(separator: "-"))
+        } catch { return .storageUnavailable }
+    }
+    func restoreAccount(_ code: String) async -> RankingRecoveryState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        guard let candidate = normalizeRankingRecovery(code) else { return .invalidCode }
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            if let existing = try token(), existing != candidate { return .existingDifferentAccount }
+            if let (marker, _) = try pending(), marker.accountHash != rankingHash(Data(candidate.utf8)) { return .pendingAccountMismatch }
+        } catch { return .storageUnavailable }
+        let reply: RankingAccountReply
+        do { reply = try await transport.send(.status, token: candidate) }
+        catch { return .unavailable }
+        guard reply.status == 200, let name = username(reply) else { return .unavailable }
+        do {
+            if try token() == nil {
+                _ = try storage.add(.token, Data(candidate.utf8))
+            }
+            guard try token() == candidate else { return .existingDifferentAccount }
+            return .restored(name)
+        } catch { return .storageUnavailable }
     }
     private func saveRecorded(_ marker: RankingPendingMarker, raw: Data, correct: Int) throws -> Bool {
         guard marker.correct == nil, (0...50).contains(correct) else { return false }

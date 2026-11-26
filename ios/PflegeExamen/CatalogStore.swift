@@ -55,11 +55,12 @@ final class CatalogStore: ObservableObject {
 
 // Stream into a bounded buffer, forbid redirects, cookies and cached responses.
 enum PublicEndpoint {
-    case catalog, leaderboard, archivePage(String?), archiveDay(String)
+    case catalog, leaderboard, rankedToday, archivePage(String?), archiveDay(String)
     var url: URL? {
         switch self {
         case .catalog: return URL(string: "https://pflegeexamen-content.badnudin.workers.dev/content")
         case .leaderboard: return URL(string: "https://pflege-examen-ranking.badnudin.workers.dev/leaderboard")
+        case .rankedToday: return URL(string: "https://pflege-examen-ranking.badnudin.workers.dev/quiz/today")
         case .archivePage(let before):
             guard before == nil || validArchiveDate(before!) else { return nil }
             var parts = URLComponents(string: "https://pflegeexamen-content.badnudin.workers.dev/quiz-archive")!
@@ -75,6 +76,7 @@ enum PublicEndpoint {
         switch self {
         case .catalog: return 8 * 1024 * 1024
         case .leaderboard: return 128 * 1024
+        case .rankedToday: return 1024 * 1024
         case .archivePage: return 16 * 1024
         case .archiveDay: return 1024 * 1024
         }

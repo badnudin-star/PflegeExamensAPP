@@ -40,19 +40,20 @@ struct HTTPSRankingTransport: RankingAccountTransport {
         }
     }
 }
-private final class RankingRequestRunner: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
+final class RankingRequestRunner: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
     private let request: URLRequest
+    private let testConfiguration: URLSessionConfiguration?
     private var continuation: CheckedContinuation<RankingAccountReply, Error>?
     private var data = Data()
     private var status: Int?
     private var receipt: String?
     private var rejected = false
     private var session: URLSession?
-    init(request: URLRequest, continuation: CheckedContinuation<RankingAccountReply, Error>) {
-        self.request = request; self.continuation = continuation
+    init(request: URLRequest, continuation: CheckedContinuation<RankingAccountReply, Error>, testConfiguration: URLSessionConfiguration? = nil) {
+        self.request = request; self.continuation = continuation; self.testConfiguration = testConfiguration
     }
     func start() {
-        let config = URLSessionConfiguration.ephemeral
+        let config = testConfiguration ?? URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil; config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil; config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
