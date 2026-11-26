@@ -56,7 +56,7 @@ def read_remote(http, url):
     return catalog
 
 
-def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder=""):
+def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder="", check_only=False):
     url = origin(url)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', folder): raise ValueError('Ungültige Ordner-ID')
     if len(token) < 32: raise ValueError('Publikations-Secret nicht eingerichtet')
@@ -80,7 +80,10 @@ def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder
     candidate = validate_base(candidate)
     if before != list_folder(drive, folder):
         raise ValueError('Drive-Ordner während des Imports geändert; kein Update veröffentlicht')
-    if remote is not None and all(candidate[k] == remote[k] for k in ('notes', 'cards', 'cases')):
+    unchanged = remote is not None and all(candidate[k] == remote[k] for k in ('notes', 'cards', 'cases'))
+    if check_only:
+        return 'checked-unchanged' if unchanged else 'checked-changed'
+    if unchanged:
         return 'unchanged'
     response = http.put(url + '/admin/content', data=payload,
         headers={'Authorization':'Bearer ' + token, 'Content-Type':'application/json', 'If-Match':str(remote['revision'] if remote else 0)},

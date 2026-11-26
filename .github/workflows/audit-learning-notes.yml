@@ -45,6 +45,7 @@ jobs:
       - name: Karteikarten und Fälle schreibgeschützt prüfen
         env:
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
           PRACTICE_CARDS_FOLDER_ID: ${{ vars.PRACTICE_CARDS_FOLDER_ID }}
           PRACTICE_CASES_FOLDER_ID: ${{ vars.PRACTICE_CASES_FOLDER_ID }}
           CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
