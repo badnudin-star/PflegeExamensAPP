@@ -1,0 +1,2 @@
+# PDF fixtures are binary even when their content happens to be mostly ASCII.
+*.pdf binary
