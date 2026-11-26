@@ -18,7 +18,7 @@ Die interne signierte APK bindet zusätzlich die ausgewählten Original-PDFs off
 
 ## Karteikarten und Fallbeispiele aus Drive aktualisieren
 
-Der auf diesem Branch vorbereitete stündliche Workflow kann zusätzlich die zwei vorhandenen Karteikarten-Exceldateien und die nummerierten Fall-PDFs einlesen. Beide Apps laden den **gemeinsamen veröffentlichten Katalog**; sie benötigen dafür keinen Drive-Zugang. Bis zur Zusammenführung dieses Branches und zur Einrichtung der Variablen bleibt das bisherige Verhalten unverändert. Die Einrichtung ist getrennt je Inhaltsart möglich:
+Der stündliche Workflow kann bei eingerichteten Ordner-Variablen zusätzlich die zwei vorhandenen Karteikarten-Exceldateien und die nummerierten Fall-PDFs einlesen. Beide Apps laden den **gemeinsamen veröffentlichten Katalog**; sie benötigen dafür keinen Drive-Zugang. Ohne die jeweilige Variable bleibt dieser Bereich unverändert. Die Einrichtung ist getrennt je Inhaltsart möglich:
 
 1. Dem **bereits für `LEARNING_DRIVE_CREDENTIALS` verwendeten Dienstkonto** Leserechte für `QuellenExamen/Karteikarten` und/oder `QuellenExamen/Fallbeispiele` geben. Die Arena-Drive-Verbindung ersetzt das Dienstkonto nicht. Zugangsdaten nie im Chat teilen.
 2. Unter GitHub **Settings → Secrets and variables → Actions → Variables** `PRACTICE_CARDS_FOLDER_ID` und/oder `PRACTICE_CASES_FOLDER_ID` auf die jeweilige Drive-Ordner-ID setzen. Leere/nicht gesetzte Variable bedeutet: dieser Bereich bleibt unverändert. Vor Aktivierung Quellen und Veröffentlichungsrechte prüfen: Der Inhalts-Worker ist öffentlich.
@@ -28,7 +28,7 @@ Der Kartenimport erwartet exakt die beiden Dateien `Karteikarten_12_Themen_abgeg
 
 Der Fallimport erwartet im Fallordner PDFs namens `Tag_1_Fall_01_…pdf` bis entsprechend Tag 3, mit den bisherigen eindeutig nummerierten Abschnitten und je einer Lösung pro Aufgabe. Zusätzliche Fälle brauchen neue Tag-/Fallnummern. Bestehende Nummern und Dateinamen beibehalten. Fehlende bestehende IDs, Duplikate, ungültige Dateien, Prüfsummen- oder Parallelkonflikte verhindern die gesamte Veröffentlichung; die App behält ihren Offline-Stand. Vorhandene Lern- und Erledigtmarkierungen bleiben an der ID, auch wenn der Inhalt geändert wurde. Absichtliches Löschen oder Umnummerieren benötigt ein separates Migrationskonzept.
 
-Die Prüfungen validieren Struktur, nicht medizinische Richtigkeit, Vollständigkeit oder PDF-Extraktion. Texte und Quellen vor jeder Veröffentlichung fachlich kontrollieren. Originaldateien werden weder verändert noch automatisch als Offline-PDF aktualisiert. Die Aktualisierung erfolgt bei App-Nutzung über den öffentlichen Katalog, nicht garantiert im Hintergrund. Der Vorbereitungsstand ist noch nicht mit echten Drive-Dateien, Dienstkonto oder Endgeräten getestet.
+Die Prüfungen validieren Struktur, nicht medizinische Richtigkeit, Vollständigkeit oder PDF-Extraktion. Texte und Quellen vor jeder Veröffentlichung fachlich kontrollieren. Originaldateien werden weder verändert noch automatisch als Offline-PDF aktualisiert. Die Aktualisierung erfolgt bei App-Nutzung über den öffentlichen Katalog, nicht garantiert im Hintergrund. Ein schreibgeschützter Abgleich der echten Drive-Dateien mit dem Dienstkonto war erfolgreich (523 Karten und 30 Fälle, keine Abweichungen); dies beweist weder eine produktive Veröffentlichung einer Änderung noch einen Endgerätetest.
 
 ## Offline-Katalog im lokalen Build aktualisieren
 
