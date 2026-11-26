@@ -1,0 +1,59 @@
+name: iOS-Vorschau bauen
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-preview.yml'
+      - 'tools/learning_import/**'
+      - 'app/src/main/assets/learning_content.json'
+  push:
+    branches: [main, master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-preview.yml'
+      - 'tools/learning_import/**'
+      - 'app/src/main/assets/learning_content.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    name: iOS-Simulatorvorschau (nicht signiert)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Öffentlichen Offline-Katalog validieren
+        run: |
+          python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
+          cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
+      - name: Katalog einlesen und ungültiges Schema ablehnen
+        run: |
+          swiftc ios/PflegeExamen/Catalog.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke"
+          "$RUNNER_TEMP/catalog-smoke" ios/PflegeExamen/learning_content.json
+      - name: Vorschau für iOS-Simulator bauen
+        run: |
+          xcodebuild -project ios/PflegeExamen.xcodeproj -scheme PflegeExamen -configuration Debug \
+            -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/ios-build" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Vorschau auf einem iPhone-Simulator starten
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,devices in sorted(d["devices"].items(), reverse=True) if "iOS" in runtime for x in devices if x["name"].startswith("iPhone") and x["isAvailable"]))')
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" "$RUNNER_TEMP/ios-build/Build/Products/Debug-iphonesimulator/PflegeExamen.app"
+          xcrun simctl launch "$DEVICE" de.pflegeexamen.ios.preview
+      - name: Nicht signierte Simulator-App verpacken
+        run: |
+          cd "$RUNNER_TEMP/ios-build/Build/Products/Debug-iphonesimulator"
+          ditto -c -k --sequesterRsrc --keepParent PflegeExamen.app "$RUNNER_TEMP/PflegeExamen-iOS-Simulator-Vorschau.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PflegeExamen-iOS-Simulator-Vorschau-NICHT-installierbar
+          path: ${{ runner.temp }}/PflegeExamen-iOS-Simulator-Vorschau.zip
+          if-no-files-found: error
+          retention-days: 7

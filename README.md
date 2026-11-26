@@ -44,3 +44,7 @@ Android kann lokale Lernfortschritte sichern oder auf ein neues Gerät übertrag
 Die schreibgeschützte Cloudflare-Bereitschaftsprüfung und die Voraussetzungen für Archiv und Rangliste sind unter [Cloudflare-Bereitschaft](docs/cloudflare-bereitschaft.md) dokumentiert.
 
 Ein manuell bestätigter GitHub-Actions-Build für eine signierte interne APK ist vorbereitet. Einrichtung, Zugriffsschutz und Grenzen: [Interne Release-APK](docs/interne-release-apk.md).
+
+### Android- und iOS-Builds
+
+Anleitung für die bestehende signierte Android-APK, den alternativen Vertrieb und die **noch nicht verteilbare iOS-Simulatorvorschau**: [Android und iOS: Build und Verteilung](docs/android-ios-builds.md).

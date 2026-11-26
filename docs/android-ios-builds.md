@@ -1,0 +1,23 @@
+# Android und iOS: Build und Verteilung
+
+## Android
+
+Die Android-App existiert bereits. Für eine verteilbare APK den bestehenden Workflow **Interne signierte APK erstellen** auf dem geprüften `main`-Stand manuell und mit Bestätigung ausführen. Er behält die bestehende App-ID und prüft das bekannte Signaturzertifikat. Anleitung und Sicherheitsvoraussetzungen: [Signierte interne APK](interne-release-apk.md). Für ein öffentliches Update ist anschließend der separate, ausdrücklich bestätigte [Veröffentlichungsworkflow](app-updates.md) vorgesehen. Kein Workflow überträgt automatisch an einen Store.
+
+Bereits verfügbar: [APK 3.0.8](https://github.com/badnudin-star/PflegeExamensAPP/releases/tag/v3.0.8). Ein alternativer Android-Store kann eigene Regeln für APK, Paket-ID, Updates, Inhalt, Datenschutz, Alterseinstufung und eventuell AAB haben. Vor der Einreichung prüfen, dass er dieselbe Signatur und Versionsfolge akzeptiert, damit vorhandene Installationen aktualisiert werden können. Nicht deinstallieren: lokaler Fortschritt kann sonst verloren gehen. Die bisherige GitHub-Updateprüfung ist ein eigener Vertriebskanal; Zusammenspiel mit dem gewählten Store muss getestet werden.
+
+## iOS: technische Vorschau, noch keine Store-App
+
+Das neue Xcode-Projekt ist **keine Portierung der vollständigen Android-App**. Es zeigt den beim Build validierten öffentlichen Katalog offline als Texte: Lernzettel, Karten, Fallbeispiele und, falls vorhanden, Quizfragen. Es bietet **keine Original-PDFs/Bilder, keine Inhaltsaktualisierung, keinen gespeicherten Lernfortschritt, keine Rangliste und keine Android-Funktionsgleichheit**. Die Texte ersetzen keine Prüfung auf medizinische und grafische Vollständigkeit. Im Repo-Snapshot sind keine Quizfragen vorhanden; der aktuelle Katalog kann abweichen.
+
+Der Workflow **iOS-Vorschau bauen** benötigt einen GitHub-macOS-Runner. Er prüft den öffentlichen Katalog gegen den Repository-Basiskatalog, baut eine **nicht signierte Simulator-App**, startet sie auf einem iPhone-Simulator und speichert ein sieben Tage verfügbares ZIP als Actions-Artifact. Das ist kein IPA, kein Installationspaket für physische iPhones und keine Store-Veröffentlichung. Der Smoke-Test beweist weder Bedienbarkeit aller Ansichten noch medizinische Korrektheit. Die Vorschau enthält keine eingebetteten Geheimnisse und greift nicht auf persönliche Daten zu. Ein neuer Build ist nötig, um einen neuen Katalog einzubinden. Eine fehlgeschlagene Katalogvalidierung bricht ab.
+
+Der Workflow läuft bei passenden Pull Requests und `main`-Änderungen; manuelles Starten über Actions ist erst verfügbar, wenn der Workflow auf dem Standardbranch liegt. Lokal mit macOS/Xcode: den öffentlichen Katalog mit `python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content` validieren und `app/src/main/assets/learning_content.json` nach `ios/PflegeExamen/learning_content.json` kopieren. Das Build-Skript verändert den Android-Snapshot im Arbeitsverzeichnis: nicht unbeabsichtigt committen. Anschließend Projekt in Xcode öffnen und auf einem Simulator ausführen. Die Bundle-ID `de.pflegeexamen.ios.preview` ist nur ein Platzhalter.
+
+### Noch erforderlich für eine echte iOS-Veröffentlichung
+
+- Gewünschten bestehenden alternativen Store und Länder festlegen; Anforderungen und Kosten des Stores sowie Apples aktuelle Regeln prüfen.
+- iOS-App nach Funktions- und Qualitätsanforderungen fertigstellen, auf echten Geräten testen und Inhalte/Rechte/Datenschutz prüfen; insbesondere PDF-Ansicht, Updates, Fortschritt und Rangliste sind nicht umgesetzt.
+- Ein eigenes Apple-Entwicklerkonto, eine gültige Bundle-ID, Signierung und das passende Bereitstellungsverfahren einrichten. Apples EU-Alternativvertrieb umfasst unter anderem App Store Connect und Notarisierung; ein unsignierter GitHub-Simulator-Build genügt nicht. Die Konditionen hängen vom konkreten Vertrieb ab. Vor kostenpflichtiger Registrierung oder Veröffentlichung ist eine gesonderte Entscheidung erforderlich; ein kostenloser iOS-Storevertrieb ist nicht zugesichert. Siehe [Apple: alternative Distribution in der EU](https://developer.apple.com/support/dma-and-apps-in-the-eu/) und [Apple Developer Program](https://developer.apple.com/programs/whats-included/).
+
+GitHub-hosted macOS-Runner sind bei öffentlichen Repositories nach GitHubs aktuellen Regeln normalerweise kostenlos; bei privater Nutzung können Kontingente/Kosten gelten. Die tatsächlichen Kontoeinstellungen und aktuelle [GitHub-Abrechnung](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) prüfen. Keine Zugangsdaten oder Apple-Zertifikate im Repository oder Chat ablegen.
