@@ -61,3 +61,38 @@ jobs:
           path: ${{ runner.temp }}/PflegeExamen-iOS-Simulator-Vorschau.zip
           if-no-files-found: error
           retention-days: 7
+
+  iphone-ipa:
+    name: Nicht signierte iPhone-IPA-Vorschau für AltStore Classic
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Paketprüfung testen
+        run: python3 -m unittest discover -s ios/tools -v
+      - name: Öffentlichen Offline-Katalog validieren
+        run: |
+          python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
+          cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
+      - name: Vorschau für iPhone-Geräte bauen (ohne Signatur)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/PflegeExamen.xcodeproj -scheme PflegeExamen -configuration Release \
+            -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/ios-device" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/xcode-device.log" || {
+              python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); matches=[x for x in lines if "error:" in x.lower()]; print("::error title=iPhone build::" + (" | ".join(matches[-8:]) or "Build failed; see job log").replace("%", "%25"))' "$RUNNER_TEMP/xcode-device.log"
+              exit 1
+          }
+      - name: IPA verpacken und Struktur prüfen
+        run: |
+          mkdir "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/ios-device/Build/Products/Release-iphoneos/PflegeExamen.app" "$RUNNER_TEMP/Payload/"
+          ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
+          python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
+          shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-Classic-Vorschau.ipa"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PflegeExamen-iOS-Classic-IPA-Vorschau-UNSIGNIERT
+          path: ${{ runner.temp }}/PflegeExamen-iOS-Classic-Vorschau.ipa
+          if-no-files-found: error
+          retention-days: 7
