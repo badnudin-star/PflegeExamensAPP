@@ -8,6 +8,7 @@ struct PflegeExamenApp: App {
 struct RootView: View {
     @StateObject private var store = CatalogStore(bundleURL: Bundle.main.url(forResource: "learning_content", withExtension: "json"))
     @StateObject private var progress = ProgressStore()
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         Group {
             if let catalog = store.snapshot?.catalog {
@@ -21,6 +22,12 @@ struct RootView: View {
             } else {
                 Text("Der Offline-Katalog konnte nicht geladen werden. Bitte eine geprüfte Version verwenden.").padding()
             }
+        }.task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                store.refreshIfDue()
+                do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { break }
+            }
         }
     }
 }
@@ -33,7 +40,7 @@ struct NotesView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("iOS-Vorschau: Original-PDFs sind nur in speziell gebündelten Builds verfügbar; die Rangliste fehlt.")
+                    Text("iOS-Vorschau: Original-PDFs sind nur in speziell gebündelten Builds verfügbar; die Rangliste ist nur lesbar.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Themen") {
@@ -99,7 +106,7 @@ struct CardsView: View {
     @State private var filter = CardFilter.all
     var filtered: [Card] {
         catalog.cards.filter { card in
-            let matches = search.isEmpty || card.topic.localizedCaseInsensitiveContains(search) || card.front.localizedCaseInsensitiveContains(search)
+            let matches = search.isEmpty || card.topic.localizedCaseInsensitiveContains(search) || card.front.localizedCaseInsensitiveContains(search) || card.back.localizedCaseInsensitiveContains(search)
             switch filter {
             case .all: return matches
             case .unlearned: return matches && !progress.learned.contains(card.id)
@@ -149,6 +156,7 @@ struct CardDetailView: View {
 }
 struct CasesView: View {
     let catalog: Catalog
+    @EnvironmentObject private var progress: ProgressStore
     @State private var search = ""
     var body: some View {
         NavigationStack {
@@ -157,6 +165,7 @@ struct CasesView: View {
                 label: { VStack(alignment: .leading) {
                     Text(item.title?.isEmpty == false ? item.title! : "Fallbeispiel")
                     if let day = item.examDay { Text("Prüfungstag \(day)").font(.caption).foregroundStyle(.secondary) }
+                    if progress.completedCases.contains(item.id) { Text("Abgeschlossen").font(.caption).foregroundStyle(.secondary) }
                 } }
             }.navigationTitle("Fallbeispiele").searchable(text: $search, prompt: "Fall suchen")
         }
@@ -164,8 +173,10 @@ struct CasesView: View {
 }
 struct CaseView: View {
     let item: StudyCase
+    @EnvironmentObject private var progress: ProgressStore
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 18) {
+            Button(progress.completedCases.contains(item.id) ? "Wieder als offen markieren" : "Als abgeschlossen markieren") { progress.toggleCase(item.id) }.buttonStyle(.bordered)
             Text(item.text).textSelection(.enabled)
             if let instructions = item.instructions, !instructions.isEmpty { Text(instructions).textSelection(.enabled) }
             ForEach(Array(item.questions.enumerated()), id: \.offset) { index, question in
@@ -184,32 +195,56 @@ struct CaseView: View {
 }
 struct QuizView: View {
     let catalog: Catalog
+    var days: [String] { Array(Set(catalog.quizzes.map(\.published))).sorted(by: >) }
     var body: some View {
         NavigationStack {
-            if catalog.quizzes.isEmpty { Text("Zurzeit sind keine Quizfragen im Offline-Katalog enthalten.").padding().navigationTitle("Quiz") }
+            if days.isEmpty { Text("Zurzeit sind keine Quizfragen im Offline-Katalog enthalten.").padding().navigationTitle("Quiz") }
             else {
-                List(catalog.quizzes) { quiz in
-                    NavigationLink { QuizQuestionView(quiz: quiz) }
-                    label: { VStack(alignment: .leading) { Text(quiz.question); Text(quiz.published).font(.caption).foregroundStyle(.secondary) } }
+                List(days, id: \.self) { day in
+                    NavigationLink { QuizDayView(day: day, questions: catalog.quizzes.filter { $0.published == day }) }
+                    label: { VStack(alignment: .leading) { Text(day); Text("\(catalog.quizzes.filter { $0.published == day }.count) Fragen").font(.caption).foregroundStyle(.secondary) } }
                 }.navigationTitle("Quiz")
             }
         }
     }
 }
+struct QuizDayView: View {
+    let day: String
+    let questions: [Quiz]
+    @EnvironmentObject private var progress: ProgressStore
+    var body: some View {
+        List {
+            Section {
+                Text("\(questions.filter { progress.answer(for: $0) != nil }.count) von \(questions.count) beantwortet")
+                Text("Dies ist eine lokale Übung, keine Ranglistenabgabe.").font(.footnote).foregroundStyle(.secondary)
+                if !progress.quizAvailable { Text("Der gespeicherte Quizstand ist nicht lesbar. Neue Antworten werden nicht gespeichert.").foregroundStyle(.red) }
+            }
+            ForEach(questions) { quiz in
+                NavigationLink { QuizQuestionView(quiz: quiz) }
+                label: { VStack(alignment: .leading) {
+                    Text(quiz.question)
+                    Text(progress.answer(for: quiz) == nil ? "Offen" : "Beantwortet").font(.caption).foregroundStyle(.secondary)
+                } }
+            }
+        }.navigationTitle(day).navigationBarTitleDisplayMode(.inline)
+    }
+}
 struct QuizQuestionView: View {
     let quiz: Quiz
-    @State private var selection: Int?
+    @EnvironmentObject private var progress: ProgressStore
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 16) {
             Text(quiz.question).font(.headline)
             ForEach(Array(quiz.options.enumerated()), id: \.offset) { index, option in
-                Button(option) { selection = index }.buttonStyle(.bordered)
+                Button(option) { progress.select(index, for: quiz) }.buttonStyle(.bordered).disabled(!progress.quizAvailable)
             }
-            if let selection = selection {
+            if let selection = progress.answer(for: quiz) {
                 Text(selection == quiz.correctIndex ? "Richtig" : "Nicht richtig").bold()
+                Text("Deine Antwort: \(quiz.options[selection])")
                 Text("Richtige Antwort: \(quiz.options[quiz.correctIndex])")
                 Text(quiz.explanation)
                 SourcesView(sources: quiz.sources)
+                Button("Antwort zurücksetzen") { progress.clearAnswer(for: quiz) }.buttonStyle(.bordered)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding() }
         .navigationTitle(quiz.topic).navigationBarTitleDisplayMode(.inline)
@@ -225,18 +260,51 @@ struct SettingsView: View {
                     Text("Revision \(store.snapshot?.catalog.revision ?? 0)")
                     Button(store.loading ? "Aktualisierung läuft …" : "Inhalte aktualisieren") { store.refresh() }.disabled(store.loading)
                     if !store.message.isEmpty { Text(store.message).font(.footnote) }
-                    Text("Nur nach Antippen: Der öffentliche Inhaltsserver erhält deine IP-Adresse. Bei Fehlern bleibt der bisherige Katalog erhalten.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Die App prüft Inhalte beim Öffnen und ungefähr stündlich während der Nutzung. Der öffentliche Inhaltsserver erhält dabei deine IP-Adresse. Im Hintergrund sind Prüfungen nicht garantiert; bei Fehlern bleibt der Offline-Katalog erhalten.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Rangliste") {
+                    NavigationLink("Öffentliche Rangliste anzeigen") { RankingView() }
+                    Text("Nur Anzeige: Teilnahme und Wertung sind auf iOS noch nicht verfügbar.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Lokaler Lernstand") {
                     Text("Gelesene Themen: \(progress.readNotes.count)")
                     Text("Gelernt markierte Karten: \(progress.learned.count)")
                     Text("Merkliste: \(progress.favorites.count)")
+                    Text("Abgeschlossene Fälle: \(progress.completedCases.count)")
                     Text("Markierungen bleiben auf diesem Gerät. Beim Löschen der App können sie verloren gehen; es gibt keine Synchronisierung mit Android.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Vorschau") {
-                    Text("Original-PDFs nur in speziell gebündelten Builds; keine Rangliste oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
+                    Text("Original-PDFs nur in speziell gebündelten Builds; keine Ranglistenteilnahme oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
                 }
             }.navigationTitle("Mehr")
         }
+    }
+}
+
+struct RankingView: View {
+    @StateObject private var store = RankingStore()
+    var body: some View {
+        List {
+            Section {
+                Text("Öffentliche Spaßrangliste. Keine fälschungssichere Wertung; die Anzeige überträgt deine IP-Adresse an den Server.").font(.footnote)
+                Button(store.loading ? "Lädt …" : "Rangliste laden") { store.load() }.disabled(store.loading)
+                if store.error { Text("Rangliste nicht verfügbar. Bitte später erneut versuchen.").foregroundStyle(.secondary) }
+            }
+            if let snapshot = store.snapshot {
+                Section("\(snapshot.totalParticipants) Teilnehmende") {
+                    if snapshot.entries.isEmpty { Text("Noch keine gewerteten Einträge.") }
+                    ForEach(snapshot.entries) { entry in
+                        HStack {
+                            Text("\(entry.rank).").monospacedDigit()
+                            Text(entry.username)
+                            Spacer()
+                            Text("\(entry.points) Punkte").monospacedDigit()
+                        }
+                    }
+                }
+                Text("Stand: \(Date(timeIntervalSince1970: TimeInterval(snapshot.generatedAtMillis) / 1000).formatted())")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }.navigationTitle("Rangliste").navigationBarTitleDisplayMode(.inline)
     }
 }

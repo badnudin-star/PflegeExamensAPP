@@ -67,7 +67,7 @@ struct CaseQuestion: Decodable {
     let answer: String
     let sources: [String]
 }
-struct Quiz: Decodable, Identifiable {
+struct Quiz: Codable, Identifiable {
     let id: String
     let published: String
     let topic: String

@@ -1,13 +1,14 @@
 import Foundation
 import Combine
 
-// The public endpoint sees the device IP; only invoked after a user taps refresh.
+// The public endpoint sees the device IP. Refresh occurs in the foreground, never through Drive credentials.
 final class CatalogStore: ObservableObject {
     @Published private(set) var snapshot: CatalogSnapshot?
     @Published private(set) var loading = false
     @Published private(set) var message = ""
     private let fileURL: URL?
     private var fetcher: LimitedCatalogFetch?
+    private var schedule = AutoRefreshSchedule()
 
     init(bundleURL: URL?, fileURL: URL? = nil) {
         self.fileURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("learning-catalog-v1.json")
@@ -26,8 +27,12 @@ final class CatalogStore: ObservableObject {
         snapshot = next
         return true
     }
+    func refreshIfDue(now: Date = Date()) {
+        if schedule.shouldRefresh(now: now) { refresh() }
+    }
     func refresh() {
         guard !loading, snapshot != nil else { return }
+        schedule.started(now: Date())
         loading = true
         message = ""
         let fetch = LimitedCatalogFetch { [weak self] result in
@@ -37,7 +42,9 @@ final class CatalogStore: ObservableObject {
                 let changed = try self.applyDownloaded(result.get())
                 let revision = self.snapshot?.catalog.revision ?? 0
                 self.message = changed ? "Inhalte aktualisiert: Revision \(revision)." : "Der Katalog ist aktuell (Revision \(revision))."
+                self.schedule.completed(now: Date(), success: true)
             } catch {
+                self.schedule.completed(now: Date(), success: false)
                 self.message = "Aktualisierung nicht möglich. Der bisherige Offline-Katalog bleibt erhalten."
             }
         }
@@ -47,12 +54,23 @@ final class CatalogStore: ObservableObject {
 }
 
 // Stream into a bounded buffer, forbid redirects, cookies and cached responses.
+enum PublicEndpoint {
+    case catalog, leaderboard
+    var url: URL {
+        switch self {
+        case .catalog: return URL(string: "https://pflegeexamen-content.badnudin.workers.dev/content")!
+        case .leaderboard: return URL(string: "https://pflege-examen-ranking.badnudin.workers.dev/leaderboard")!
+        }
+    }
+    var maxBytes: Int { self == .catalog ? 8 * 1024 * 1024 : 128 * 1024 }
+}
 final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
+    private let endpoint: PublicEndpoint
     private let done: (Result<Data, Error>) -> Void
     private var buffer = Data()
     private var failure = false
     private var session: URLSession?
-    init(done: @escaping (Result<Data, Error>) -> Void) { self.done = done }
+    init(endpoint: PublicEndpoint = .catalog, done: @escaping (Result<Data, Error>) -> Void) { self.endpoint = endpoint; self.done = done }
     func start() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -62,7 +80,7 @@ final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTas
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
         self.session = session
-        var request = URLRequest(url: URL(string: "https://pflegeexamen-content.badnudin.workers.dev/content")!)
+        var request = URLRequest(url: endpoint.url)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         session.dataTask(with: request).resume()
@@ -74,13 +92,13 @@ final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTas
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              response.expectedContentLength <= 8 * 1024 * 1024 else {
+              response.expectedContentLength <= Int64(endpoint.maxBytes) else {
             failure = true; completionHandler(.cancel); return
         }
         completionHandler(.allow)
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard buffer.count + data.count <= 8 * 1024 * 1024 else { failure = true; dataTask.cancel(); return }
+        guard data.count <= endpoint.maxBytes - buffer.count else { failure = true; dataTask.cancel(); return }
         buffer.append(data)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -88,4 +106,12 @@ final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTas
         session.finishTasksAndInvalidate()
         DispatchQueue.main.async { self.done(result) }
     }
+}
+
+// No guaranteed background task. One check per hour while foregrounded; failures retry after 30 minutes.
+struct AutoRefreshSchedule {
+    private(set) var next = Date.distantPast
+    func shouldRefresh(now: Date) -> Bool { now >= next }
+    mutating func started(now: Date) { next = now.addingTimeInterval(30 * 60) }
+    mutating func completed(now: Date, success: Bool) { next = now.addingTimeInterval(success ? 3600 : 1800) }
 }
