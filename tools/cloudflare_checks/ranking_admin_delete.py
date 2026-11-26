@@ -14,13 +14,13 @@ from urllib.request import build_opener, ProxyHandler
 from readiness import NoRedirect
 from ranking_initialize import DB_ID, OBJECTS, OBJECT_SQL
 from ranking_provision import NAME, PreflightError, request
+from ranking_journal_initialize import JOURNAL_ID, JOURNAL_NAME
+from ranking_journal_backfill import expected_schema
 
 ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 HASH = re.compile(r'^[0-9a-f]{64}$')
-# Remains unset until a separately provisioned journal is identified and reviewed.
-# Never fill this from interactive input or trust a caller-selected production DB.
-JOURNAL_ID = None
-JOURNAL_NAME = 'pflegeexamen-ranking-loeschjournal'
+# The production journal identity is fixed in ranking_journal_initialize, never
+# taken from interactive input. It must be distinct and checked before writes.
 
 
 def record_journal(opener, base, token, journal_id, journal_name, target, token_hash):
@@ -35,6 +35,9 @@ def record_journal(opener, base, token, journal_id, journal_name, target, token_
         if not isinstance(result, list) or len(result) != 1 or result[0].get('success') is not True:
             raise PreflightError('journal query not confirmed')
         return result[0].get('results')
+    schema = rows("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,7) != 'sqlite_' AND substr(name,1,4) != '_cf_' ORDER BY type,name", [])
+    if not isinstance(schema, list) or [(r['type'],r['name'],r['sql']) for r in schema] != expected_schema(False):
+        raise PreflightError('journal schema mismatch')
     # D1 computes the time; the hash is pseudonymous and never goes into logs.
     rows("INSERT INTO deletion_journal(token_hash, recorded_at) VALUES (?, CAST(strftime('%s','now') AS INTEGER) * 1000) ON CONFLICT(token_hash) DO NOTHING", [token_hash])
     check = rows('SELECT token_hash, recorded_at FROM deletion_journal WHERE token_hash = ?', [token_hash])
@@ -62,6 +65,10 @@ def delete_verified(opener, base, token, target, target_name, participant_id, to
     objects = rows(OBJECT_SQL)
     expected = OBJECTS | ({('table','quiz_journal_delete_permits'), ('trigger','quiz_participant_requires_journal_permit')} if journal_id is not None else set())
     if {(r['type'],r['name']) for r in objects} != expected: raise PreflightError('schema mismatch')
+    if journal_id is not None:
+        schema = rows("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name,1,7) != 'sqlite_' AND substr(name,1,4) != '_cf_' ORDER BY type,name")
+        if [(r['type'],r['name'],r['sql']) for r in schema] != expected_schema(True):
+            raise PreflightError('production guard schema mismatch')
     if rows('SELECT COUNT(*) AS n FROM quiz_participants WHERE id = ? AND token_hash = ?', [participant_id,token_hash]) != [{'n':1}]:
         raise PreflightError('no unique match')
     if rows('SELECT COUNT(*) AS n FROM quiz_deleted_tokens WHERE token_hash = ?', [token_hash]) != [{'n':0}]:
