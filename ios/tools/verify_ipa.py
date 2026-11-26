@@ -35,6 +35,11 @@ def verify(path, pdf_directory=None):
         executable = archive.read(APP + 'PflegeExamen')
         if len(executable) < 12 or struct.unpack('<II', executable[:8]) != (0xfeedfacf, 0x0100000c):
             raise ValueError('Kein einzelnes arm64-Mach-O für iPhone')
+        # Canary for the simulator-only synthetic UI entry point. This catches
+        # this specific accidental test-flag leak; it is not a general proof
+        # that a binary contains no other test code or unsafe features.
+        if b'-synthetic-ranking-ui' in executable:
+            raise ValueError('Simulator-Testoberfläche darf nicht in die iPhone-IPA')
         catalog = json.loads(archive.read(APP + 'learning_content.json'))
         if catalog.get('schemaVersion') != 1 or not catalog.get('notes'):
             raise ValueError('Offline-Katalog fehlt oder ist ungültig')
