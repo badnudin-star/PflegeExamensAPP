@@ -27,6 +27,24 @@ final class FakeRankingTransport: RankingAccountTransport {
         return replies.removeFirst()
     }
 }
+actor BlockingRankingTransport: RankingAccountTransport {
+    private var response: CheckedContinuation<RankingAccountReply, Never>?
+    private var waiting: CheckedContinuation<Void, Never>?
+    func send(_ operation: RankingAccountOperation, token: String) async throws -> RankingAccountReply {
+        await withCheckedContinuation { continuation in
+            response = continuation
+            waiting?.resume(); waiting = nil
+        }
+    }
+    func waitUntilStarted() async {
+        if response != nil { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+    func finish() {
+        response?.resume(returning: RankingAccountReply(status: 201, body: Data(#"{"username":"Test"}"#.utf8), deletionReceipt: nil))
+        response = nil
+    }
+}
 // URLProtocol returns synthetic data without network access to exercise streaming limits.
 final class SyntheticRankingProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -104,6 +122,15 @@ struct RankingAccountSmoke {
         state = await account.status(); precondition(state == .storageUnavailable)
         state = await account.register("Test"); precondition(state == .storageUnavailable && transport.calls.count == beforeRetry)
         precondition(storage.data[.deletion] == Data("broken".utf8))
+        let blockingTransport = BlockingRankingTransport(), blockingStorage = FakeRankingStorage()
+        let blockingAccount = RankingAccount(storage: blockingStorage, transport: blockingTransport, tokenGenerator: { secret })
+        let inFlight = Task { await blockingAccount.register("Test") }
+        await blockingTransport.waitUntilStarted()
+        state = await blockingAccount.delete(); precondition(state == .busy && blockingStorage.data[.deletion] == nil)
+        state = await blockingAccount.status(); precondition(state == .busy)
+        await blockingTransport.finish()
+        state = await inFlight.value; precondition(state == .registered("Test"))
+        print("Ranglistenoperationen: parallele Löschung und Statusabfrage während Registrierung gesperrt")
         let recoveryStore = FakeRankingStorage(), recoveryTransport = FakeRankingTransport()
         let recoverable = RankingAccount(storage: recoveryStore, transport: recoveryTransport)
         let grouped = Array(repeating: "AAAAAAAA", count: 8).joined(separator: "-")
@@ -156,6 +183,9 @@ struct RankingAccountSmoke {
         attempt = await attemptAccount.acknowledge(); precondition(attempt == .none && attemptStorage.data[.pending] == nil)
         attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
         precondition(attempt == .uncertain("2026-01-01"))
+        let beforeClosure = attemptStorage.data[.pending]
+        attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(#"{"date":"2026-01-02","status":"closed"}"#.utf8), deletionReceipt: nil))
+        attempt = await attemptAccount.closePending(); precondition(attempt == .uncertain("2026-01-01") && attemptStorage.data[.pending] == beforeClosure)
         attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(#"{"date":"2026-01-01","status":"closed"}"#.utf8), deletionReceipt: nil))
         attempt = await attemptAccount.closePending(); precondition(attempt == .closed("2026-01-01") && attemptStorage.data[.pending] == nil)
         print("Gewerteter Versuch: Marker vor Versand, Timeout, Wiederabgleich und explizites Schließen synthetisch geprüft; nicht aktiviert")
