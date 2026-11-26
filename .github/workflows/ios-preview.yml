@@ -98,6 +98,10 @@ jobs:
           ditto -c -k --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
           python3 ios/tools/verify_ipa.py "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
           shasum -a 256 "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa"
+          # Synthetic URLs: validate source generation only; never upload or publish this draft.
+          python3 ios/tools/make_sidestore_source.py --ipa "$RUNNER_TEMP/PflegeExamen-iOS-SideStore-Vorschau.ipa" \
+            --ipa-url https://example.org/test.ipa --icon-url https://example.org/test.png \
+            --date 2026-01-01 --output "$RUNNER_TEMP/synthetic-source.json"
       - uses: actions/upload-artifact@v7
         with:
           name: PflegeExamen-iOS-SideStore-IPA-Vorschau-UNSIGNIERT
