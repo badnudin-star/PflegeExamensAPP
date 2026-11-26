@@ -31,14 +31,16 @@ jobs:
         run: |
           python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
           cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
+          mkdir -p ios/PflegeExamen/note_pdfs
+          echo '{}' > ios/PflegeExamen/note_pdfs/manifest.json
       - name: Katalog einlesen und ungültiges Schema ablehnen
         run: |
           set -o pipefail
-          swiftc ios/PflegeExamen/Catalog.swift ios/PflegeExamen/CatalogStore.swift ios/PflegeExamen/ProgressStore.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke" 2>&1 | tee "$RUNNER_TEMP/swift-smoke.log" || {
+          swiftc ios/PflegeExamen/Catalog.swift ios/PflegeExamen/CatalogStore.swift ios/PflegeExamen/ProgressStore.swift ios/PflegeExamen/NotePDFLocator.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke" 2>&1 | tee "$RUNNER_TEMP/swift-smoke.log" || {
             python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); print("::error title=Swift test build::" + " | ".join(lines[-12:]).replace("%", "%25"))' "$RUNNER_TEMP/swift-smoke.log"
             exit 1
           }
-          "$RUNNER_TEMP/catalog-smoke" ios/PflegeExamen/learning_content.json
+          "$RUNNER_TEMP/catalog-smoke" ios/PflegeExamen/learning_content.json app/src/debug/assets/private/note_pdfs
       - name: Vorschau für iOS-Simulator bauen
         run: |
           set -o pipefail
@@ -78,6 +80,8 @@ jobs:
         run: |
           python3 tools/learning_import/bundle_published.py --url https://pflegeexamen-content.badnudin.workers.dev/content
           cp app/src/main/assets/learning_content.json ios/PflegeExamen/learning_content.json
+          mkdir -p ios/PflegeExamen/note_pdfs
+          echo '{}' > ios/PflegeExamen/note_pdfs/manifest.json
       - name: Vorschau für iPhone-Geräte bauen (ohne Signatur)
         run: |
           set -o pipefail

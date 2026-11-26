@@ -33,7 +33,7 @@ struct NotesView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("iOS-Vorschau: Original-PDFs und Rangliste sind noch nicht verfügbar.")
+                    Text("iOS-Vorschau: Original-PDFs sind nur in speziell gebündelten Builds verfügbar; die Rangliste fehlt.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Themen") {
@@ -53,6 +53,7 @@ struct NoteView: View {
     let note: Note
     @EnvironmentObject private var progress: ProgressStore
     @State private var simple = false
+    @State private var showPDF = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -62,10 +63,19 @@ struct NoteView: View {
                 Button(progress.readNotes.contains(note.topic) ? "Als ungelesen markieren" : "Als gelesen markieren") {
                     progress.toggleRead(note.topic)
                 }.buttonStyle(.bordered)
+                if note.sources.indices.contains(simple ? 1 : 0),
+                   NotePDFLocator.fileName(note.sources[simple ? 1 : 0]) != nil {
+                    Button("Original-PDF anzeigen") { showPDF = true }.buttonStyle(.bordered)
+                }
                 Text(simple ? note.short : note.detailed).textSelection(.enabled)
                 SourcesView(sources: note.sources)
             }.frame(maxWidth: .infinity, alignment: .leading).padding()
         }.navigationTitle(note.topic).navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPDF) {
+            if note.sources.indices.contains(simple ? 1 : 0) {
+                NotePDFView(source: note.sources[simple ? 1 : 0], text: simple ? note.short : note.detailed)
+            }
+        }
     }
 }
 struct SourcesView: View {
@@ -224,7 +234,7 @@ struct SettingsView: View {
                     Text("Markierungen bleiben auf diesem Gerät. Beim Löschen der App können sie verloren gehen; es gibt keine Synchronisierung mit Android.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Vorschau") {
-                    Text("Keine Original-PDFs, Rangliste oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
+                    Text("Original-PDFs nur in speziell gebündelten Builds; keine Rangliste oder vollständige Android-Funktionsgleichheit. Nicht als Ersatz für fachlich geprüfte Unterrichtsmaterialien verwenden.").font(.footnote)
                 }
             }.navigationTitle("Mehr")
         }

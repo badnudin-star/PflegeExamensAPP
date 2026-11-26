@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 
 @main
 struct CatalogSmoke {
@@ -55,5 +56,12 @@ struct CatalogSmoke {
         let cleared = ProgressStore(defaults: defaults)
         precondition(cleared.learned.isEmpty && cleared.favorites.isEmpty && cleared.readNotes.isEmpty)
         print("Lernmarkierungen: Speichern, Wiederherstellen und Zurücksetzen geprüft")
+        let pdfDirectory = URL(fileURLWithPath: CommandLine.arguments[2])
+        let pdf = NotePDFLocator.locate(directory: pdfDirectory, source: "Lernzettel: Synthetisch.pdf", text: "Synthetischer Lernzettel.")
+        precondition(pdf != nil)
+        precondition(PDFDocument(url: pdf!)?.pageCount == 2)
+        precondition(NotePDFLocator.locate(directory: pdfDirectory, source: "Lernzettel: Synthetisch.pdf", text: "Geänderter Text") == nil)
+        precondition(NotePDFLocator.locate(directory: pdfDirectory, source: "Lernzettel: ../Synthetisch.pdf", text: "Synthetischer Lernzettel.") == nil)
+        print("PDF-Zuordnung: übereinstimmenden Text, veralteten Text und Pfadschutz geprüft")
     }
 }
