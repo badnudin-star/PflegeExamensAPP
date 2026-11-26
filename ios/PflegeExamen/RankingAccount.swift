@@ -93,11 +93,21 @@ struct RankingAccountReply {
     let body: Data
     let deletionReceipt: String?
 }
-enum RankingAccountOperation { case status, register(String), delete }
+enum RankingAccountOperation {
+    case status, register(String), delete
+    case submit(Data), lookup(String), close(String)
+}
 protocol RankingAccountTransport {
     // A production transport must use a fixed HTTPS origin, forbid redirects and retries,
     // cap all responses and never log or store the Authorization header.
     func send(_ operation: RankingAccountOperation, token: String) async throws -> RankingAccountReply
+}
+struct RankedAnswer: Codable { let id: String; let option: Int }
+private struct RankedSubmissionBody: Encodable { let date: String; let fingerprint: String; let answers: [RankedAnswer] }
+private struct RankedScoreBody: Decodable { let date: String; let correct: Int?; let total: Int?; let payloadHash: String?; let status: String? }
+enum RankedAttemptState: Equatable {
+    case busy, deletionPending, storageUnavailable, noAccount, invalidInput, pending
+    case uncertain(String), differentAttempt(String), recorded(String, Int), closed(String), none
 }
 enum RankingAccountState: Equatable {
     case notPrepared, notRegistered, registered(String), invalidName, nameConflict, busy
@@ -175,6 +185,105 @@ actor RankingAccount {
             if (reply.status == 200 || reply.status == 201), username(reply) == name { return .registered(name) }
             return .uncertain
         } catch { return .uncertain }
+    }
+    private func saveRecorded(_ marker: RankingPendingMarker, raw: Data, correct: Int) throws -> Bool {
+        guard marker.correct == nil, (0...50).contains(correct) else { return false }
+        let next = RankingPendingMarker(version: 1, date: marker.date, quizHash: marker.quizHash,
+                                        accountHash: marker.accountHash, payloadHash: marker.payloadHash, correct: correct)
+        let data = try JSONEncoder().encode(next)
+        guard try storage.replace(.pending, expected: raw, value: data), let (readBack, _) = try pending() else { return false }
+        return readBack == next
+    }
+    // Each explicit submission sends at most one request. A timeout, 401 or 409
+    // keeps the marker: a delayed request may still be committed by the server.
+    func submit(date: String, fingerprint: String, answers: [RankedAnswer]) async -> RankedAttemptState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        let ids = answers.map { $0.id }
+        guard validArchiveDate(date), validRankingHash(fingerprint), answers.count == 50,
+              Set(ids).count == ids.count, answers.allSatisfy({
+                  !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.id.utf16.count <= 200 &&
+                  $0.id.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) } && (0...3).contains($0.option)
+              }) else { return .invalidInput }
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        guard let body = try? encoder.encode(RankedSubmissionBody(date: date, fingerprint: fingerprint, answers: answers)), body.count <= 64 * 1024 else { return .invalidInput }
+        let marker: RankingPendingMarker, raw: Data, access: String
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            guard let current = try token() else { return .noAccount }
+            if let _ = try pending() { return .pending }
+            access = current
+            marker = RankingPendingMarker(version: 1, date: date, quizHash: fingerprint, accountHash: rankingHash(Data(current.utf8)), payloadHash: rankingHash(body), correct: nil)
+            raw = try encoder.encode(marker)
+            guard try storage.add(.pending, raw), let (check, _) = try pending(), check == marker else { return .storageUnavailable }
+        } catch { return .storageUnavailable }
+        do {
+            let reply = try await transport.send(.submit(body), token: access)
+            guard reply.status == 201, reply.body.count <= 4096,
+                  let score = try? JSONDecoder().decode(RankedScoreBody.self, from: reply.body), score.date == date,
+                  score.total == 50, let correct = score.correct, (0...50).contains(correct),
+                  try saveRecorded(marker, raw: raw, correct: correct) else { return .uncertain(date) }
+            return .recorded(date, correct)
+        } catch { return .uncertain(date) }
+    }
+    // Read-only reconciliation never repeats a submission or clears an unknown result.
+    func reconcile() async -> RankedAttemptState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        let marker: RankingPendingMarker, raw: Data, access: String
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            guard let (existing, encoded) = try pending() else { return .none }
+            guard let current = try token(), rankingHash(Data(current.utf8)) == existing.accountHash else { return .storageUnavailable }
+            marker = existing; raw = encoded; access = current
+        } catch { return .storageUnavailable }
+        if let score = marker.correct { return .recorded(marker.date, score) }
+        do {
+            let reply = try await transport.send(.lookup(marker.date), token: access)
+            guard reply.status == 200, reply.body.count <= 4096,
+                  let result = try? JSONDecoder().decode(RankedScoreBody.self, from: reply.body), result.date == marker.date,
+                  result.total == 50, let correct = result.correct, (0...50).contains(correct) else { return .uncertain(marker.date) }
+            guard result.payloadHash == marker.payloadHash else { return .differentAttempt(marker.date) }
+            guard try saveRecorded(marker, raw: raw, correct: correct) else { return .storageUnavailable }
+            return .recorded(marker.date, correct)
+        } catch { return .uncertain(marker.date) }
+    }
+    // Only an explicitly acknowledged confirmed result can be cleared.
+    func acknowledge() -> RankedAttemptState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            guard let (marker, raw) = try pending() else { return .none }
+            guard let current = try token(), rankingHash(Data(current.utf8)) == marker.accountHash,
+                  marker.correct != nil, try storage.remove(.pending, expected: raw) else { return .storageUnavailable }
+            return .none
+        } catch { return .storageUnavailable }
+    }
+    // Explicit, irreversible action: only a matching closure or verified recorded
+    // payload allows the marker to progress; never interpret a timeout as closure.
+    func closePending() async -> RankedAttemptState {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        let marker: RankingPendingMarker, raw: Data, access: String
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            guard let (existing, encoded) = try pending() else { return .none }
+            guard let current = try token(), rankingHash(Data(current.utf8)) == existing.accountHash else { return .storageUnavailable }
+            marker = existing; raw = encoded; access = current
+        } catch { return .storageUnavailable }
+        if let score = marker.correct { return .recorded(marker.date, score) }
+        do {
+            let reply = try await transport.send(.close(marker.date), token: access)
+            guard reply.status == 200, reply.body.count <= 4096,
+                  let result = try? JSONDecoder().decode(RankedScoreBody.self, from: reply.body), result.date == marker.date else { return .uncertain(marker.date) }
+            if result.status == "closed", result.correct == nil, result.total == nil, result.payloadHash == nil {
+                guard try storage.remove(.pending, expected: raw) else { return .storageUnavailable }
+                return .closed(marker.date)
+            }
+            if result.status == "recorded", let correct = result.correct, (0...50).contains(correct), result.total == 50 {
+                guard result.payloadHash == marker.payloadHash else { return .differentAttempt(marker.date) }
+                guard try saveRecorded(marker, raw: raw, correct: correct) else { return .storageUnavailable }
+                return .recorded(marker.date, correct)
+            }
+            return .uncertain(marker.date)
+        } catch { return .uncertain(marker.date) }
     }
     // Called only after explicit confirmation; if no definitive receipt arrives,
     // preserve journal and token for explicit retry and block account activity.

@@ -59,6 +59,41 @@ struct RankingAccountSmoke {
         state = await account.status(); precondition(state == .storageUnavailable)
         state = await account.register("Test"); precondition(state == .storageUnavailable && transport.calls.count == beforeRetry)
         precondition(storage.data[.deletion] == Data("broken".utf8))
+        let attemptStorage = FakeRankingStorage(), attemptTransport = FakeRankingTransport()
+        attemptStorage.data[.token] = Data(secret.utf8)
+        let attemptAccount = RankingAccount(storage: attemptStorage, transport: attemptTransport)
+        let answers = (0..<50).map { RankedAnswer(id: "q\($0)", option: $0 % 4) }
+        let fingerprint = String(repeating: "b", count: 64)
+        var attempt = await attemptAccount.submit(date: "2026-02-30", fingerprint: fingerprint, answers: answers)
+        precondition(attempt == .invalidInput && attemptTransport.calls.isEmpty)
+        attemptStorage.failAdd = true
+        attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
+        precondition(attempt == .storageUnavailable && attemptTransport.calls.isEmpty)
+        attemptStorage.failAdd = false
+        attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
+        precondition(attempt == .uncertain("2026-01-01") && attemptTransport.calls.count == 1)
+        let unresolvedData = attemptStorage.data[.pending]!
+        let pending = try JSONDecoder().decode(RankingPendingMarker.self, from: unresolvedData)
+        precondition(pending.correct == nil && pending.quizHash == fingerprint)
+        attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
+        precondition(attempt == .pending && attemptTransport.calls.count == 1)
+        attempt = await attemptAccount.acknowledge(); precondition(attempt == .storageUnavailable && attemptStorage.data[.pending] == unresolvedData)
+        attemptTransport.replies.append(RankingAccountReply(status: 404, body: Data(), deletionReceipt: nil))
+        attempt = await attemptAccount.reconcile(); precondition(attempt == .uncertain("2026-01-01") && attemptStorage.data[.pending] == unresolvedData)
+        let wrong = "{\"date\":\"2026-01-01\",\"correct\":42,\"total\":50,\"payloadHash\":\"" + String(repeating: "f", count: 64) + "\"}"
+        attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(wrong.utf8), deletionReceipt: nil))
+        attempt = await attemptAccount.reconcile(); precondition(attempt == .differentAttempt("2026-01-01") && attemptStorage.data[.pending] == unresolvedData)
+        let right = "{\"date\":\"2026-01-01\",\"correct\":42,\"total\":50,\"payloadHash\":\"" + pending.payloadHash + "\"}"
+        attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(right.utf8), deletionReceipt: nil))
+        attempt = await attemptAccount.reconcile(); precondition(attempt == .recorded("2026-01-01", 42))
+        let callsBefore = attemptTransport.calls.count
+        attempt = await attemptAccount.reconcile(); precondition(attempt == .recorded("2026-01-01", 42) && attemptTransport.calls.count == callsBefore)
+        attempt = await attemptAccount.acknowledge(); precondition(attempt == .none && attemptStorage.data[.pending] == nil)
+        attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
+        precondition(attempt == .uncertain("2026-01-01"))
+        attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(#"{"date":"2026-01-01","status":"closed"}"#.utf8), deletionReceipt: nil))
+        attempt = await attemptAccount.closePending(); precondition(attempt == .closed("2026-01-01") && attemptStorage.data[.pending] == nil)
+        print("Gewerteter Versuch: Marker vor Versand, Timeout, Wiederabgleich und explizites Schließen synthetisch geprüft; nicht aktiviert")
         print("Ranglistenkonto-Grundlage: Speicherung vor Versand, Wiederholung, Löschquittung und Fehlerfälle synthetisch geprüft; nicht aktiviert")
     }
 }
