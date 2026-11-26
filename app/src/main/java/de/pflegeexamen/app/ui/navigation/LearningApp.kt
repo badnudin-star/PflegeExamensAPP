@@ -141,7 +141,8 @@ internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedConten
                     counts = counts,
                     openCards = { nav.navigate("card_session/$index") },
                     manageLearned = { nav.navigate("learned_cards/topic/$index") },
-                    back = { nav.popBackStack() })
+                    back = { nav.popBackStack() },
+                    pdfSource = note?.sources?.getOrNull(if (depth == "simple") 1 else 0))
             }
             composable("cards") {
                 CardPicker(catalog, learnedCards, showLearned, { showLearned = it },
@@ -322,8 +323,10 @@ private data class NoteJump(val blockIndex: Int, val offset: Int?, val sequence:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NoteScreen(title: String, depth: String, body: String, query: String, counts: TopicCardCounts?,
-    openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit) {
+    openCards: () -> Unit, manageLearned: () -> Unit, back: () -> Unit, pdfSource: String? = null) {
     var showFullText by rememberSaveable(body) { mutableStateOf(false) }
+    var showPdf by rememberSaveable(body, pdfSource) { mutableStateOf(false) }
+    if (showPdf && pdfSource != null) NotePdfDialog(pdfSource, body) { showPdf = false }
     val blocks = remember(body, showFullText) {
         if (showFullText) NotePresentation.fullTextBlocks(body) else NotePresentation.blocks(body)
     }
@@ -417,6 +420,10 @@ internal fun NoteScreen(title: String, depth: String, body: String, query: Strin
                         Text(if (showFullText) "Aufbereitete Ansicht" else "Vollständigen Text anzeigen")
                     }
                     if (showFullText) Text("Vollständiger extrahierter Text inklusive Quellen. Bilder und PDF-Layout sind nicht enthalten.", style = MaterialTheme.typography.bodySmall)
+                    if (pdfSource != null && notePdfName(pdfSource) != null) {
+                        OutlinedButton(onClick = { showPdf = true }, modifier = Modifier.fillMaxWidth()) { Text("Original-PDF anzeigen") }
+                        Text("Das Original ist nur verfügbar, wenn es zum angezeigten Text passt und in dieser App-Version enthalten ist.", style = MaterialTheme.typography.bodySmall)
+                    }
                     if (counts != null) {
                         if (counts.total == 0) {
                             Text("Für dieses Thema sind keine Karteikarten verfügbar.", style = MaterialTheme.typography.bodySmall)

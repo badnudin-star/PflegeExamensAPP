@@ -1,0 +1,46 @@
+name: Verschlüsseltes Ranglisten-Backup bereitstellen
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Produktive Rangliste lesen und verschlüsselt als temporäres GitHub-Artifact bereitstellen'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ranking-backup-artifact
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verschlüsselungsabhängigkeit installieren
+        run: python -m pip install -r tools/cloudflare_checks/requirements-backup.txt
+      - name: Schutzlogik mit synthetischen Daten testen
+        run: |
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_backup.py' -v
+          python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_backup_artifact.py' -v
+      - name: Snapshot verschlüsselt erstellen und prüfen
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RANKING_BACKUP_PASSPHRASE: ${{ secrets.RANKING_BACKUP_PASSPHRASE }}
+          CONFIRM_BACKUP: ${{ inputs.confirm }}
+        run: python tools/cloudflare_checks/ranking_backup_artifact.py
+      - name: Verschlüsseltes Backup für sieben Tage bereitstellen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Ranglisten-Backup-verschluesselt
+          path: ${{ runner.temp }}/ranking-backup.rankbackup
+          if-no-files-found: error
+          retention-days: 7
+      - name: Temporäre Datei auf Runner entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ranking-backup.rankbackup"
