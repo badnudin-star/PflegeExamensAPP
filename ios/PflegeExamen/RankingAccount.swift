@@ -102,6 +102,13 @@ protocol RankingAccountTransport {
     // cap all responses and never log or store the Authorization header.
     func send(_ operation: RankingAccountOperation, token: String) async throws -> RankingAccountReply
 }
+protocol RankedQuizFetching {
+    func load() async throws -> RankedQuizPayload
+}
+enum RankedQuizStart {
+    case ready(RankedQuizPayload), recorded(String, Int), closed(String)
+    case busy, deletionPending, pending, unavailable
+}
 struct RankedAnswer: Codable { let id: String; let option: Int }
 private struct RankedSubmissionBody: Encodable { let date: String; let fingerprint: String; let answers: [RankedAnswer] }
 private struct RankedScoreBody: Decodable { let date: String; let correct: Int?; let total: Int?; let payloadHash: String?; let status: String? }
@@ -257,6 +264,29 @@ actor RankingAccount {
         let data = try JSONEncoder().encode(next)
         guard try storage.replace(.pending, expected: raw, value: data), let (readBack, _) = try pending() else { return false }
         return readBack == next
+    }
+    // An absent result is only meaningful after both the local pending marker and
+    // the authoritative server state have been checked for this exact account/day.
+    func startQuiz(loader: RankedQuizFetching) async -> RankedQuizStart {
+        guard !busy else { return .busy }; busy = true; defer { busy = false }
+        let access: String
+        do {
+            if let _ = try deletion() { return .deletionPending }
+            if let _ = try pending() { return .pending }
+            guard let token = try token() else { return .unavailable }
+            access = token
+        } catch { return .unavailable }
+        do {
+            let quiz = try await loader.load()
+            let reply = try await transport.send(.lookup(quiz.date), token: access)
+            guard reply.body.count <= 4096,
+                  let value = try? JSONDecoder().decode(RankedScoreBody.self, from: reply.body), value.date == quiz.date else { return .unavailable }
+            if reply.status == 404 && value.status == nil && value.correct == nil && value.total == nil && value.payloadHash == nil { return .ready(quiz) }
+            if reply.status == 410 && value.status == "closed" && value.correct == nil && value.total == nil && value.payloadHash == nil { return .closed(quiz.date) }
+            if reply.status == 200, value.total == 50, let score = value.correct, (0...50).contains(score),
+               value.payloadHash == nil || validRankingHash(value.payloadHash!) { return .recorded(quiz.date, score) }
+            return .unavailable
+        } catch { return .unavailable }
     }
     // Each explicit submission sends at most one request. A timeout, 401 or 409
     // keeps the marker: a delayed request may still be committed by the server.

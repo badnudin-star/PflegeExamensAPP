@@ -474,6 +474,9 @@ struct RankingView: View {
         List {
             Section {
                 Text("Öffentliche Spaßrangliste. Keine fälschungssichere Wertung; die Anzeige überträgt deine IP-Adresse an den Server.").font(.footnote)
+                #if ENABLE_IOS_RANKED_PREVIEW
+                NavigationLink("Wertungsquiz (interner Test)") { RankedParticipationView(model: RankedFeature.model()) }
+                #endif
                 Button(store.loading ? "Lädt …" : "Rangliste laden") { store.load() }.disabled(store.loading)
                 if store.error { Text("Rangliste nicht verfügbar. Bitte später erneut versuchen.").foregroundStyle(.secondary) }
             }

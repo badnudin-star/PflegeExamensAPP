@@ -5,6 +5,7 @@ import PDFKit
 struct CatalogSmoke {
     static func main() async throws {
         try await RankingAccountSmoke.run()
+        try await RankedParticipationSmoke.run()
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
         let raw = try Data(contentsOf: url)
         let catalog = try Catalog.decode(raw)

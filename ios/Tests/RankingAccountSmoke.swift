@@ -69,6 +69,10 @@ func syntheticRankingResponse(_ url: String) async throws -> RankingAccountReply
         RankingRequestRunner(request: URLRequest(url: URL(string: url)!), continuation: continuation, testConfiguration: configuration).start()
     }
 }
+struct SyntheticRankedQuizFetcher: RankedQuizFetching {
+    let quiz: RankedQuizPayload
+    func load() async throws -> RankedQuizPayload { quiz }
+}
 struct RankingAccountSmoke {
     static func run() async throws {
         precondition(validRankingName("Anna Müller") && validRankingName("Test-12"))
@@ -154,6 +158,17 @@ struct RankingAccountSmoke {
         let attemptStorage = FakeRankingStorage(), attemptTransport = FakeRankingTransport()
         attemptStorage.data[.token] = Data(secret.utf8)
         let attemptAccount = RankingAccount(storage: attemptStorage, transport: attemptTransport)
+        let quizFetcher = SyntheticRankedQuizFetcher(quiz: quiz)
+        attemptTransport.replies.append(RankingAccountReply(status: 404, body: Data(#"{"date":"2026-01-01","error":"kein Versuch"}"#.utf8), deletionReceipt: nil))
+        var start = await attemptAccount.startQuiz(loader: quizFetcher)
+        if case .ready(let loaded) = start { precondition(loaded.questions.count == 50) } else { fatalError("Übungsstart unerwartet abgelehnt") }
+        attemptTransport.replies.append(RankingAccountReply(status: 410, body: Data(#"{"date":"2026-01-01","status":"closed"}"#.utf8), deletionReceipt: nil))
+        start = await attemptAccount.startQuiz(loader: quizFetcher)
+        if case .closed(let day) = start { precondition(day == "2026-01-01") } else { fatalError("Sperre nicht beachtet") }
+        attemptTransport.replies.append(RankingAccountReply(status: 200, body: Data(#"{"date":"2026-01-01","correct":42,"total":50,"payloadHash":null}"#.utf8), deletionReceipt: nil))
+        start = await attemptAccount.startQuiz(loader: quizFetcher)
+        if case .recorded(let day, let score) = start { precondition(day == "2026-01-01" && score == 42) } else { fatalError("Bestehende Wertung nicht beachtet") }
+        attemptTransport.calls.removeAll()
         let answers = (0..<50).map { RankedAnswer(id: "q\($0)", option: $0 % 4) }
         let fingerprint = String(repeating: "b", count: 64)
         var attempt = await attemptAccount.submit(date: "2026-02-30", fingerprint: fingerprint, answers: answers)
@@ -164,6 +179,8 @@ struct RankingAccountSmoke {
         attemptStorage.failAdd = false
         attempt = await attemptAccount.submit(date: "2026-01-01", fingerprint: fingerprint, answers: answers)
         precondition(attempt == .uncertain("2026-01-01") && attemptTransport.calls.count == 1)
+        start = await attemptAccount.startQuiz(loader: quizFetcher)
+        if case .pending = start {} else { fatalError("Ungeklärte Abgabe nicht gesperrt") }
         let unresolvedData = attemptStorage.data[.pending]!
         let pending = try JSONDecoder().decode(RankingPendingMarker.self, from: unresolvedData)
         precondition(pending.correct == nil && pending.quizHash == fingerprint)

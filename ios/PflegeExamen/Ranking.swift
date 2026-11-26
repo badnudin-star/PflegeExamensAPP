@@ -81,3 +81,13 @@ struct RankedQuizPayload: Decodable {
         return quiz
     }
 }
+
+struct HTTPSRankedQuizFetcher: RankedQuizFetching {
+    func load() async throws -> RankedQuizPayload {
+        let raw: Data = try await withCheckedThrowingContinuation { continuation in
+            let fetcher = LimitedCatalogFetch(endpoint: .rankedToday) { result in continuation.resume(with: result) }
+            fetcher.start()
+        }
+        return try RankedQuizPayload.decode(raw)
+    }
+}
