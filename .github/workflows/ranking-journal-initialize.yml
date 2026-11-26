@@ -1,0 +1,31 @@
+name: Löschjournal-Datenbank initialisieren
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Nur die bekannte leere separate Journal-D1 initialisieren'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ranking-journal-initialize
+  cancel-in-progress: false
+jobs:
+  initialize:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Schutzlogik testen
+        run: python -m unittest discover -s tools/cloudflare_checks -p 'test_ranking_journal_initialize.py' -v
+      - name: Separates leeres Journal initialisieren
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CONFIRM_JOURNAL: ${{ inputs.confirm }}
+        run: python tools/cloudflare_checks/ranking_journal_initialize.py
