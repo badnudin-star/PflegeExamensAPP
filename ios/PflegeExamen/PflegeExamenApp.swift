@@ -44,11 +44,24 @@ struct NotesView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Themen") {
-                    ForEach(catalog.notes.filter { search.isEmpty || $0.topic.localizedCaseInsensitiveContains(search) || $0.detailed.localizedCaseInsensitiveContains(search) || $0.short.localizedCaseInsensitiveContains(search) }) { note in
+                    let matches = catalog.notes.filter { noteSearchMatch($0, query: search).found }
+                    if matches.isEmpty { Text("Keine passenden Themen oder Lernzettel gefunden.").foregroundStyle(.secondary) }
+                    ForEach(matches) { note in
+                        let hit = noteSearchMatch(note, query: search)
                         NavigationLink {
-                            NoteView(note: note)
+                            NoteView(note: note, initiallySimple: hit.simple && !hit.detailed && !hit.title)
                         } label: {
-                            HStack { Text(note.topic); Spacer(); if progress.readNotes.contains(note.topic) { Image(systemName: "checkmark.circle.fill").accessibilityLabel("Gelesen") } }
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(note.topic)
+                                    if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        Text([hit.title ? "Thema" : nil, hit.detailed ? "Neu" : nil, hit.simple ? "Einfach" : nil].compactMap { $0 }.joined(separator: " · "))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if progress.readNotes.contains(note.topic) { Image(systemName: "checkmark.circle.fill").accessibilityLabel("Gelesen") }
+                            }
                         }
                     }
                 }
@@ -59,8 +72,12 @@ struct NotesView: View {
 struct NoteView: View {
     let note: Note
     @EnvironmentObject private var progress: ProgressStore
-    @State private var simple = false
+    @State private var simple: Bool
     @State private var showPDF = false
+    init(note: Note, initiallySimple: Bool = false) {
+        self.note = note
+        _simple = State(initialValue: initiallySimple)
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -189,19 +206,25 @@ struct CasesView: View {
     @State private var search = ""
     var body: some View {
         NavigationStack {
-            List(catalog.cases.filter { item in
-                search.isEmpty || (item.title ?? "").localizedCaseInsensitiveContains(search) || item.text.localizedCaseInsensitiveContains(search) ||
-                (item.instructions ?? "").localizedCaseInsensitiveContains(search) || (item.answerNote ?? "").localizedCaseInsensitiveContains(search) ||
-                item.diseases.contains { $0.localizedCaseInsensitiveContains(search) } ||
-                item.questions.contains { $0.question.localizedCaseInsensitiveContains(search) || $0.answer.localizedCaseInsensitiveContains(search) }
-            }) { item in
-                NavigationLink { CaseView(item: item) }
-                label: { VStack(alignment: .leading) {
-                    Text(item.title?.isEmpty == false ? item.title! : "Fallbeispiel")
-                    if let day = item.examDay { Text("Prüfungstag \(day)").font(.caption).foregroundStyle(.secondary) }
-                    if progress.completedCases.contains(item.id) { Text("Abgeschlossen").font(.caption).foregroundStyle(.secondary) }
-                } }
-            }.navigationTitle("Fallbeispiele").searchable(text: $search, prompt: "Fall suchen")
+            List {
+                let matches = catalog.cases.filter { caseSearchMatch($0, query: search) }
+                if matches.isEmpty { Text("Keine passenden Fallbeispiele gefunden.").foregroundStyle(.secondary) }
+                ForEach([1, 2, 3, 0], id: \.self) { day in
+                    let group = matches.filter { day == 0 ? ![1, 2, 3].contains($0.examDay ?? 0) : $0.examDay == day }
+                    if !group.isEmpty {
+                        Section(day == 0 ? "Weitere Fälle" : "Prüfungstag \(day)") {
+                            Text("\(group.count) Fälle · \(group.filter { progress.completedCases.contains($0.id) }.count) abgeschlossen").font(.caption).foregroundStyle(.secondary)
+                            ForEach(group) { item in
+                                NavigationLink { CaseView(item: item) }
+                                label: { VStack(alignment: .leading) {
+                                    Text(item.title?.isEmpty == false ? item.title! : item.diseases.joined(separator: " · "))
+                                    Text("\(item.questions.count) Aufgaben\(progress.completedCases.contains(item.id) ? " · Abgeschlossen" : "")").font(.caption).foregroundStyle(.secondary)
+                                } }
+                            }
+                        }
+                    }
+                }
+            }.navigationTitle("Fallbeispiele").searchable(text: $search, prompt: "Fälle und Aufgaben suchen")
         }
     }
 }

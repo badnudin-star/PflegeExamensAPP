@@ -9,6 +9,15 @@ struct CatalogSmoke {
         let catalog = try Catalog.decode(raw)
         precondition(!catalog.notes.isEmpty)
         print("Katalog Revision \(catalog.revision): \(catalog.notes.count) Themen, \(catalog.cards.count) Karten, \(catalog.cases.count) Fälle, \(catalog.quizzes.count) Quizfragen")
+        let searchNote = Note(topic: "Herz", short: "einfache Wörter", balanced: "Lang", detailed: "Langer Text", sources: ["Quelle"])
+        precondition(noteSearchMatch(searchNote, query: " HERZ ").title)
+        precondition(noteSearchMatch(searchNote, query: "EINFACHE").simple && !noteSearchMatch(searchNote, query: "EINFACHE").detailed)
+        precondition(noteSearchMatch(searchNote, query: "langer").detailed)
+        precondition(!noteSearchMatch(searchNote, query: "nicht vorhanden").found)
+        let searchCase = StudyCase(id: "case-search", published: "2026-01-01", title: "Fall", text: "Text", examDay: 1, diseases: ["Erkrankung"], instructions: "Hinweise", answerNote: "Anmerkung", sources: ["Quelle"], questions: [CaseQuestion(question: "Aufgabe", answer: "Versteckte Antwort", sources: ["Quelle"])])
+        precondition(caseSearchMatch(searchCase, query: " versteckte ") && caseSearchMatch(searchCase, query: "ERKRANKUNG"))
+        precondition(!caseSearchMatch(searchCase, query: "nicht vorhanden"))
+        print("Suche über beide Lernzettelversionen und Fallantworten geprüft")
         let invalid = Catalog(schemaVersion: 99, revision: 0, notes: catalog.notes, cards: [], cases: [], quizzes: [])
         do { try invalid.validate(); fatalError("Ungültiges Schema akzeptiert") }
         catch CatalogError.invalid { print("Ungültiges Schema abgelehnt") }

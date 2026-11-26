@@ -43,6 +43,28 @@ struct Note: Decodable, Identifiable {
     let detailed: String
     let sources: [String]
 }
+// Search both note variants and label each hit; a title hit does not imply a text hit.
+struct NoteSearchMatch {
+    let title: Bool
+    let detailed: Bool
+    let simple: Bool
+    var found: Bool { title || detailed || simple }
+}
+func noteSearchMatch(_ note: Note, query: String) -> NoteSearchMatch {
+    let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else { return NoteSearchMatch(title: true, detailed: false, simple: false) }
+    return NoteSearchMatch(title: note.topic.localizedCaseInsensitiveContains(term),
+                           detailed: note.detailed.localizedCaseInsensitiveContains(term),
+                           simple: note.short.localizedCaseInsensitiveContains(term))
+}
+func caseSearchMatch(_ item: StudyCase, query: String) -> Bool {
+    let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else { return true }
+    return (item.title ?? "").localizedCaseInsensitiveContains(term) || item.text.localizedCaseInsensitiveContains(term) ||
+        (item.instructions ?? "").localizedCaseInsensitiveContains(term) || (item.answerNote ?? "").localizedCaseInsensitiveContains(term) ||
+        item.diseases.contains { $0.localizedCaseInsensitiveContains(term) } ||
+        item.questions.contains { $0.question.localizedCaseInsensitiveContains(term) || $0.answer.localizedCaseInsensitiveContains(term) }
+}
 struct Card: Decodable, Identifiable {
     let id: String
     let topic: String
