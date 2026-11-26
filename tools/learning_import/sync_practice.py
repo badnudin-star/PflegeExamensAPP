@@ -75,6 +75,7 @@ def workbook(data):
 
 def import_practice(base, drive, cards_folder='', cases_folder=''):
     result = dict(base)
+    snapshots = []
     for kind, folder in (('cards', cards_folder), ('cases', cases_folder)):
         if not folder:
             continue
@@ -101,7 +102,11 @@ def import_practice(base, drive, cards_folder='', cases_folder=''):
             values.sort(key=lambda c: c['id'])
         if not {v['id'] for v in base[kind]}.issubset({v['id'] for v in values}):
             raise ValueError('Bestehende Karten oder Fälle fehlen; kein Update veröffentlicht')
+        result[kind] = values
+        snapshots.append((kind, folder, before))
+    # Recheck all source folders only after every download/parse has finished,
+    # so changes to the first folder while reading the second are detected.
+    for kind, folder, before in snapshots:
         if before != inventory(drive, folder, kind):
             raise ValueError('Übungsordner während des Imports geändert')
-        result[kind] = values
     return result

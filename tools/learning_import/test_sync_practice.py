@@ -33,7 +33,7 @@ class PracticeSyncTests(unittest.TestCase):
         updated = dict(CARD, back='Neue Antwort')
         new = dict(CARD, id='card-01-002')
         parsed = dict(CASE, published='2026-05-01', text='Neue Fallsituation')
-        with patch('sync_practice.inventory', side_effect=[[{'name':'book'}], [{'name':'book'}], [FILE], [FILE]]), \
+        with patch('sync_practice.inventory', side_effect=[[{'name':'book'}], [FILE], [{'name':'book'}], [FILE]]), \
              patch('sync_practice.download', return_value=b'data'), patch('sync_practice.workbook', return_value=io.BytesIO()), \
              patch('sync_practice.read_cards', return_value=[updated, new]), \
              patch('sync_practice.extract_pdf', return_value='text'), patch('sync_practice.parse_case', return_value=parsed):
@@ -54,6 +54,14 @@ class PracticeSyncTests(unittest.TestCase):
         with patch('sync_practice.inventory', side_effect=[[{'name':'book'}], []]), patch('sync_practice.download', return_value=b'x'), \
              patch('sync_practice.workbook'), patch('sync_practice.read_cards', return_value=[CARD]):
             with self.assertRaisesRegex(ValueError, 'geändert'): import_practice(BASE, Drive(), 'cards')
+    def test_cards_changing_while_cases_are_imported_is_rejected(self):
+        with patch('sync_practice.inventory', side_effect=[[{'name':'book'}], [FILE], [], [FILE]]), \
+             patch('sync_practice.download', return_value=b'x'), patch('sync_practice.workbook'), \
+             patch('sync_practice.read_cards', return_value=[CARD]), \
+             patch('sync_practice.extract_pdf', return_value='text'), patch('sync_practice.parse_case', return_value=copy.deepcopy(CASE)):
+            with self.assertRaisesRegex(ValueError, 'geändert'):
+                import_practice(BASE, Drive(), 'cards', 'cases')
+
     def test_duplicate_case_id_is_not_published(self):
         with patch('sync_practice.inventory', return_value=[FILE, dict(FILE, id='another')]), \
              patch('sync_practice.download', return_value=b'x'), patch('sync_practice.extract_pdf', return_value='text'), \
