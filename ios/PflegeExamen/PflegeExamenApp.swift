@@ -2,7 +2,17 @@ import SwiftUI
 
 @main
 struct PflegeExamenApp: App {
-    var body: some Scene { WindowGroup { RootView() } }
+    var body: some Scene {
+        WindowGroup {
+            #if RANKING_UI_TEST
+            if ProcessInfo.processInfo.arguments.contains("-synthetic-ranking-ui") {
+                NavigationStack { RankedParticipationView(model: SyntheticRankingUI.model()) }
+            } else { RootView() }
+            #else
+            RootView()
+            #endif
+        }
+    }
 }
 
 struct RootView: View {

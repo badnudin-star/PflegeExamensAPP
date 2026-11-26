@@ -30,8 +30,8 @@ struct RankedParticipationView: View {
             if model.busy { ProgressView("Bitte warten …") }
             Button("Kontostatus prüfen") { Task { await model.checkAccount() } }.buttonStyle(.bordered).disabled(model.busy)
             if canRegister {
-                TextField("Pseudonym", text: $name).textFieldStyle(.roundedBorder).autocorrectionDisabled()
-                Button("Für Rangliste anmelden") { confirmRegister = true }.buttonStyle(.borderedProminent)
+                TextField("Pseudonym", text: $name).accessibilityIdentifier("ranking.name").textFieldStyle(.roundedBorder).autocorrectionDisabled()
+                Button("Für Rangliste anmelden") { confirmRegister = true }.accessibilityIdentifier("ranking.register").buttonStyle(.borderedProminent)
                     .disabled(model.busy || !validRankingName(name))
             }
             Button(showRecovery ? "Zugangsoptionen ausblenden" : "Zugangsoptionen") { showRecovery.toggle(); visibleCode = nil; code = "" }.disabled(model.busy)
@@ -63,10 +63,10 @@ struct RankedParticipationView: View {
                 if !recoveryMessage.isEmpty { Text(recoveryMessage).font(.footnote) }
             }
             if canDelete {
-                Button(model.accountState == .some(.deletionPending) ? "Kontolöschung fortsetzen" : "Ranglistenkonto löschen", role: .destructive) { confirmDelete = true }.disabled(model.busy)
+                Button(model.accountState == .some(.deletionPending) ? "Kontolöschung fortsetzen" : "Ranglistenkonto löschen", role: .destructive) { confirmDelete = true }.accessibilityIdentifier("ranking.delete").disabled(model.busy)
             }
             if case .some(.registered(_)) = model.accountState {
-                Button("Heutiges Wertungsquiz laden") { Task { await model.loadQuiz() } }.buttonStyle(.borderedProminent).disabled(model.busy)
+                Button("Heutiges Wertungsquiz laden") { Task { await model.loadQuiz() } }.accessibilityIdentifier("ranking.load").buttonStyle(.borderedProminent).disabled(model.busy)
                 Text("Antworten bleiben während dieser Sitzung im Speicher und können beim Verlassen verloren gehen. Für die Wertung werden sie nach deiner Bestätigung an den Server gesendet.").font(.footnote)
             }
             if !model.message.isEmpty { Text(model.message) }
@@ -76,27 +76,27 @@ struct RankedParticipationView: View {
                     Text("\(model.index + 1) / \(quiz.questions.count) · \(question.topic)").font(.footnote)
                     Text(question.question).font(.headline)
                     ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                        Button(option) { model.choose(index) }.buttonStyle(.bordered)
+                        Button(option) { model.choose(index) }.accessibilityIdentifier("ranking.option.\(index)").buttonStyle(.bordered)
                             .disabled(model.busy || model.answers.count > model.index)
                     }
                     if model.answers.count > model.index {
                         let selected = model.answers[model.index]
                         Text(selected == question.correctIndex ? "Richtig" : "Nicht richtig. Richtig ist: \(question.options[question.correctIndex])").bold()
                         Text(question.explanation)
-                        Button("Nächste Frage") { model.advance() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                        Button("Nächste Frage") { model.advance() }.accessibilityIdentifier("ranking.next").buttonStyle(.borderedProminent).disabled(model.busy)
                     }
                 } else {
                     Text("Alle Fragen beantwortet. Die Wertung erfolgt erst nach ausdrücklicher Abgabe durch den Server.")
-                    Button("Gewertet abgeben") { confirmSubmit = true }.buttonStyle(.borderedProminent).disabled(!model.readyToSubmit)
+                    Button("Gewertet abgeben") { confirmSubmit = true }.accessibilityIdentifier("ranking.submit").buttonStyle(.borderedProminent).disabled(!model.readyToSubmit)
                 }
             }
             Divider()
             Text("Ungeklärte Quizabgabe").font(.headline)
             Text("Ein fehlendes Ergebnis beweist nicht, dass eine frühere Abgabe nicht noch ankommt.").font(.footnote)
             if let status = model.attemptState { Text(attemptText(status)) }
-            Button("Abgabestatus prüfen") { Task { await model.checkAttempt() } }.buttonStyle(.bordered).disabled(model.busy)
+            Button("Abgabestatus prüfen") { Task { await model.checkAttempt() } }.accessibilityIdentifier("ranking.checkAttempt").buttonStyle(.bordered).disabled(model.busy)
             if case .some(.recorded(_, _)) = model.attemptState {
-                Button("Ergebnis bestätigen") { Task { await model.acknowledge() } }.buttonStyle(.borderedProminent).disabled(model.busy)
+                Button("Ergebnis bestätigen") { Task { await model.acknowledge() } }.accessibilityIdentifier("ranking.ack").buttonStyle(.borderedProminent).disabled(model.busy)
             }
             if case .some(.uncertain(_)) = model.attemptState {
                 Button("Auf diesen Wertungstag verzichten") { confirmClose = true }.disabled(model.busy)

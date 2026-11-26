@@ -24,7 +24,7 @@ jobs:
   simulator:
     name: iOS-Simulatorvorschau (nicht signiert)
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Öffentlichen Offline-Katalog validieren
@@ -75,6 +75,17 @@ jobs:
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" "$RUNNER_TEMP/ios-build/Build/Products/Debug-iphonesimulator/PflegeExamen.app"
           xcrun simctl launch "$DEVICE" de.pflegeexamen.ios.preview
+      - name: Ranglistenoberfläche mit isolierten Testdaten bedienen
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,devices in sorted(d["devices"].items(), reverse=True) if "iOS" in runtime for x in devices if x["name"].startswith("iPhone") and x["isAvailable"]))')
+          xcodebuild -project ios/PflegeExamen.xcodeproj -scheme PflegeExamenUI -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath "$RUNNER_TEMP/ios-ui-test" \
+            CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='$(inherited) -D RANKING_UI_TEST' test \
+            2>&1 | tee "$RUNNER_TEMP/xcode-uitest.log" || {
+              python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); matches=[x for x in lines if "error:" in x.lower() or "failed" in x.lower()]; print("::error title=iOS UI test::" + (" | ".join(matches[-8:]) or "Test failed; see job log").replace("%", "%25"))' "$RUNNER_TEMP/xcode-uitest.log"
+              exit 1
+          }
       - name: Nicht signierte Simulator-App verpacken
         run: |
           cd "$RUNNER_TEMP/ios-build/Build/Products/Debug-iphonesimulator"
