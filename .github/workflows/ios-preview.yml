@@ -50,6 +50,17 @@ jobs:
               python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); matches=[x for x in lines if "error:" in x.lower()]; print("::error title=Xcode build::" + (" | ".join(matches[-8:]) or "Build failed; see job log").replace("%", "%25"))' "$RUNNER_TEMP/xcodebuild.log"
               exit 1
           }
+      - name: Gesperrte Wertungsoberfläche separat kompilieren (nicht ausführen)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/PflegeExamen.xcodeproj -scheme PflegeExamen -configuration Debug \
+            -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/ios-ranked-compile" \
+            CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='$(inherited) -D ENABLE_IOS_RANKED_PREVIEW' build \
+            2>&1 | tee "$RUNNER_TEMP/xcode-ranked.log" || {
+              python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); matches=[x for x in lines if "error:" in x.lower()]; print("::error title=iOS ranking build::" + (" | ".join(matches[-8:]) or "Build failed; see job log").replace("%", "%25"))' "$RUNNER_TEMP/xcode-ranked.log"
+              exit 1
+          }
+      # Only the normal build, without the flag above, is installed and packaged.
       - name: Vorschau auf einem iPhone-Simulator starten
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,devices in sorted(d["devices"].items(), reverse=True) if "iOS" in runtime for x in devices if x["name"].startswith("iPhone") and x["isAvailable"]))')

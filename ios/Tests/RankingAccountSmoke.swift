@@ -158,6 +158,10 @@ struct RankingAccountSmoke {
         let attemptStorage = FakeRankingStorage(), attemptTransport = FakeRankingTransport()
         attemptStorage.data[.token] = Data(secret.utf8)
         let attemptAccount = RankingAccount(storage: attemptStorage, transport: attemptTransport)
+        let duplicateQuiz = RankedQuizPayload(date: quiz.date, fingerprint: quiz.fingerprint, questions: Array(repeating: quiz.questions[0], count: 50))
+        let invalidStart = await attemptAccount.startQuiz(loader: SyntheticRankedQuizFetcher(quiz: duplicateQuiz))
+        if case .unavailable = invalidStart {} else { fatalError("Ungültiges Quiz gestartet") }
+        precondition(attemptTransport.calls.isEmpty)
         let quizFetcher = SyntheticRankedQuizFetcher(quiz: quiz)
         attemptTransport.replies.append(RankingAccountReply(status: 404, body: Data(#"{"date":"2026-01-01","error":"kein Versuch"}"#.utf8), deletionReceipt: nil))
         var start = await attemptAccount.startQuiz(loader: quizFetcher)

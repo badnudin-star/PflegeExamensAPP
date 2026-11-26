@@ -278,6 +278,7 @@ actor RankingAccount {
         } catch { return .unavailable }
         do {
             let quiz = try await loader.load()
+            try quiz.validate()
             let reply = try await transport.send(.lookup(quiz.date), token: access)
             guard reply.body.count <= 4096,
                   let value = try? JSONDecoder().decode(RankedScoreBody.self, from: reply.body), value.date == quiz.date else { return .unavailable }

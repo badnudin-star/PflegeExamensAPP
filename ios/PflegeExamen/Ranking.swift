@@ -68,17 +68,20 @@ struct RankedQuizPayload: Decodable {
     static func decode(_ raw: Data) throws -> RankedQuizPayload {
         guard raw.count <= 1024 * 1024 else { throw CatalogError.invalid }
         let quiz = try JSONDecoder().decode(RankedQuizPayload.self, from: raw)
+        try quiz.validate()
+        return quiz
+    }
+    func validate() throws {
         func text(_ value: String) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard validArchiveDate(quiz.date), validRankingHash(quiz.fingerprint), quiz.questions.count == 50,
-              Set(quiz.questions.map(\.id)).count == 50,
-              quiz.questions.allSatisfy({ question in
+        guard validArchiveDate(date), validRankingHash(fingerprint), questions.count == 50,
+              Set(questions.map(\.id)).count == 50,
+              questions.allSatisfy({ question in
                   text(question.id) && question.id.utf16.count <= 200 &&
                   question.id.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) } &&
                   text(question.topic) && text(question.question) && text(question.explanation) &&
                   question.options.count == 4 && question.options.allSatisfy(text) &&
                   Set(question.options).count == 4 && (0...3).contains(question.correctIndex)
               }) else { throw CatalogError.invalid }
-        return quiz
     }
 }
 
