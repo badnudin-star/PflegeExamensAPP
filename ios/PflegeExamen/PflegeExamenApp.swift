@@ -44,7 +44,7 @@ struct NotesView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Themen") {
-                    ForEach(catalog.notes.filter { search.isEmpty || $0.topic.localizedCaseInsensitiveContains(search) }) { note in
+                    ForEach(catalog.notes.filter { search.isEmpty || $0.topic.localizedCaseInsensitiveContains(search) || $0.detailed.localizedCaseInsensitiveContains(search) || $0.short.localizedCaseInsensitiveContains(search) }) { note in
                         NavigationLink {
                             NoteView(note: note)
                         } label: {
@@ -52,7 +52,7 @@ struct NotesView: View {
                         }
                     }
                 }
-            }.navigationTitle("Lernzettel").searchable(text: $search, prompt: "Thema suchen")
+            }.navigationTitle("Lernzettel").searchable(text: $search, prompt: "Thema oder Lernzetteltext suchen")
         }
     }
 }
@@ -189,7 +189,12 @@ struct CasesView: View {
     @State private var search = ""
     var body: some View {
         NavigationStack {
-            List(catalog.cases.filter { search.isEmpty || ($0.title ?? "").localizedCaseInsensitiveContains(search) || $0.text.localizedCaseInsensitiveContains(search) }) { item in
+            List(catalog.cases.filter { item in
+                search.isEmpty || (item.title ?? "").localizedCaseInsensitiveContains(search) || item.text.localizedCaseInsensitiveContains(search) ||
+                (item.instructions ?? "").localizedCaseInsensitiveContains(search) || (item.answerNote ?? "").localizedCaseInsensitiveContains(search) ||
+                item.diseases.contains { $0.localizedCaseInsensitiveContains(search) } ||
+                item.questions.contains { $0.question.localizedCaseInsensitiveContains(search) || $0.answer.localizedCaseInsensitiveContains(search) }
+            }) { item in
                 NavigationLink { CaseView(item: item) }
                 label: { VStack(alignment: .leading) {
                     Text(item.title?.isEmpty == false ? item.title! : "Fallbeispiel")
@@ -231,7 +236,7 @@ struct QuizView: View {
                 Section("Veröffentlichte Quizfragen") {
                     if days.isEmpty { Text("Zurzeit sind keine Quizfragen im Offline-Katalog enthalten.").foregroundStyle(.secondary) }
                     ForEach(days, id: \.self) { day in
-                        NavigationLink { QuizDayView(day: day, questions: catalog.quizzes.filter { $0.published == day }) }
+                        NavigationLink { QuizDayView(day: day, questions: catalog.quizzes.filter { $0.published == day }, catalog: catalog) }
                         label: { VStack(alignment: .leading) { Text(day); Text("\(catalog.quizzes.filter { $0.published == day }.count) Fragen").font(.caption).foregroundStyle(.secondary) } }
                     }
                 }
@@ -269,7 +274,7 @@ struct ArchivedDayView: View {
     let date: String
     var body: some View {
         Group {
-            if let day = store.day, day.date == date { QuizDayView(day: date, questions: day.quizzes) }
+            if let day = store.day, day.date == date { QuizDayView(day: date, questions: day.quizzes, catalog: store.catalog) }
             else if store.loadingDay { ProgressView("Archivtag laden …") }
             else { Text(store.message.isEmpty ? "Archivtag nicht verfügbar." : store.message).padding() }
         }.task(id: date) { store.loadDay(date) }
@@ -278,11 +283,13 @@ struct ArchivedDayView: View {
 struct QuizDayView: View {
     let day: String
     let questions: [Quiz]
+    let catalog: Catalog
     @EnvironmentObject private var progress: ProgressStore
     var body: some View {
         List {
             Section {
                 Text("\(questions.filter { progress.answer(for: $0) != nil }.count) von \(questions.count) beantwortet")
+                NavigationLink("Quiz als Übung starten oder fortsetzen") { QuizPracticeView(questions: questions.sorted { $0.id < $1.id }, catalog: catalog) }.disabled(!progress.quizAvailable || questions.isEmpty)
                 Text("Dies ist eine lokale Übung, keine Ranglistenabgabe.").font(.footnote).foregroundStyle(.secondary)
                 if !progress.quizAvailable { Text("Der gespeicherte Quizstand ist nicht lesbar. Neue Antworten werden nicht gespeichert.").foregroundStyle(.red) }
             }
@@ -294,6 +301,96 @@ struct QuizDayView: View {
                 } }
             }
         }.navigationTitle(day).navigationBarTitleDisplayMode(.inline)
+    }
+}
+// Local practice only; this never sends answers or scores to the ranking.
+struct QuizPracticeView: View {
+    let questions: [Quiz]
+    let catalog: Catalog
+    @EnvironmentObject private var progress: ProgressStore
+    @State private var index: Int?
+    @State private var confirmReset = false
+    @State private var reviewWrong = false
+    @State private var reviewing = false
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Lokale Übung · keine Ranglistenwertung").font(.footnote).foregroundStyle(.secondary)
+                if !progress.quizAvailable {
+                    Text("Der gespeicherte Quizstand ist nicht lesbar; die Übung ist gesperrt.").foregroundStyle(.red)
+                } else if let position = index, questions.indices.contains(position) {
+                    let q = questions[position]
+                    Text("Frage \(position + 1) von \(questions.count) · \(q.topic)").font(.footnote)
+                    Text(q.question).font(.headline)
+                    ForEach(Array(q.options.enumerated()), id: \.offset) { option, text in
+                        Button(text) { progress.select(option, for: q) }.buttonStyle(.bordered)
+                            .disabled(progress.answer(for: q) != nil)
+                    }
+                    if let answer = progress.answer(for: q) {
+                        Text(answer == q.correctIndex ? "Richtig" : "Nicht richtig").bold()
+                        Text("Deine Antwort: \(q.options[answer])")
+                        Text("Richtige Antwort: \(q.options[q.correctIndex])")
+                        Text(q.explanation).textSelection(.enabled)
+                        SourcesView(sources: q.sources)
+                        Button("Nächste Frage") { index = nextUnanswered(after: position) }.buttonStyle(.borderedProminent)
+                    }
+                } else if let summary = progress.quizSummary(questions) {
+                    Text("Übung beendet: \(summary.correct) von \(summary.total) richtig.").font(.headline)
+                    Text("Das Ergebnis gilt nur für diese Übung und misst nicht dein gesamtes Wissen.").font(.footnote)
+                    Text("Ergebnis nach Thema").font(.headline)
+                    ForEach(summary.topics) { topic in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(topic.topic): \(topic.correct) von \(topic.total) richtig")
+                            if let note = catalog.notes.first(where: { $0.topic == topic.topic }) {
+                                NavigationLink("Lernzettel öffnen") { NoteView(note: note) }
+                            }
+                        }
+                    }
+                    Button(reviewing && !reviewWrong ? "Alle Antworten ausblenden" : "Alle Antworten ansehen") {
+                        if reviewing && !reviewWrong { reviewing = false } else { reviewing = true; reviewWrong = false }
+                    }.buttonStyle(.bordered)
+                    if summary.correct < summary.total {
+                        Button(reviewing && reviewWrong ? "Falsche Antworten ausblenden" : "Falsche Antworten ansehen") {
+                            if reviewing && reviewWrong { reviewing = false } else { reviewing = true; reviewWrong = true }
+                        }.buttonStyle(.bordered)
+                    }
+                    if reviewing {
+                        ForEach(questions.filter { !reviewWrong || progress.answer(for: $0) != $0.correctIndex }) { q in
+                            NavigationLink(q.question) { QuizReviewView(quiz: q, note: catalog.notes.first { $0.topic == q.topic }) }
+                        }
+                    }
+                } else if !questions.isEmpty {
+                    Button("Übung fortsetzen") { index = questions.firstIndex { progress.answer(for: $0) == nil } }.buttonStyle(.borderedProminent)
+                }
+                if questions.contains(where: { progress.answer(for: $0) != nil }) {
+                    Button("Quiz neu beginnen") { confirmReset = true }.buttonStyle(.bordered)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding()
+        }
+        .navigationTitle("Quizübung").navigationBarTitleDisplayMode(.inline)
+        .onAppear { if index == nil && progress.quizSummary(questions) == nil { index = questions.firstIndex { progress.answer(for: $0) == nil } } }
+        .confirmationDialog("Quiz neu beginnen? Der lokale Übungsstand für diesen Tag wird gelöscht.", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Übungsstand zurücksetzen", role: .destructive) { progress.resetQuiz(questions); index = questions.isEmpty ? nil : 0; reviewing = false }
+        }
+    }
+    private func nextUnanswered(after index: Int) -> Int? {
+        if index + 1 < questions.count, let next = ((index + 1)..<questions.count).first(where: { progress.answer(for: questions[$0]) == nil }) { return next }
+        return questions.indices.first { progress.answer(for: questions[$0]) == nil }
+    }
+}
+struct QuizReviewView: View {
+    let quiz: Quiz
+    let note: Note?
+    @EnvironmentObject private var progress: ProgressStore
+    var body: some View {
+        ScrollView { VStack(alignment: .leading, spacing: 16) {
+            Text(quiz.question).font(.headline)
+            if let answer = progress.answer(for: quiz) { Text("Deine Antwort: \(quiz.options[answer])") }
+            Text("Richtige Antwort: \(quiz.options[quiz.correctIndex])").bold()
+            Text(quiz.explanation).textSelection(.enabled)
+            SourcesView(sources: quiz.sources)
+            if let note = note { NavigationLink("Lernzettel öffnen") { NoteView(note: note) } }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding() }.navigationTitle(quiz.topic).navigationBarTitleDisplayMode(.inline)
     }
 }
 struct QuizQuestionView: View {

@@ -53,6 +53,31 @@ final class ProgressStore: ObservableObject {
         defaults.set(data, forKey: Self.quizKey)
         quizRecords = updated
     }
+    // Reset only the supplied day's matching questions, without affecting other days.
+    func resetQuiz(_ questions: [Quiz]) {
+        guard quizAvailable else { return }
+        var updated = quizRecords
+        for quiz in questions where updated[quiz.id]?.fingerprint == quizFingerprint(quiz) {
+            updated.removeValue(forKey: quiz.id)
+        }
+        guard let data = try? JSONEncoder().encode(updated) else { return }
+        defaults.set(data, forKey: Self.quizKey)
+        quizRecords = updated
+    }
+    func quizSummary(_ questions: [Quiz]) -> QuizSummary? {
+        guard quizAvailable, !questions.isEmpty else { return nil }
+        let answers = questions.map { answer(for: $0) }
+        guard answers.allSatisfy({ $0 != nil }) else { return nil }
+        var topics: [QuizTopicSummary] = []
+        for (index, question) in questions.enumerated() {
+            let correct = answers[index] == question.correctIndex
+            if let existing = topics.firstIndex(where: { $0.topic == question.topic }) {
+                topics[existing].total += 1
+                if correct { topics[existing].correct += 1 }
+            } else { topics.append(QuizTopicSummary(topic: question.topic, correct: correct ? 1 : 0, total: 1)) }
+        }
+        return QuizSummary(correct: topics.reduce(0) { $0 + $1.correct }, total: questions.count, topics: topics)
+    }
     func toggleLearned(_ id: String) {
         if learned.contains(id) { learned.remove(id) } else { learned.insert(id) }
         defaults.set(learned.sorted(), forKey: Self.learnedKey)
@@ -75,4 +100,16 @@ func quizFingerprint(_ quiz: Quiz) -> String {
     let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
     guard let data = try? encoder.encode(quiz) else { return "" }
     return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+
+struct QuizTopicSummary: Identifiable {
+    let topic: String
+    var correct: Int
+    var total: Int
+    var id: String { topic }
+}
+struct QuizSummary {
+    let correct: Int
+    let total: Int
+    let topics: [QuizTopicSummary]
 }
