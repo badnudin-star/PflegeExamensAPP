@@ -55,14 +55,30 @@ final class CatalogStore: ObservableObject {
 
 // Stream into a bounded buffer, forbid redirects, cookies and cached responses.
 enum PublicEndpoint {
-    case catalog, leaderboard
-    var url: URL {
+    case catalog, leaderboard, archivePage(String?), archiveDay(String)
+    var url: URL? {
         switch self {
-        case .catalog: return URL(string: "https://pflegeexamen-content.badnudin.workers.dev/content")!
-        case .leaderboard: return URL(string: "https://pflege-examen-ranking.badnudin.workers.dev/leaderboard")!
+        case .catalog: return URL(string: "https://pflegeexamen-content.badnudin.workers.dev/content")
+        case .leaderboard: return URL(string: "https://pflege-examen-ranking.badnudin.workers.dev/leaderboard")
+        case .archivePage(let before):
+            guard before == nil || validArchiveDate(before!) else { return nil }
+            var parts = URLComponents(string: "https://pflegeexamen-content.badnudin.workers.dev/quiz-archive")!
+            parts.queryItems = [URLQueryItem(name: "limit", value: "30")]
+            if let before = before { parts.queryItems?.append(URLQueryItem(name: "before", value: before)) }
+            return parts.url
+        case .archiveDay(let date):
+            guard validArchiveDate(date) else { return nil }
+            return URL(string: "https://pflegeexamen-content.badnudin.workers.dev/quiz-archive/\(date)")
         }
     }
-    var maxBytes: Int { self == .catalog ? 8 * 1024 * 1024 : 128 * 1024 }
+    var maxBytes: Int {
+        switch self {
+        case .catalog: return 8 * 1024 * 1024
+        case .leaderboard: return 128 * 1024
+        case .archivePage: return 16 * 1024
+        case .archiveDay: return 1024 * 1024
+        }
+    }
 }
 final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
     private let endpoint: PublicEndpoint
@@ -72,6 +88,7 @@ final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTas
     private var session: URLSession?
     init(endpoint: PublicEndpoint = .catalog, done: @escaping (Result<Data, Error>) -> Void) { self.endpoint = endpoint; self.done = done }
     func start() {
+        guard let url = endpoint.url else { DispatchQueue.main.async { self.done(.failure(CatalogError.invalid)) }; return }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
@@ -80,7 +97,7 @@ final class LimitedCatalogFetch: NSObject, URLSessionDataDelegate, URLSessionTas
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
         self.session = session
-        var request = URLRequest(url: endpoint.url)
+        var request = URLRequest(url: url)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         session.dataTask(with: request).resume()

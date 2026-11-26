@@ -90,6 +90,26 @@ struct CatalogSmoke {
         let invalidBoard = Data(#"{"generatedAtMillis":1000,"nextUpdateAtMillis":3601000,"totalParticipants":1,"entries":[{"rank":2,"username":"Test","points":51,"quizzes":1}]}"#.utf8)
         do { _ = try RankingSnapshot.decode(invalidBoard); fatalError("Ungültige Rangliste akzeptiert") } catch {}
         print("Öffentliche Rangliste: gültige und ungültige Daten geprüft")
+
+        precondition(validArchiveDate("2024-02-29") && !validArchiveDate("2023-02-29") && !validArchiveDate("../../bad"))
+        precondition(PublicEndpoint.archiveDay("../../bad").url == nil)
+        let pageData = Data(#"{"days":[{"date":"2026-01-02","questions":1},{"date":"2026-01-01","questions":2}],"nextBefore":"2026-01-01"}"#.utf8)
+        let page = try ArchivePage.decode(pageData, before: nil)
+        precondition(page.days.count == 2 && page.nextBefore == "2026-01-01")
+        do { _ = try ArchivePage.decode(pageData, before: "2026-01-02"); fatalError("Ungültige Seitengrenze akzeptiert") } catch {}
+        var archiveQuiz = try JSONSerialization.jsonObject(with: JSONEncoder().encode(quiz)) as! [String: Any]
+        archiveQuiz["topic"] = catalog.notes[0].topic
+        let archiveData = try JSONSerialization.data(withJSONObject: ["date": "2026-01-01", "quizzes": [archiveQuiz]])
+        let archiveCache = ArchiveCache(directory: temporary.appendingPathComponent("archive"))
+        let savedDay = try archiveCache.writeNew(archiveData, date: "2026-01-01", catalog: catalog)
+        precondition(savedDay.quizzes.count == 1 && archiveCache.dates() == ["2026-01-01"])
+        let reloadedDay = try archiveCache.read("2026-01-01", catalog: catalog)
+        precondition(reloadedDay?.quizzes.count == 1)
+        do { _ = try archiveCache.writeNew(archiveData, date: "2026-01-01", catalog: catalog); fatalError("Archivtag überschrieben") } catch {}
+        let archivedBytes = try Data(contentsOf: archiveCache.path("2026-01-01"))
+        precondition(archivedBytes == archiveData)
+        do { _ = try ArchiveDay.decode(archiveData, expected: "2026-01-02", catalog: catalog); fatalError("Ungültiges Datum akzeptiert") } catch {}
+        print("Quizarchiv: Kalender, Seiten, Offline-Cache und Schreibschutz geprüft")
         let pdfDirectory = URL(fileURLWithPath: CommandLine.arguments[2])
         let pdf = NotePDFLocator.locate(directory: pdfDirectory, source: "Lernzettel: Synthetisch.pdf", text: "Synthetischer Lernzettel.")
         precondition(pdf != nil)
