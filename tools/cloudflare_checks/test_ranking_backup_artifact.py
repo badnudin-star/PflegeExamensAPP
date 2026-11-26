@@ -45,6 +45,21 @@ class ArtifactBackupTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), blob)
             self.assertEqual(capture.call_count, 1)
 
+    def test_diagnostic_reports_only_fixed_category_and_never_exception_text(self):
+        with TemporaryDirectory() as tmp:
+            for value, code in [('', 'password_missing'), ('a real confidential bad value', 'password_format')]:
+                env = self.env(tmp); env['RANKING_BACKUP_PASSPHRASE'] = value
+                with self.subTest(code=code), patch.dict('os.environ', env, clear=True), contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(artifact.main(), 1)
+                    self.assertIn(artifact.MESSAGES[code], output.getvalue())
+                    if value: self.assertNotIn(value, output.getvalue())
+            with patch.dict('os.environ', self.env(tmp), clear=True), \
+                 patch.object(artifact.backup, 'capture', side_effect=Exception('private sensitive detail')), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(artifact.main(), 1)
+                self.assertIn(artifact.MESSAGES['capture'], output.getvalue())
+                self.assertNotIn('private sensitive detail', output.getvalue())
+
     def test_workflow_is_manual_main_only_with_encrypted_artifact_and_cleanup(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/ranking-backup-artifact.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)
