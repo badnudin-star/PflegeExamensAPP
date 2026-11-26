@@ -9,7 +9,7 @@ struct PflegeExamenApp: App {
 
 struct RootView: View {
     @State private var catalog: Catalog?
-    @State private var error = false
+    @State private var loadFailed = false
     var body: some View {
         Group {
             if let catalog = catalog {
@@ -19,16 +19,16 @@ struct RootView: View {
                     CasesView(catalog: catalog).tabItem { Label("Fälle", systemImage: "person.text.rectangle") }
                     QuizView(catalog: catalog).tabItem { Label("Quiz", systemImage: "checkmark.circle") }
                 }
-            } else if error {
+            } else if loadFailed {
                 Text("Der Offline-Katalog konnte nicht geladen werden. Bitte eine geprüfte Version verwenden.")
                     .padding()
             } else { ProgressView() }
         }.task {
-            guard catalog == nil, !error else { return }
+            guard catalog == nil, !loadFailed else { return }
             do {
                 guard let url = Bundle.main.url(forResource: "learning_content", withExtension: "json") else { throw CatalogError.invalid }
                 catalog = try Catalog.load(from: url)
-            } catch { error = true }
+            } catch { loadFailed = true }
         }
     }
 }
