@@ -4,6 +4,11 @@ import PDFKit
 @main
 struct CatalogSmoke {
     static func main() async throws {
+        if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--worker-test" {
+            guard let port = Int(CommandLine.arguments[2]) else { fatalError("Ungültiger Testport") }
+            try await RankingWorkerSmoke.run(port: port)
+            return
+        }
         try await RankingAccountSmoke.run()
         try await RankedParticipationSmoke.run()
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
