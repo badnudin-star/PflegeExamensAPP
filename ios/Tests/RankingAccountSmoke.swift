@@ -33,6 +33,14 @@ struct RankingAccountSmoke {
         precondition(!validRankingName("a") && !validRankingName(" Test") && !validRankingName("a  b"))
         precondition(!validRankingName("abc\n") && !validRankingHash("../"))
         let secret = String(repeating: "a", count: 64)
+        let request = try HTTPSRankingTransport.request(.lookup("2026-01-01"), token: secret)
+        precondition(request.url?.absoluteString == "https://pflege-examen-ranking.badnudin.workers.dev/quiz/attempt/result?date=2026-01-01")
+        precondition(request.httpMethod == "GET" && request.value(forHTTPHeaderField: "Authorization") == "Bearer " + secret && !(request.url?.absoluteString.contains(secret) ?? true))
+        let deletionRequest = try HTTPSRankingTransport.request(.delete, token: secret)
+        precondition(deletionRequest.httpMethod == "DELETE" && deletionRequest.url?.path == "/participants/me")
+        do { _ = try HTTPSRankingTransport.request(.lookup("../bad"), token: secret); fatalError("Unsicheres Datum akzeptiert") } catch {}
+        do { _ = try HTTPSRankingTransport.request(.delete, token: "not-a-token"); fatalError("Ungültiges Token akzeptiert") } catch {}
+        do { _ = try HTTPSRankingTransport.request(.submit(Data(repeating: 0, count: 65537)), token: secret); fatalError("Zu große Abgabe akzeptiert") } catch {}
         let storage = FakeRankingStorage(), transport = FakeRankingTransport()
         let account = RankingAccount(storage: storage, transport: transport, tokenGenerator: { secret })
         var state = await account.status(); precondition(state == .notPrepared)

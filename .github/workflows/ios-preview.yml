@@ -36,7 +36,7 @@ jobs:
       - name: Katalog einlesen und ungültiges Schema ablehnen
         run: |
           set -o pipefail
-          swiftc ios/PflegeExamen/Catalog.swift ios/PflegeExamen/CatalogStore.swift ios/PflegeExamen/ProgressStore.swift ios/PflegeExamen/NotePDFLocator.swift ios/PflegeExamen/Ranking.swift ios/PflegeExamen/QuizArchive.swift ios/PflegeExamen/RankingAccount.swift ios/Tests/RankingAccountSmoke.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke" 2>&1 | tee "$RUNNER_TEMP/swift-smoke.log" || {
+          swiftc ios/PflegeExamen/Catalog.swift ios/PflegeExamen/CatalogStore.swift ios/PflegeExamen/ProgressStore.swift ios/PflegeExamen/NotePDFLocator.swift ios/PflegeExamen/Ranking.swift ios/PflegeExamen/QuizArchive.swift ios/PflegeExamen/RankingAccount.swift ios/PflegeExamen/RankingTransport.swift ios/Tests/RankingAccountSmoke.swift ios/Tests/CatalogSmoke.swift -o "$RUNNER_TEMP/catalog-smoke" 2>&1 | tee "$RUNNER_TEMP/swift-smoke.log" || {
             python3 -c 'import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines(); print("::error title=Swift test build::" + " | ".join(lines[-12:]).replace("%", "%25"))' "$RUNNER_TEMP/swift-smoke.log"
             exit 1
           }
