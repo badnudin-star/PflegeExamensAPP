@@ -1,7 +1,7 @@
 import json
 import unittest
 from pathlib import Path
-from import_notes import TOPICS, expected_names, topic_candidates, topic_files, index_files, assemble, save_atomic
+from import_notes import TOPICS, REVISED_PAIRS, expected_names, topic_candidates, topic_files, index_files, assemble, save_atomic
 import tempfile
 
 class ImportTests(unittest.TestCase):
@@ -54,6 +54,25 @@ class ImportTests(unittest.TestCase):
         both[dedicated[0]] = {'name': dedicated[0]}
         with self.assertRaisesRegex(ValueError, 'Unvollständiges'):
             topic_files(both, i)
+
+    def test_revised_pairs_and_old_published_pairs_are_unambiguous(self):
+        for slug in REVISED_PAIRS:
+            i = next(i for i, topic in enumerate(TOPICS) if topic[0] == slug)
+            current, old = topic_candidates(i)
+            self.assertEqual(topic_files({n: {} for n in current}, i), current)
+            self.assertEqual(topic_files({n: {} for n in old}, i), old)
+            with self.assertRaises(ValueError):
+                topic_files({n: {} for n in set(current + old)}, i)
+            for pair in (current, old):
+                with self.assertRaises(ValueError):
+                    topic_files({pair[1]: {}}, i)
+
+    def test_actual_revised_names_are_known(self):
+        indexed = index_files(self.files)
+        for slug, pair in REVISED_PAIRS.items():
+            i = next(i for i, topic in enumerate(TOPICS) if topic[0] == slug)
+            self.assertEqual(topic_files(indexed, i), pair)
+            self.assertTrue(set(pair) <= set(expected_names()))
 
     def test_dedicated_sources_recorded_correctly_in_result(self):
         result = json.loads(assemble(self.base, index_files(self.files), lambda f: f['name'] + 'x' * 100))
