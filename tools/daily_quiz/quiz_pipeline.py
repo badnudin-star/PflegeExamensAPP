@@ -207,7 +207,7 @@ def main():
     gen=sub.add_parser('generate'); gen.add_argument('--folder',required=True);gen.add_argument('--model',required=True);gen.add_argument('--output',type=Path,required=True)
     pub=sub.add_parser('publish'); pub.add_argument('--draft',type=Path,required=True);pub.add_argument('--sha256',required=True);pub.add_argument('--worker',required=True);pub.add_argument('--bundled',type=Path,default=Path('app/src/main/assets/learning_content.json'))
     args=parser.parse_args()
-    if args.command=='generate' and os.environ.get('NO_BILLING_VERIFIED', '').strip() != 'true':
+    if args.command=='generate' and os.environ.get('NO_BILLING_VERIFIED', '').strip().lower() != 'true':
         raise ValueError('Kostenfreier Gemini-Zugang ohne Abrechnung nicht bestätigt; keine Anfrage gesendet')
     import requests
     if args.command=='generate':

@@ -113,9 +113,17 @@ class ConfigTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(output, 'ready=false\n')
 
+    def test_cost_guard_accepts_case_insensitive_true_only(self):
+        configured = {'ENABLED':'true', 'FOLDER':'folder', 'MODEL':'model',
+                      'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
+        for flag in ('true', 'TRUE', ' tRuE '):
+            result, output, _ = self.config({**configured, 'NO_BILLING_VERIFIED':flag})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(output, 'ready=true\n')
+
     def test_cost_guard_pauses_scheduled_and_blocks_manual_generation(self):
         configured = {'FOLDER':'folder', 'MODEL':'model', 'GOOGLE_CREDS':'secret1', 'GEMINI_API_KEY':'secret2'}
-        for flag in ('', 'false', 'TRUE', '1'):
+        for flag in ('', 'false', '"true"', '1'):
             result, output, summary = self.config({**configured, 'ENABLED':'true', 'NO_BILLING_VERIFIED':flag})
             self.assertEqual(result.returncode, 0)
             self.assertEqual(output, 'ready=false\n')
