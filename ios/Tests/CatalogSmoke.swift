@@ -140,6 +140,12 @@ struct CatalogSmoke {
         do { _ = try RankingSnapshot.decode(invalidBoard); fatalError("Ungültige Rangliste akzeptiert") } catch {}
         print("Öffentliche Rangliste: gültige und ungültige Daten geprüft")
 
+        precondition(archiveQuizDates(catalog: ["2026-11-13", "2026-11-12", "2026-11-15"],
+            cached: ["2026-11-12", "2026-11-11"], online: ["2026-11-10", "invalid"], today: "2026-11-13") == ["2026-11-12", "2026-11-11", "2026-11-10"])
+        let beforeBerlinMidnight = ISO8601DateFormatter().date(from: "2026-11-12T22:59:59Z")!
+        let afterBerlinMidnight = ISO8601DateFormatter().date(from: "2026-11-12T23:00:00Z")!
+        precondition(berlinQuizDate(now: beforeBerlinMidnight) == "2026-11-12")
+        precondition(berlinQuizDate(now: afterBerlinMidnight) == "2026-11-13")
         precondition(validArchiveDate("2024-02-29") && !validArchiveDate("2023-02-29") && !validArchiveDate("../../bad"))
         precondition(PublicEndpoint.archiveDay("../../bad").url == nil)
         let pageData = Data(#"{"days":[{"date":"2026-01-02","questions":1},{"date":"2026-01-01","questions":2}],"nextBefore":"2026-01-01"}"#.utf8)

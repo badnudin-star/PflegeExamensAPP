@@ -125,3 +125,17 @@ final class QuizArchiveStore: ObservableObject {
         dayFetcher = fetch; fetch.start()
     }
 }
+
+// Current Berlin day is reserved for the Today tab; future and malformed dates are not archive entries.
+func berlinQuizDate(now: Date = Date()) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.timeZone = TimeZone(identifier: "Europe/Berlin")!
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: now)
+}
+func archiveQuizDates(catalog: [String], cached: [String], online: [String], today: String) -> [String] {
+    guard validArchiveDate(today) else { return [] }
+    return Array(Set((catalog + cached + online).filter { validArchiveDate($0) && $0 < today })).sorted(by: >)
+}
