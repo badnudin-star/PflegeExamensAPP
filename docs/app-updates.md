@@ -15,3 +15,5 @@ Die Nutzerentscheidung erlaubt die öffentliche Verteilung. Trotzdem müssen vor
 3. Den öffentlichen Download und die Aktualisierung auf einem Testgerät prüfen. GitHub-Release und Signatur sind nicht dasselbe wie ein vollständiger Gerätetest. Nach Auslieferung kann das App-Update selbst die Bestätigung von Android nicht umgehen.
 
 Weder die Erstellung eines internen Builds noch das Zusammenführen eines Pull Requests veröffentlicht automatisch ein Release. Die Veröffentlichung ist ein separater bestätigter Vorgang. Ein Ausfall des Update-Dienstes lässt die bestehende App und ihre lokalen Daten unverändert. Die neuen App-Versionen und die unabhängig laufenden Inhaltsupdates sind zwei unterschiedliche Funktionen.
+
+Wenn die Drive-PDFs nicht eingebunden werden können, verwendet der Build ersatzweise ausschließlich die bereits öffentlich verteilten PDFs aus Version 3.0.8. Deren APK-Prüfsumme, PDF-Manifest und alle extrahierten Texte werden gegen den aktuellen öffentlichen Katalog geprüft. Bei Abweichung bricht der Build ab; neue oder geänderte Drive-Dateien werden so nicht veröffentlicht. Der Drive-Import bleibt getrennt zu reparieren.

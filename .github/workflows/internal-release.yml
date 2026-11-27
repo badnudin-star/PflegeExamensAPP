@@ -47,7 +47,9 @@ jobs:
           python-version: '3.12'
       - name: PDF-Import-Abhängigkeiten installieren
         run: pip install -r tools/learning_import/requirements.txt
-      - name: Passende Original-PDFs für die interne APK einbinden
+      - name: Passende Original-PDFs aus Drive einbinden
+        id: drive_pdfs
+        continue-on-error: true
         env:
           GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
           LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
@@ -59,6 +61,16 @@ jobs:
           printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
           unset GOOGLE_CREDS
           python tools/learning_import/bundle_note_pdfs.py
+      - name: Alternativ zuletzt veröffentlichte, exakt passende PDFs einbinden
+        if: steps.drive_pdfs.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          echo '::warning title=Offline-PDFs::Drive-Quellen konnten nicht passend eingebunden werden; geprüfte PDFs aus Version 3.0.8 werden verwendet, sofern sie exakt zum öffentlichen Katalog passen.'
+          rm -rf app/src/main/assets/private/note_pdfs
+          gh release download v3.0.8 --repo "$GITHUB_REPOSITORY" --pattern PflegeExamen-vc19.apk --dir "$RUNNER_TEMP"
+          python ios/tools/bundle_public_apk_pdfs.py "$RUNNER_TEMP/PflegeExamen-vc19.apk" app/src/main/assets/learning_content.json app/src/main/assets/private/note_pdfs
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
