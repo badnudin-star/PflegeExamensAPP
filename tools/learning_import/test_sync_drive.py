@@ -92,6 +92,31 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(updated['cases'], remote['cases'])
         self.assertEqual(updated['quizzes'], remote['quizzes'])
 
+    def test_note_only_publish_preserves_existing_practice_and_quizzes(self):
+        first = Http(); self.run_sync(first)
+        remote = json.loads(first.puts[0][1]['data'])
+        topic = remote['notes'][0]['topic']
+        remote['cards'] = [{'id':'card-old', 'topic':topic, 'front':'Q', 'back':'A', 'sources':['S']}]
+        remote['cases'] = [{'id':'case-old', 'published':'2026-01-01', 'text':'T', 'sources':['S'], 'diseases':['D'], 'questions':[{'question':'Q', 'answer':'A', 'sources':['S']}]}]
+        remote['quizzes'] = [{'id':'quiz-old', 'topic':topic, 'published':'2026-01-01', 'question':'Q', 'explanation':'E', 'options':['a','b','c','d'], 'correctIndex':0, 'sources':['S']}]
+        remote['notes'][0]['short'] = 'alter Text'
+        http = Http(remote)
+        with patch('sync_drive.import_practice', side_effect=lambda base, drive, cards, cases: base) as practice:
+            self.assertEqual(self.run_sync(http), 'published')
+        self.assertEqual(practice.call_args.args[2:], ('', ''))
+        published = json.loads(http.puts[0][1]['data'])
+        for section in ('cards', 'cases', 'quizzes'):
+            self.assertEqual(published[section], remote[section])
+        self.assertNotEqual(published['notes'][0]['short'], 'alter Text')
+
+    def test_workflow_syncs_notes_before_full_practice_without_practice_folders(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/sync-learning-content.yml').read_text()
+        part = workflow.split('Lernzettel unabhängig von Übungsdateien veröffentlichen', 1)[1].split('Drive prüfen und Katalog veröffentlichen', 1)[0]
+        self.assertIn("PRACTICE_CARDS_FOLDER_ID: ''", part)
+        self.assertIn("PRACTICE_CASES_FOLDER_ID: ''", part)
+        self.assertIn('tools/learning_import/sync_drive.py', part)
+
     def test_practice_only_change_publishes_and_preserves_other_sections(self):
         first = Http(); self.run_sync(first)
         remote = json.loads(first.puts[0][1]['data'])

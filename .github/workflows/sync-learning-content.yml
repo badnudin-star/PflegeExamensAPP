@@ -35,6 +35,22 @@ jobs:
       - name: Abhängigkeiten installieren
         if: steps.configured.outputs.ready == 'true'
         run: pip install -r tools/learning_import/requirements.txt
+      - name: Lernzettel unabhängig von Übungsdateien veröffentlichen
+        if: steps.configured.outputs.ready == 'true'
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          CONTENT_PUBLISH_TOKEN: ${{ secrets.CONTENT_PUBLISH_TOKEN }}
+          CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
+          LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
+          PRACTICE_CARDS_FOLDER_ID: ''
+          PRACTICE_CASES_FOLDER_ID: ''
+        run: |
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/learning-notes-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/learning_import/sync_drive.py --folder "$LEARNING_DRIVE_FOLDER_ID" --worker "$CONTENT_WORKER_ORIGIN"
       - name: Drive prüfen und Katalog veröffentlichen
         if: steps.configured.outputs.ready == 'true'
         env:
