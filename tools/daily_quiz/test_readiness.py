@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 WORKFLOW = ROOT.parents[1] / '.github' / 'workflows' / 'quiz-readiness.yml'
-KEYS = ('ENABLED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY', 'NO_BILLING_VERIFIED')
+KEYS = ('ENABLED', 'FOLDER', 'MODEL', 'GOOGLE_CREDS', 'GEMINI_API_KEY', 'NO_BILLING_VERIFIED', 'NO_BILLING_SECRET_PRESENT')
 
 
 class ReadinessTests(unittest.TestCase):
@@ -87,6 +87,20 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('Gemini-Kostenfreigabe: selbst bestätigt', summary)
         self.assertIn('nicht auf Gültigkeit geprüft', summary)
         self.assertIn('vars.GEMINI_NO_BILLING_VERIFIED', WORKFLOW.read_text())
+
+    def test_cost_diagnostics_are_fixed_categories_and_hide_values(self):
+        for value, expected in [('', 'nicht sichtbar oder leer'), ('TRUE', 'Groß-/Kleinschreibung'),
+                                ('"true"', 'Anführungszeichen'), ('false', 'Wert ist false'),
+                                ('private::error::value', 'anderer Wert')]:
+            with self.subTest(value=value):
+                result, summary = self.run_report(NO_BILLING_VERIFIED=value,
+                                                  NO_BILLING_SECRET_PRESENT='sensitive-secret')
+                self.assertIn(expected, summary)
+                self.assertIn('gleichnamiges Secret', summary)
+                self.assertNotIn('sensitive-secret', result.stdout + result.stderr + summary)
+                self.assertNotIn('private::error::value', result.stdout + result.stderr + summary)
+        _, summary = self.run_report(NO_BILLING_VERIFIED='true', NO_BILLING_SECRET_PRESENT='sensitive-secret')
+        self.assertNotIn('gleichnamiges Secret', summary)
 
     def test_workflow_is_manual_and_contains_no_generation_or_publication(self):
         workflow = WORKFLOW.read_text()
