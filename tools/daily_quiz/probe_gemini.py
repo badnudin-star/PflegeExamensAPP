@@ -167,7 +167,7 @@ def main():
     if os.environ.get('CONFIRMED', '').strip() != 'true':
         print('::error title=Gemini-Test::Test nicht bestätigt; keine Anfrage gesendet.')
         return 1
-    if os.environ.get('NO_BILLING_VERIFIED', '').strip() != 'true':
+    if os.environ.get('NO_BILLING_VERIFIED', '').strip().lower() != 'true':
         print('::error title=Gemini-Test::Kostenfreier Zugang ohne Abrechnung nicht bestätigt; keine Anfrage gesendet.')
         return 1
     # requests is imported only in the entry point; tests can inject a fake transport.

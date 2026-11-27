@@ -33,7 +33,7 @@ def main():
         label = manual_label if manual else 'Quizgenerierung'
         if missing:
             ready, message, code = False, label + ': Konfiguration unvollständig: ' + ', '.join(missing), 1
-        elif os.environ.get('NO_BILLING_VERIFIED', '').strip() != 'true':
+        elif os.environ.get('NO_BILLING_VERIFIED', '').strip().lower() != 'true':
             ready = False
             message = label + ': pausiert, weil ein kostenfreier Gemini-Zugang ohne Abrechnung nicht bestätigt ist; keine Anfrage gesendet.'
             code = 1 if manual else 0

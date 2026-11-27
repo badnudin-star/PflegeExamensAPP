@@ -26,13 +26,11 @@ def main():
         else:
             hint = 'anderes ungültiges Format'
     missing = [label for key, label in REQUIRED if not os.environ.get(key, '').strip()]
-    cost = os.environ.get('NO_BILLING_VERIFIED', '').strip()
+    cost = os.environ.get('NO_BILLING_VERIFIED', '').strip().lower()
     if not cost:
         cost_hint = 'Actions-Variable für diesen Workflow nicht sichtbar oder leer'
     elif cost == 'true':
         cost_hint = None
-    elif cost.lower() == 'true':
-        cost_hint = 'Groß-/Kleinschreibung: der Wert muss exakt true sein'
     elif len(cost) >= 2 and cost[0] == cost[-1] and cost[0] in ('"', "'") and cost[1:-1].lower() == 'true':
         cost_hint = 'Anführungszeichen gehören nicht zum Wert true'
     elif cost == 'false':
@@ -42,7 +40,7 @@ def main():
     lines = [
         '### Tagesquiz: schreibgeschützte Konfigurationsprüfung', '',
         f'- Generierungsschalter: {state}.',
-        '- Gemini-Kostenfreigabe: ' + ('selbst bestätigt' if os.environ.get('NO_BILLING_VERIFIED', '').strip() == 'true' else 'nicht bestätigt; Generierung pausiert') + '.',
+        '- Gemini-Kostenfreigabe: ' + ('selbst bestätigt' if os.environ.get('NO_BILLING_VERIFIED', '').strip().lower() == 'true' else 'nicht bestätigt; Generierung pausiert') + '.',
         '- Es wurden keine Inhalte übertragen, keine Verbindungen getestet und keine Einstellungen geändert.',
     ]
     if cost_hint:

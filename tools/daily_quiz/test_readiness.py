@@ -78,7 +78,7 @@ class ReadinessTests(unittest.TestCase):
                     self.assertNotIn(value, result.stdout + result.stderr + summary)
 
     def test_cost_approval_is_reported_but_never_claims_tariff_verification(self):
-        for value in ('', 'false', 'TRUE'):
+        for value in ('', 'false', '1'):
             result, summary = self.run_report(NO_BILLING_VERIFIED=value)
             self.assertEqual(result.returncode, 0)
             self.assertIn('nicht bestätigt; Generierung pausiert', summary)
@@ -87,9 +87,11 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('Gemini-Kostenfreigabe: selbst bestätigt', summary)
         self.assertIn('nicht auf Gültigkeit geprüft', summary)
         self.assertIn('vars.GEMINI_NO_BILLING_VERIFIED', WORKFLOW.read_text())
+        _, summary = self.run_report(NO_BILLING_VERIFIED=' TrUe ')
+        self.assertIn('Gemini-Kostenfreigabe: selbst bestätigt', summary)
 
     def test_cost_diagnostics_are_fixed_categories_and_hide_values(self):
-        for value, expected in [('', 'nicht sichtbar oder leer'), ('TRUE', 'Groß-/Kleinschreibung'),
+        for value, expected in [('', 'nicht sichtbar oder leer'),
                                 ('"true"', 'Anführungszeichen'), ('false', 'Wert ist false'),
                                 ('private::error::value', 'anderer Wert')]:
             with self.subTest(value=value):
