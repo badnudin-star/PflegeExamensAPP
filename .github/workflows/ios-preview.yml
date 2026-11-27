@@ -115,10 +115,10 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/pdf-env"
           "$RUNNER_TEMP/pdf-env/bin/pip" install 'pypdf>=5,<7'
-          gh release download v3.0.8 --repo badnudin-star/PflegeExamensAPP \
-            --pattern PflegeExamen-vc19.apk --dir "$RUNNER_TEMP"
+          gh release download v3.0.10 --repo badnudin-star/PflegeExamensAPP \
+            --pattern PflegeExamen-vc21.apk --dir "$RUNNER_TEMP"
           "$RUNNER_TEMP/pdf-env/bin/python" ios/tools/bundle_public_apk_pdfs.py \
-            "$RUNNER_TEMP/PflegeExamen-vc19.apk" ios/PflegeExamen/learning_content.json ios/PflegeExamen/note_pdfs
+            "$RUNNER_TEMP/PflegeExamen-vc21.apk" ios/PflegeExamen/learning_content.json ios/PflegeExamen/note_pdfs
       - name: Vorschau für iPhone-Geräte bauen (ohne Signatur)
         run: |
           set -o pipefail

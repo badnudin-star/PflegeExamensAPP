@@ -12,8 +12,8 @@ sys.path.insert(0, str(ROOT / 'tools/learning_import'))
 from bundle_note_pdfs import bundle, MAX_TOTAL
 from verify_pdf_bundle import verify
 
-# Published signed Android 3.0.8, approved for public distribution including PDFs.
-EXPECTED_SHA256 = '1538685cd65538f5147965565da10efdbd5dfb6c7cdff9a355725617fa9b5f3c'
+# Published signed Android 3.0.10, approved for public distribution including PDFs.
+EXPECTED_SHA256 = 'fc27dd353dc64b7a1968ff799e8987e0f4288fec00480c8e03b613a8ce487efc'
 PREFIX = 'assets/private/note_pdfs/'
 MAX_APK = 150 * 1024 * 1024
 
