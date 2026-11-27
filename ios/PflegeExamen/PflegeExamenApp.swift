@@ -262,44 +262,70 @@ struct CaseView: View {
 }
 struct QuizView: View {
     let catalog: Catalog
-    var days: [String] { Array(Set(catalog.quizzes.map(\.published))).sorted(by: >) }
+    @State private var selection = 0
+    @State private var today = berlinQuizDate()
+    var todaysQuestions: [Quiz] { catalog.quizzes.filter { $0.published == today } }
     var body: some View {
         NavigationStack {
-            List {
-                Section("Veröffentlichte Quizfragen") {
-                    if days.isEmpty { Text("Zurzeit sind keine Quizfragen im Offline-Katalog enthalten.").foregroundStyle(.secondary) }
-                    ForEach(days, id: \.self) { day in
-                        NavigationLink { QuizDayView(day: day, questions: catalog.quizzes.filter { $0.published == day }, catalog: catalog) }
-                        label: { VStack(alignment: .leading) { Text(day); Text("\(catalog.quizzes.filter { $0.published == day }.count) Fragen").font(.caption).foregroundStyle(.secondary) } }
+            VStack(spacing: 0) {
+                Picker("Quizbereich", selection: $selection) {
+                    Text("Heute").tag(0)
+                    Text("Archiv").tag(1)
+                }.pickerStyle(.segmented).padding()
+                if selection == 0 {
+                    List {
+                        if todaysQuestions.isEmpty {
+                            Text("Für heute ist im geladenen Inhaltsstand noch kein Quiz verfügbar.").foregroundStyle(.secondary)
+                        } else {
+                            NavigationLink { QuizDayView(day: today, questions: todaysQuestions, catalog: catalog) }
+                            label: { VStack(alignment: .leading) {
+                                Text(today); Text("\(todaysQuestions.count) Fragen").font(.caption).foregroundStyle(.secondary)
+                            } }
+                        }
                     }
-                }
-                Section("Archiv") {
-                    NavigationLink("Frühere Quizfragen öffnen") { QuizArchiveView(catalog: catalog) }
+                } else {
+                    QuizArchiveView(catalog: catalog, today: today).id(catalog.revision)
                 }
             }.navigationTitle("Quiz")
+                .task {
+                    while !Task.isCancelled {
+                        today = berlinQuizDate()
+                        try? await Task.sleep(nanoseconds: 60_000_000_000)
+                    }
+                }
         }
     }
 }
 struct QuizArchiveView: View {
     @StateObject private var store: QuizArchiveStore
-    init(catalog: Catalog) { _store = StateObject(wrappedValue: QuizArchiveStore(catalog: catalog)) }
-    var dates: [String] { Array(Set(store.cachedDates + store.summaries.map(\.date))).sorted(by: >) }
+    let today: String
+    init(catalog: Catalog, today: String) {
+        _store = StateObject(wrappedValue: QuizArchiveStore(catalog: catalog))
+        self.today = today
+    }
+    var dates: [String] {
+        archiveQuizDates(catalog: store.catalog.quizzes.map(\.published), cached: store.cachedDates,
+                         online: store.summaries.map(\.date), today: today)
+    }
     var body: some View {
         List {
             Section {
-                Text("Das Archiv lädt öffentliche Quizfragen. Der Inhaltsserver erhält dabei deine IP-Adresse; geöffnete Tage bleiben offline gespeichert.").font(.footnote).foregroundStyle(.secondary)
-                Button(store.loadingPage ? "Lädt …" : "Archivliste laden") { store.loadPage() }.disabled(store.loadingPage)
+                Text("Der Inhaltsserver erhält beim Laden deine IP-Adresse; geöffnete Tage bleiben offline gespeichert.").font(.footnote).foregroundStyle(.secondary)
+                Button(store.loadingPage ? "Lädt …" : "Archivliste aktualisieren") { store.loadPage() }.disabled(store.loadingPage)
                 if !store.message.isEmpty { Text(store.message).font(.footnote).foregroundStyle(.secondary) }
             }
-            Section("Quiztage") {
+            Section("Frühere Quiztage") {
                 ForEach(dates, id: \.self) { date in
-                    NavigationLink { ArchivedDayView(store: store, date: date) }
-                    label: { HStack { Text(date); Spacer(); if store.cachedDates.contains(date) { Text("Offline").font(.caption).foregroundStyle(.secondary) } } }
+                    let questions = store.catalog.quizzes.filter { $0.published == date }
+                    NavigationLink {
+                        if !questions.isEmpty { QuizDayView(day: date, questions: questions, catalog: store.catalog) }
+                        else { ArchivedDayView(store: store, date: date) }
+                    } label: { HStack { Text(date); Spacer(); if !questions.isEmpty || store.cachedDates.contains(date) { Text("Offline").font(.caption).foregroundStyle(.secondary) } } }
                 }
                 if store.hasLoaded && dates.isEmpty { Text("Keine Archivtage vorhanden.").foregroundStyle(.secondary) }
                 if store.nextBefore != nil { Button("Ältere Tage laden") { store.loadPage(more: true) }.disabled(store.loadingPage) }
             }
-        }.navigationTitle("Quizarchiv").navigationBarTitleDisplayMode(.inline)
+        }.task { if !store.hasLoaded { store.loadPage() } }
     }
 }
 struct ArchivedDayView: View {

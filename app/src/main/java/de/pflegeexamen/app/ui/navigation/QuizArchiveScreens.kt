@@ -15,11 +15,15 @@ import de.pflegeexamen.app.data.quiz.ArchiveDayResult
 import de.pflegeexamen.app.data.quiz.ArchivePageResult
 import de.pflegeexamen.app.data.quiz.QuizArchiveClient
 import de.pflegeexamen.app.domain.content.LearningCatalog
+import de.pflegeexamen.app.domain.quiz.berlinQuizDay
+import de.pflegeexamen.app.domain.quiz.archiveQuizDates
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<String>, open: (String) -> Unit, back: () -> Unit) {
+internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<String>, open: (String) -> Unit,
+    back: () -> Unit = {}, embedded: Boolean = false, autoLoad: Boolean = false,
+    today: String = berlinQuizDay().toString()) {
     var local by remember { mutableStateOf<List<String>?>(null) }
     var localLoaded by remember { mutableStateOf(false) }
     var online by remember { mutableStateOf(emptyList<String>()) }
@@ -45,25 +49,25 @@ internal fun QuizArchivePicker(client: QuizArchiveClient, activeDates: Set<Strin
             busy = false
         }
     }
-    val knownDates = remember(local, online) { ((local ?: emptyList()) + online).distinct() }
-    val dates = remember(knownDates, activeDates) { knownDates.filterNot { it in activeDates }.sortedDescending() }
-    val hasActiveArchivedDates = remember(knownDates, activeDates) { knownDates.any { it in activeDates } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Quizarchiv") }, navigationIcon = {
+    LaunchedEffect(client, autoLoad) { if (autoLoad) loadPage(null) }
+    val dates = remember(local, online, activeDates, today) {
+        archiveQuizDates(activeDates, local ?: emptyList(), online, today)
+    }
+    Scaffold(topBar = { if (!embedded) TopAppBar(title = { Text("Quizarchiv") }, navigationIcon = {
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück") }
     }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("quizArchiveList"), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Frühere Quiztage", modifier = Modifier.testTag(if (localLoaded) "quizArchiveLocalLoaded" else "quizArchiveLocalLoading"), style = MaterialTheme.typography.headlineSmall) }
-            item { Text("Geöffnete Archivtage werden auf diesem Gerät gespeichert. Für noch nicht geladene Tage ist eine Verbindung nötig. Aktuelle Quiztage stehen in der Quizübersicht. Das Archiv ist eine lokale Übung und keine Ranglistenwertung.") }
+            item { Text("Geöffnete Archivtage bleiben auf diesem Gerät gespeichert. Für weitere Tage ist eine Verbindung nötig. Das Archiv ist eine lokale Übung ohne Ranglistenwertung.") }
             item { OutlinedButton(onClick = { loadPage(null) }, enabled = !busy, modifier = Modifier.testTag(if (loadedOnline) "quizArchiveOnlineLoaded" else "quizArchiveOnlineLoad")) { Text(if (busy) "Archiv wird geladen …" else "Archiv online laden") } }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            if (hasActiveArchivedDates) item { Text("Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht.") }
             if (localLoaded && local == null) item { Text("Der lokale Archivspeicher ist nicht lesbar.", color = MaterialTheme.colorScheme.error) }
-            else if (localLoaded && dates.isEmpty() && !hasActiveArchivedDates) item { Text(if (loadedOnline) "Keine archivierten Quiztage gefunden." else "Noch keine Archivtage auf diesem Gerät. Lade bei Bedarf das Online-Archiv.") }
+            else if (localLoaded && dates.isEmpty()) item { Text(if (loadedOnline) "Keine archivierten Quiztage gefunden." else "Noch keine Archivtage auf diesem Gerät. Lade bei Bedarf das Online-Archiv.") }
             items(dates, key = { it }) { date ->
                 ElevatedCard(onClick = { open(date) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         Text(date, style = MaterialTheme.typography.titleMedium)
-                        Text(if (date in (local ?: emptyList())) "Auf diesem Gerät gespeichert" else "Online verfügbar · beim Öffnen herunterladen", style = MaterialTheme.typography.bodySmall)
+                        Text(when { date in activeDates -> "Im Inhaltskatalog verfügbar"; date in (local ?: emptyList()) -> "Auf diesem Gerät gespeichert"; else -> "Online verfügbar · beim Öffnen herunterladen" }, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -86,10 +90,8 @@ internal fun ArchivedQuizScreen(date: String, client: QuizArchiveClient, catalog
         IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück zum Archiv") }
     }) }) { padding ->
         if (active) {
-            Column(Modifier.padding(padding).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Dieser Quiztag ist im aktuellen Katalog verfügbar. Bitte öffne ihn in der Quizübersicht.")
-                OutlinedButton(onClick = back) { Text("Zurück zum Archiv") }
-            }
+            QuizScreen(catalog.copy(quizzes = catalog.quizzes.filter { it.published == date }), progress,
+                openNote = openNote, modifier = Modifier.padding(padding))
         } else when (val value = result) {
             null -> Text("Quiztag wird geladen …", Modifier.padding(padding).padding(18.dp))
             is ArchiveDayResult.Ready -> QuizScreen(catalog.copy(quizzes = value.day.quizzes), progress, openNote = openNote, modifier = Modifier.padding(padding))

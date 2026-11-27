@@ -181,8 +181,11 @@ internal fun LearningAppContent(catalog: LearningCatalog, store: PublishedConten
                 val day = entry.arguments?.getString("day")?.toIntOrNull()
                 CaseDayTopics(catalog, day, open = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
             }
-            composable("quiz") { QuizScreen(catalog, quizProgress, openArchive = { nav.navigate("quiz_archive") }) { index, depth -> nav.navigate("note/$index/$depth") } }
-            composable("quiz_archive") { QuizArchivePicker(quizArchive, catalog.quizzes.map { it.published }.toSet(), open = { nav.navigate("quiz_archive/$it") }, back = { nav.popBackStack() }) }
+            composable("quiz") {
+                QuizMenu(catalog, quizProgress, quizArchive,
+                    openArchived = { nav.navigate("quiz_archive/$it") },
+                    openNote = { index, depth -> nav.navigate("note/$index/$depth") })
+            }
             composable("quiz_archive/{date}") { entry ->
                 ArchivedQuizScreen(entry.arguments?.getString("date").orEmpty(), quizArchive, catalog, quizProgress,
                     openNote = { index, depth -> nav.navigate("note/$index/$depth") }, back = { nav.popBackStack() })
@@ -210,16 +213,17 @@ private fun NewHome(catalog: LearningCatalog, navigate: (String) -> Unit, settin
         item { HomeCard("Themen & Lernzettel", "${DefaultCatalogs.defaultPreparations.size} Prüfungsthemen · ${catalog.notes.size} Themen mit Lernzetteln", "Themen öffnen") { navigate("topics") } }
         item { HomeCard("Karteikarten", "${catalog.cards.size} veröffentlichte Karten · nach Thema oder zufällig lernen", "Karten öffnen") { navigate("cards") } }
         item { HomeCard("Fallbeispiele", "${catalog.cases.size} veröffentlichte Fallbeispiele mit Fragen und Antworten", "Fälle ansehen") { navigate("cases") } }
-        item { HomeCard("Multiple-Choice-Quiz", "${catalog.quizzes.size} veröffentlichte Fragen · vier Antworten pro Frage", "Quiz öffnen") { navigate("quiz") } }
+        item { HomeCard("Multiple-Choice-Quiz", null, "Quiz öffnen") { navigate("quiz") } }
         item { OutlinedButton(onClick = { navigate("ranking") }) { Text("Quiz-Rangliste") } }
         item { Text("Lernzettel aus bereitgestellten PDFs. Inhalte, Quellen und Aktualität bitte vor der praktischen Anwendung prüfen.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
 @Composable
-private fun HomeCard(title: String, body: String, action: String, click: () -> Unit) {
+private fun HomeCard(title: String, body: String?, action: String, click: () -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); Text(body)
+        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        if (body != null) Text(body)
         OutlinedButton(onClick = click) { Text(action) }
     } }
 }
@@ -847,8 +851,33 @@ private fun CaseDayTopics(catalog: LearningCatalog, day: Int?, open: (Int, Strin
 }
 
 @Composable
+internal fun QuizMenu(catalog: LearningCatalog, progress: QuizProgressStore,
+    archive: de.pflegeexamen.app.data.quiz.QuizArchiveClient,
+    openArchived: (String) -> Unit, openNote: (Int, String) -> Unit) {
+    var selected by rememberSaveable { mutableIntStateOf(0) }
+    val today by produceState(initialValue = berlinQuizDay()) {
+        while (true) { delay(60_000); value = berlinQuizDay() }
+    }
+    Column(Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selected) {
+            Tab(selected = selected == 0, onClick = { selected = 0 }, text = { Text("Heute") })
+            Tab(selected = selected == 1, onClick = { selected = 1 }, text = { Text("Archiv") })
+        }
+        if (selected == 0) {
+            val todaysCatalog = remember(catalog, today) {
+                catalog.copy(quizzes = catalog.quizzes.filter { it.published == today.toString() })
+            }
+            QuizScreen(todaysCatalog, progress, emptyMessage = "Für heute ist im geladenen Inhaltsstand noch kein Quiz verfügbar.", openNote = openNote)
+        } else {
+            QuizArchivePicker(archive, catalog.quizzes.map { it.published }.toSet(),
+                open = openArchived, embedded = true, autoLoad = true, today = today.toString())
+        }
+    }
+}
+
+@Composable
 internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, openArchive: (() -> Unit)? = null,
-    modifier: Modifier = Modifier, openNote: (Int, String) -> Unit) {
+    modifier: Modifier = Modifier, emptyMessage: String = "Im geladenen Inhaltsstand sind keine Quizfragen enthalten.", openNote: (Int, String) -> Unit) {
     val dates = remember(catalog.quizzes) { catalog.quizzes.map { it.published }.distinct().sortedDescending() }
     val today by produceState(initialValue = berlinQuizDay()) {
         while (true) {
@@ -883,13 +912,12 @@ internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, o
     }
     Column(modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Multiple-Choice-Quiz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Vier Antwortmöglichkeiten · eine Antwort ist richtig", style = MaterialTheme.typography.bodyMedium)
         Text("Dein Übungsfortschritt wird nur auf diesem Gerät gespeichert und nicht für die Rangliste gewertet.", style = MaterialTheme.typography.bodySmall)
         if (openArchive != null) {
             Text(loadedQuizDayMessage(catalog.quizzes.map { it.published }, today), style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = openArchive) { Text("Frühere Quiztage im Archiv") }
         }
-        if (dates.isNotEmpty()) {
+        if (dates.size > 1) {
             var menuOpen by remember { mutableStateOf(false) }
             Box {
                 OutlinedButton(onClick = { menuOpen = true }) { Text("Quiz: $selectedDate · ${quiz.size} Fragen"); Icon(Icons.Default.ExpandMore, null) }
@@ -899,7 +927,7 @@ internal fun QuizScreen(catalog: LearningCatalog, progress: QuizProgressStore, o
             }
         }
         val current = session
-        if (quiz.isEmpty() || current == null) Text("Im geladenen Inhaltsstand sind keine Quizfragen enthalten.")
+        if (quiz.isEmpty() || current == null) Text(emptyMessage)
         else if (current.index >= quiz.size) {
             Text("Übung beendet: ${current.correctCount(quiz)} von ${quiz.size} richtig.", style = MaterialTheme.typography.titleLarge)
             Text("Diese lokale Übung zählt nicht für die Rangliste.")

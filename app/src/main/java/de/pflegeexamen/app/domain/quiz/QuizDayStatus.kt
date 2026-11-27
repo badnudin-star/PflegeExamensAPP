@@ -18,3 +18,10 @@ fun loadedQuizDayMessage(publishedDates: List<String>, today: LocalDate): String
         "Heute im geladenen Inhaltsstand: $count ${if (count == 1) "Frage" else "Fragen"}."
     }
 }
+
+/** Merge catalog, cached and online past days; the current day belongs in Heute. */
+fun archiveQuizDates(catalogDates: Collection<String>, cachedDates: Collection<String>, onlineDates: Collection<String>, today: String): List<String> {
+    fun valid(value: String) = runCatching { LocalDate.parse(value).toString() == value }.getOrDefault(false)
+    if (!valid(today)) return emptyList()
+    return (catalogDates + cachedDates + onlineDates).filter { valid(it) && it < today }.distinct().sortedDescending()
+}

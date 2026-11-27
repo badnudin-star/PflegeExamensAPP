@@ -792,35 +792,35 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Deine Antwort: Antwort B").performScrollTo().assertIsDisplayed()
     }
 
-    @Test fun archiveExplainsWhenAnArchivedDayIsStillInTheActiveCatalog() {
+    @Test fun archiveOpensPastDaysStillInActiveCatalogWithoutDownload() {
         val day = "2020-01-01"
+        val q = PublishedQuiz("q-archive", day, DefaultCatalogs.defaultPreparations.first().title,
+            "Katalog-Archivfrage?", listOf("A", "B", "C", "D"), 0, "Erklärung", listOf("Test"))
         val cache = object : ArchiveCache {
             override fun dates() = emptyList<String>()
             override fun read(date: String): ByteArray? = null
             override fun writeNew(date: String, bytes: ByteArray) { fail("No archive day should be downloaded") }
         }
-        val client = QuizArchiveClient("https://example.test/content", ArchiveTransport { url, _ ->
-            check(url.contains("?limit="))
-            Json.encodeToString(ArchivePage(listOf(ArchiveDaySummary(day, 1)))).toByteArray()
+        val client = QuizArchiveClient("https://example.test/content", ArchiveTransport { _, _ ->
+            fail("Catalog day must not be fetched"); null
         }, cache)
+        val memory = object : QuizProgressPersistence {
+            override fun load(date: String): String? = null
+            override fun save(date: String, value: String) { }
+            override fun remove(date: String) { }
+        }
         val selected = mutableStateOf<String?>(null)
+        val catalog = LearningCatalog(quizzes = listOf(q))
         compose.setContent {
             PflegeExamenTheme {
-                QuizArchivePicker(client, setOf(day), open = { selected.value = it }, back = {})
+                val date = selected.value
+                if (date == null) QuizArchivePicker(client, setOf(day), open = { selected.value = it }, back = {})
+                else ArchivedQuizScreen(date, client, catalog, QuizProgressStore(memory), openNote = { _, _ -> }, back = { selected.value = null })
             }
         }
-
-        compose.onNodeWithText("Archiv online laden").performClick()
-        val note = "Archivierte Quiztage, die noch im aktuellen Katalog stehen, findest du in der Quizübersicht."
-        compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveOnlineLoaded").fetchSemanticsNodes().isNotEmpty() }
-        compose.waitUntil(30_000) {
-            try { compose.onNodeWithTag("quizArchiveList").performScrollToNode(hasText(note)); true }
-            catch (_: AssertionError) { false }
-        }
-        compose.onNodeWithText(note).assertExists()
-        compose.onNodeWithText("Keine archivierten Quiztage gefunden.").assertDoesNotExist()
-        compose.onNodeWithText(day).assertDoesNotExist()
-        compose.runOnIdle { assertNull(selected.value) }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("quizArchiveLocalLoaded").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(day).performScrollTo().performClick()
+        compose.onNodeWithText("Katalog-Archivfrage?").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun androidArchiveCacheNeverOverwritesExistingOrInterruptedFiles() {
@@ -880,24 +880,36 @@ class LearningFlowsUiTest {
         compose.onNodeWithText("Richtige Antwort: Richtig eins").assertExists()
     }
 
-    @Test fun localQuizReportsOnlyLoadedTodayAndOffersArchive() {
+    @Test fun quizMenuSeparatesTodayAndArchivedDays() {
         val memory = object : QuizProgressPersistence {
             override fun load(date: String): String? = null
             override fun save(date: String, value: String) { }
             override fun remove(date: String) { }
         }
         val today = de.pflegeexamen.app.domain.quiz.berlinQuizDay().toString()
-        val question = PublishedQuiz("today", today, "Test", "Testfrage?", listOf("A", "B", "C", "D"), 0, "Erklärung", listOf("Test"))
-        val catalog = mutableStateOf(LearningCatalog())
-        var opened = false
-        compose.setContent {
-            PflegeExamenTheme { QuizScreen(catalog.value, QuizProgressStore(memory), openArchive = { opened = true }) { _, _ -> } }
+        val old = "2020-01-01"
+        val oldQuestion = PublishedQuiz("old", old, "Test", "Alte Frage?", listOf("A", "B", "C", "D"), 0, "Erklärung", listOf("Test"))
+        val todayQuestion = oldQuestion.copy(id = "today", published = today, question = "Heutige Frage?")
+        val catalog = mutableStateOf(LearningCatalog(quizzes = listOf(oldQuestion)))
+        val cache = object : ArchiveCache {
+            override fun dates() = emptyList<String>()
+            override fun read(date: String): ByteArray? = null
+            override fun writeNew(date: String, bytes: ByteArray) { }
         }
-        compose.onNodeWithText("Für heute sind im geladenen Inhaltsstand keine Quizfragen enthalten.", substring = true).assertExists()
-        compose.onNodeWithText("Im geladenen Inhaltsstand sind keine Quizfragen enthalten.").assertExists()
-        compose.onNodeWithText("Frühere Quiztage im Archiv").performClick()
-        compose.runOnIdle { assertTrue(opened); catalog.value = LearningCatalog(quizzes = listOf(question)) }
-        compose.onNodeWithText("Heute im geladenen Inhaltsstand: 1 Frage.").assertExists()
+        val client = QuizArchiveClient("https://example.test/content", ArchiveTransport { _, _ -> null }, cache)
+        var opened: String? = null
+        compose.setContent {
+            PflegeExamenTheme { QuizMenu(catalog.value, QuizProgressStore(memory), client, openArchived = { opened = it }, openNote = { _, _ -> }) }
+        }
+        compose.onNodeWithText("Für heute ist im geladenen Inhaltsstand noch kein Quiz verfügbar.").assertExists()
+        compose.onNodeWithText("Alte Frage?").assertDoesNotExist()
+        compose.onNodeWithText("Archiv").performClick()
+        compose.onNodeWithText(old).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(old, opened); catalog.value = LearningCatalog(quizzes = listOf(oldQuestion, todayQuestion)) }
+        compose.onNodeWithText("Heute").performClick()
+        compose.onNodeWithText("Heutige Frage?").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Alte Frage?").assertDoesNotExist()
+        compose.onNodeWithText("Vier Antwortmöglichkeiten · eine Antwort ist richtig").assertDoesNotExist()
     }
 
     @Test fun topicSearchFindsBothVersionsAndUpdatesAfterCatalogChange() {

@@ -16,6 +16,13 @@ class QuizDayStatusTest {
         assertEquals(LocalDate.parse("2026-07-01"), berlinQuizDay(Clock.fixed(Instant.parse("2026-06-30T22:00:00Z"), tokyo)))
     }
 
+    @Test fun `archive combines all past sources without duplicates or today and future`() {
+        assertEquals(listOf("2026-11-12", "2026-11-11", "2026-11-10"),
+            archiveQuizDates(listOf("2026-11-13", "2026-11-12", "2026-11-15"),
+                listOf("2026-11-11", "2026-11-12"), listOf("2026-11-10", "broken"), "2026-11-13"))
+        assertEquals(emptyList<String>(), archiveQuizDates(listOf("2026-11-12"), emptyList(), emptyList(), "invalid"))
+    }
+
     @Test fun `status describes loaded content only and counts today's questions`() {
         val today = LocalDate.parse("2026-11-13")
         val missing = loadedQuizDayMessage(listOf("2026-11-12"), today)
