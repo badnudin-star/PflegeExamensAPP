@@ -90,7 +90,7 @@ REVISED_PAIRS = {
 }
 
 
-def topic_candidates(index):
+def legacy_topic_candidates(index):
     slug, _ = TOPICS[index]
     old = NEW_SLUGS[index]
     fallback = (f'{old}_Neu.pdf', f'Einfach_{old}.pdf')
@@ -100,6 +100,30 @@ def topic_candidates(index):
         dedicated = DEDICATED_SLUGS[slug]
         return [(f'{dedicated}.pdf', f'Einfach_{dedicated}.pdf'), fallback]
     return [fallback]
+
+
+# The finalized Drive layout has one explicitly assigned pair per topic.
+# Keep this list explicit: filenames must not decide clinical topics by inference.
+CURRENT_SLUGS = [
+    'Altersgerechte_Kommunikation', 'Atopische_Dermatitis', 'Entwicklung_Erikson',
+    'Herzinsuffizienz', 'Konflikteskalation_Glasl', 'Laienpflege_Professionelle_Pflege',
+    'Leben_im_Familienalltag', 'NANDA_Pflegediagnosen', 'SGB_V_und_SGB_XI',
+    'Soziale_Rolle', 'S3_Leitlinie', 'Pflegebeduerftigkeit', 'Pflegende_Angehoerige',
+    'Qualitaetssicherung', 'Beratung_Information_Schulung', 'Corbin_Strauss',
+    'Ernaehrungsmanagement', 'Expertenstandards', 'Gesundheitsfoerderung',
+    'Lymphoedem', 'Mammakarzinom', 'Pflege_bei_Chemotherapie', 'Pflegeforschung',
+    'Praevention', 'Rheumatoide_Arthritis', 'Sturzprophylaxe', 'Vorsorge',
+    'Ethische_Prinzipien_und_Dilemma', 'Fallbesprechung', 'Hypoxischer_Hirnschaden',
+    'Handeln_im_Notfall', 'Lungenembolie', 'Nosokomiale_Infektion', 'Palliativpflege',
+    'Patientenverfuegung', 'Pflege_bei_Fieber', 'Pflegeethik', 'Reanimation',
+    'Schenkelhalsfraktur', 'Thrombose', 'Sondenkost', 'Wundmanagement',
+]
+
+
+def topic_candidates(index):
+    slug = CURRENT_SLUGS[index]
+    current = (f'{slug}_Neu.pdf', f'Einfach_{slug}_einfach.pdf')
+    return [current] + [p for p in legacy_topic_candidates(index) if p != current]
 
 
 def expected_names():
@@ -115,19 +139,32 @@ def expected_names():
 def topic_files(indexed, index):
     """Prefer a complete individual pair; never mix a partial pair with a fallback."""
     candidates = topic_candidates(index)
+    current, legacy = candidates[0], legacy_topic_candidates(index)
+    if all(name in indexed for name in current):
+        # Multiple complete revised pairs or two simple variants for one detailed PDF are ambiguous.
+        if (TOPICS[index][0] in REVISED_PAIRS and
+                any(pair != current and all(name in indexed for name in pair) for pair in legacy)):
+            raise ValueError('Mehrdeutiges Lernzettelpaar')
+        if any(pair[0] == current[0] and pair[1] != current[1] and pair[1] in indexed for pair in legacy):
+            raise ValueError('Mehrdeutiges Lernzettelpaar')
+        return current
+    # A shared detailed filename may belong to the old pair; a new-only file,
+    # however, is a partially uploaded new pair and must block the import.
+    legacy_names = {name for pair in legacy for name in pair}
+    if any(name in indexed and name not in legacy_names for name in current):
+        raise ValueError('Unvollständiges Lernzettelpaar')
     if TOPICS[index][0] in REVISED_PAIRS:
-        complete = [pair for pair in candidates if all(name in indexed for name in pair)]
+        complete = [pair for pair in legacy if all(name in indexed for name in pair)]
         if len(complete) > 1:
             raise ValueError('Mehrdeutiges Lernzettelpaar')
         if complete:
-            # A distinct, partially uploaded alternative must not be ignored.
             selected = set(complete[0])
-            if any(name in indexed and name not in selected for pair in candidates for name in pair):
+            if any(name in indexed and name not in selected for pair in legacy for name in pair):
                 raise ValueError('Unvollständiges alternatives Lernzettelpaar')
             return complete[0]
-        if any(name in indexed for pair in candidates for name in pair):
+        if any(name in indexed for pair in legacy for name in pair):
             raise ValueError('Unvollständiges Lernzettelpaar')
-    for detailed, simple in candidates:
+    for detailed, simple in legacy:
         present = (detailed in indexed, simple in indexed)
         if all(present): return detailed, simple
         if any(present): raise ValueError(f'Unvollständiges Lernzettelpaar: {detailed}, {simple}')

@@ -1,7 +1,7 @@
 import json
 import unittest
 from pathlib import Path
-from import_notes import TOPICS, REVISED_PAIRS, expected_names, topic_candidates, topic_files, index_files, assemble, save_atomic
+from import_notes import TOPICS, REVISED_PAIRS, CURRENT_SLUGS, legacy_topic_candidates, expected_names, topic_candidates, topic_files, index_files, assemble, save_atomic
 import tempfile
 
 class ImportTests(unittest.TestCase):
@@ -37,7 +37,9 @@ class ImportTests(unittest.TestCase):
                 index_files(files)
 
     def test_individual_pairs_take_priority_and_legacy_combined_pair_is_supported(self):
-        indexed = index_files(self.files)
+        old_files = [{'id': str(i), 'name': name, 'size': '1000', 'mimeType': 'application/pdf'}
+                     for i, name in enumerate(sorted({name for n in range(len(TOPICS)) for name in legacy_topic_candidates(n)[0]}))]
+        indexed = index_files(old_files)
         for slug in ('Leben_im_Familienalltag', 'SGB_V_und_SGB_XI', 'Soziale_Rolle',
                      'Pflegebeduerftigkeit', 'Gesundheitsfoerderung', 'Praevention',
                      'Vorsorge', 'Ethische_Prinzipien_und_Dilemma'):
@@ -46,7 +48,7 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(detailed, slug + '.pdf')
             self.assertEqual(simple, 'Einfach_' + slug + '.pdf')
         i = next(i for i, t in enumerate(TOPICS) if t[0] == 'Vorsorge')
-        dedicated, legacy = topic_candidates(i)
+        dedicated, legacy = legacy_topic_candidates(i)
         both = dict(indexed, **{name: {'name': name} for name in legacy})
         self.assertEqual(topic_files(both, i), dedicated)
         both.pop(dedicated[0]); both.pop(dedicated[1])
@@ -58,7 +60,7 @@ class ImportTests(unittest.TestCase):
     def test_revised_pairs_and_old_published_pairs_are_unambiguous(self):
         for slug in REVISED_PAIRS:
             i = next(i for i, topic in enumerate(TOPICS) if topic[0] == slug)
-            current, old = topic_candidates(i)
+            current, old = legacy_topic_candidates(i)
             self.assertEqual(topic_files({n: {} for n in current}, i), current)
             self.assertEqual(topic_files({n: {} for n in old}, i), old)
             with self.assertRaises(ValueError):
@@ -69,10 +71,13 @@ class ImportTests(unittest.TestCase):
 
     def test_actual_revised_names_are_known(self):
         indexed = index_files(self.files)
-        for slug, pair in REVISED_PAIRS.items():
-            i = next(i for i, topic in enumerate(TOPICS) if topic[0] == slug)
+        self.assertEqual(len(CURRENT_SLUGS), 42)
+        self.assertEqual(len(set(CURRENT_SLUGS)), 42)
+        for i, slug in enumerate(CURRENT_SLUGS):
+            pair = (f'{slug}_Neu.pdf', f'Einfach_{slug}_einfach.pdf')
             self.assertEqual(topic_files(indexed, i), pair)
             self.assertTrue(set(pair) <= set(expected_names()))
+            self.assertEqual(topic_candidates(i)[0], pair)
 
     def test_dedicated_sources_recorded_correctly_in_result(self):
         result = json.loads(assemble(self.base, index_files(self.files), lambda f: f['name'] + 'x' * 100))
