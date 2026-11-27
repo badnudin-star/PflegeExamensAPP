@@ -75,10 +75,27 @@ DEDICATED_SLUGS = {
 }
 
 
+# Explicit current Drive filenames observed for revised source pairs. The old
+# names remain supported for already-published offline APKs and backups.
+REVISED_PAIRS = {
+    'Atopische_Dermatitis_Neurodermitis': ('Atopische_Dermatitis_Neu.pdf', 'Einfach_Atopische_Dermatitis_einfach.pdf'),
+    'S3_Leitlinie': ('S3_Leitlinie_Neu.pdf', 'Einfach_S3_Leitlinie_einfach.pdf'),
+    'Sturz_und_Sturzprophylaxe': ('Sturzprophylaxe_Neu.pdf', 'Einfach_Sturzprophylaxe_einfach.pdf'),
+    'Nosokomiale_Infektion': ('Nosokomiale_Infektion_Neu.pdf', 'Einfach_Nosokomiale_Infektion_einfach.pdf'),
+    'Palliativpflege': ('Palliativpflege_Neu.pdf', 'Einfach_Palliativpflege_einfach.pdf'),
+    'Patientenverfuegung': ('Patientenverfuegung_Neu.pdf', 'Einfach_Patientenverfuegung_einfach.pdf'),
+    'Pflege_bei_Fieber': ('Pflege_bei_Fieber_Neu.pdf', 'Einfach_Pflege_bei_Fieber_einfach.pdf'),
+    'Schenkelhalsfraktur': ('Schenkelhalsfraktur_Neu.pdf', 'Einfach_Schenkelhalsfraktur_einfach.pdf'),
+    'Wundmanagement': ('Wundmanagement_Neu.pdf', 'Einfach_Wundmanagement_einfach.pdf'),
+}
+
+
 def topic_candidates(index):
     slug, _ = TOPICS[index]
     old = NEW_SLUGS[index]
     fallback = (f'{old}_Neu.pdf', f'Einfach_{old}.pdf')
+    if slug in REVISED_PAIRS:
+        return [REVISED_PAIRS[slug], fallback]
     if slug in DEDICATED_SLUGS:
         dedicated = DEDICATED_SLUGS[slug]
         return [(f'{dedicated}.pdf', f'Einfach_{dedicated}.pdf'), fallback]
@@ -98,6 +115,18 @@ def expected_names():
 def topic_files(indexed, index):
     """Prefer a complete individual pair; never mix a partial pair with a fallback."""
     candidates = topic_candidates(index)
+    if TOPICS[index][0] in REVISED_PAIRS:
+        complete = [pair for pair in candidates if all(name in indexed for name in pair)]
+        if len(complete) > 1:
+            raise ValueError('Mehrdeutiges Lernzettelpaar')
+        if complete:
+            # A distinct, partially uploaded alternative must not be ignored.
+            selected = set(complete[0])
+            if any(name in indexed and name not in selected for pair in candidates for name in pair):
+                raise ValueError('Unvollständiges alternatives Lernzettelpaar')
+            return complete[0]
+        if any(name in indexed for pair in candidates for name in pair):
+            raise ValueError('Unvollständiges Lernzettelpaar')
     for detailed, simple in candidates:
         present = (detailed in indexed, simple in indexed)
         if all(present): return detailed, simple
