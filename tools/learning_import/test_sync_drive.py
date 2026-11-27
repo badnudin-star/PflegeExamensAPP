@@ -71,6 +71,27 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(update['cards'],remote['cards'])
         self.assertEqual(update['revision'],3)
         self.assertEqual(http.puts[0][1]['headers']['If-Match'],'2')
+    def test_same_drive_filename_with_changed_text_publishes_new_revision(self):
+        filename = topic_candidates(0)[0][0]
+        def extract(text):
+            return lambda _, f: f['name'] + (' ' + text if f['name'] == filename else '') + ' Text ' * 20 + '\nQUELLEN UND GRENZEN\n'
+        # Keep every Drive file ID and filename unchanged; only its contents change.
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=extract('alt')):
+            initial = Http()
+            self.assertEqual(sync(initial, 'https://worker.example', BUNDLED, 'folderid', object(), TOKEN), 'published')
+        remote = json.loads(initial.puts[0][1]['data'])
+        with patch('sync_drive.list_folder', return_value=FILES), patch('sync_drive.download_text', side_effect=extract('neu')):
+            http = Http(remote)
+            self.assertEqual(sync(http, 'https://worker.example', BUNDLED, 'folderid', object(), TOKEN), 'published')
+        updated = json.loads(http.puts[0][1]['data'])
+        self.assertEqual(updated['revision'], remote['revision'] + 1)
+        self.assertEqual(updated['notes'][0]['sources'], remote['notes'][0]['sources'])
+        self.assertIn(' neu ', updated['notes'][0]['detailed'])
+        self.assertEqual(http.puts[0][1]['headers']['If-Match'], str(remote['revision']))
+        self.assertEqual(updated['cards'], remote['cards'])
+        self.assertEqual(updated['cases'], remote['cases'])
+        self.assertEqual(updated['quizzes'], remote['quizzes'])
+
     def test_practice_only_change_publishes_and_preserves_other_sections(self):
         first = Http(); self.run_sync(first)
         remote = json.loads(first.puts[0][1]['data'])
