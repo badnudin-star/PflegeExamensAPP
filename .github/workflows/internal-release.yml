@@ -67,10 +67,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          echo '::warning title=Offline-PDFs::Drive-Quellen konnten nicht passend eingebunden werden; geprüfte PDFs aus Version 3.0.8 werden verwendet, sofern sie exakt zum öffentlichen Katalog passen.'
+          echo '::warning title=Offline-PDFs::Drive-Quellen konnten nicht passend eingebunden werden; geprüfte PDFs aus Version 3.0.10 werden verwendet, sofern sie exakt zum öffentlichen Katalog passen.'
           rm -rf app/src/main/assets/private/note_pdfs
-          gh release download v3.0.8 --repo "$GITHUB_REPOSITORY" --pattern PflegeExamen-vc19.apk --dir "$RUNNER_TEMP"
-          python ios/tools/bundle_public_apk_pdfs.py "$RUNNER_TEMP/PflegeExamen-vc19.apk" app/src/main/assets/learning_content.json app/src/main/assets/private/note_pdfs
+          gh release download v3.0.10 --repo "$GITHUB_REPOSITORY" --pattern PflegeExamen-vc21.apk --dir "$RUNNER_TEMP"
+          python ios/tools/bundle_public_apk_pdfs.py "$RUNNER_TEMP/PflegeExamen-vc21.apk" app/src/main/assets/learning_content.json app/src/main/assets/private/note_pdfs
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
