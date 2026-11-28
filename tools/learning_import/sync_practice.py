@@ -1,6 +1,8 @@
 """Read validated, complete practice-content snapshots from optional Drive folders."""
 import hashlib
 import io
+import json
+import os
 import re
 import sys
 from datetime import date
@@ -13,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'case_import'))
 from import_cards import FILES, read_cards
 from import_revised_cards import FILENAME as REVISED_CARDS, read_revised_cards
 from import_cases import parse_case
+from import_revised_cases import parse_revised_case
 from import_notes import list_children, extract_pdf, TOPICS
 
 MAX_FILE = 8 * 1024 * 1024
@@ -23,6 +26,21 @@ def inventory(drive, folder, kind):
     if not re.fullmatch(r'[A-Za-z0-9_-]+', folder):
         raise ValueError('Ungültige Übungsordner-ID')
     files = list_children(drive, folder)
+    if kind == 'cases-v2':
+        name = 'Fallbeispiele mit Zeilennummern – Arbeitsstand'
+        folders = [f for f in files if f.get('name') == name]
+        if len(folders) != 1 or folders[0].get('mimeType') != 'application/vnd.google-apps.folder':
+            raise ValueError('Fall-Unterordner fehlt oder ist mehrdeutig')
+        children = list_children(drive, folders[0]['id'])
+        # Explicitly labelled old versions are not candidates for publication.
+        selected = [f for f in children if not f.get('name', '').startswith('ALTSTAND_')]
+        if len(selected) != 30 or any(f.get('mimeType') != 'application/pdf' or
+                not re.fullmatch(r'Tag_[123]_Fall_\d{2}_[A-Za-z0-9_]+\.pdf', f.get('name', '')) for f in selected):
+            raise ValueError('Neue Falldateien fehlen, sind doppelt oder unbekannt')
+        pairs = [(int(f['name'][4]), int(f['name'][11:13])) for f in selected]
+        if set(pairs) != {(d, n) for d in range(1, 4) for n in range(1, 11)}:
+            raise ValueError('Neue Fälle haben doppelte oder fehlende Nummern')
+        return {'folder': folders[0], 'files': sorted(selected, key=lambda f: (f['name'], f['id']))}
     if kind in ('cards', 'cards-v2'):
         names = set(FILES) if kind == 'cards' else {REVISED_CARDS}
         selected = [f for f in files if f.get('name') in names]
@@ -39,6 +57,13 @@ def inventory(drive, folder, kind):
     if any(f.get('mimeType') != expected_mime for f in selected):
         raise ValueError('Falscher Dateityp im Übungsordner')
     return sorted(selected, key=lambda f: (f['name'], f['id']))
+
+
+def revised_case_fingerprint(snapshot):
+    # Inventory includes file identity, metadata, and Drive checksums. The same
+    # inventory is checked again after downloads by import_practice.
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
 def download(drive, f):
@@ -99,16 +124,41 @@ def retire_replaced_cards(base, values):
     return sorted(retired | (old - new))
 
 
-def import_practice(base, drive, cards_folder='', cases_folder='', card_format='legacy'):
-    if card_format not in ('legacy', 'revised'):
-        raise ValueError('Unbekanntes Kartenformat')
+def retire_replaced_cases(base, values):
+    old = {item['id'] for item in base['cases']}
+    new = {item['id'] for item in values}
+    retired = set(base.get('retiredCaseIds', []))
+    if (len(new) != 30 or len(values) != 30 or
+            not all(re.fullmatch(r'case-v2-[0-9a-f]{64}', value) for value in new) or
+            any(sum(c['examDay'] == day for c in values) != 10 for day in (1, 2, 3)) or
+            not retired.isdisjoint(new)):
+        raise ValueError('Neue Fälle unvollständig oder stillgelegte ID erneut verwendet')
+    legacy_ids = {f'case-day-{day}-{number:02d}' for day in range(1, 4) for number in range(1, 11)}
+    if old == legacy_ids:
+        if retired:
+            raise ValueError('Alter Fallbestand stimmt nicht mit dem geprüften Wechsel überein')
+    elif not old or not all(re.fullmatch(r'case-v2-[0-9a-f]{64}', value) for value in old):
+        raise ValueError('Unbekannte Fall-ID-Generation')
+    elif len(old - new) > 3:
+        raise ValueError('Zu viele Fälle fehlen; Überprüfung erforderlich')
+    return sorted(retired | (old - new))
+
+
+def import_practice(base, drive, cards_folder='', cases_folder='', card_format='legacy', case_format='legacy'):
+    if card_format not in ('legacy', 'revised') or case_format not in ('legacy', 'revised'):
+        raise ValueError('Unbekanntes Übungsformat')
     result = dict(base)
     snapshots = []
     for kind, folder in (('cards', cards_folder), ('cases', cases_folder)):
         if not folder:
             continue
-        inventory_kind = 'cards-v2' if kind == 'cards' and card_format == 'revised' else kind
+        inventory_kind = ('cards-v2' if kind == 'cards' and card_format == 'revised' else
+                          'cases-v2' if kind == 'cases' and case_format == 'revised' else kind)
         before = inventory(drive, folder, inventory_kind)
+        if kind == 'cases' and case_format == 'revised' and any(not c['id'].startswith('case-v2-') for c in base['cases']):
+            expected = os.environ.get('PRACTICE_CASE_INVENTORY_SHA256', '')
+            if expected and (not re.fullmatch(r'[0-9a-f]{64}', expected) or revised_case_fingerprint(before) != expected):
+                raise ValueError('Fallquellen weichen vom geprüften Bestand ab')
         if kind == 'cards':
             if card_format == 'revised':
                 values = read_revised_cards(workbook(download(drive, before[0])))
@@ -118,12 +168,26 @@ def import_practice(base, drive, cards_folder='', cases_folder='', card_format='
         else:
             old = {c['id']: c for c in base['cases']}
             values = []
-            for f in before:
+            case_files = before['files'] if case_format == 'revised' else before
+            for f in case_files:
                 try:
                     modified = date.fromisoformat(f['modifiedTime'][:10]).isoformat()
                 except (KeyError, ValueError, TypeError):
                     raise ValueError('Fall-Änderungsdatum ungültig')
-                item = parse_case(f['name'], extract_pdf(download(drive, f)), modified)
+                parser = parse_revised_case if case_format == 'revised' else parse_case
+                try:
+                    item = parser(f['name'], extract_pdf(download(drive, f)), modified)
+                except ValueError as exc:
+                    if case_format == 'revised':
+                        label = re.match(r'Tag_([123])_Fall_(\d{2})_', f['name'])
+                        if label:
+                            safe_errors = {'Ungültige Abschnitte im neuen Fall', 'Prüfungstag, Fallnummer oder Arbeitsstand fehlt',
+                                           'Titel oder Zeilennummern ungültig', 'Ungültige oder fehlende Aufgabennummern',
+                                           'Leere Aufgabe oder Lösung', 'Aufgaben und Lösungen sind unvollständig',
+                                           'Aufgabe und Lösung stimmen nicht überein', 'Lösung oder Fundstelle fehlt'}
+                            reason = str(exc) if str(exc) in safe_errors else 'Prüfung fehlgeschlagen'
+                            raise ValueError(f'Fallprüfung Tag {label.group(1)} Fall {label.group(2)}: {reason}') from exc
+                    raise
                 previous = old.get(item['id'])
                 if previous:
                     if previous['sources'][0] != item['sources'][0]:
@@ -132,8 +196,13 @@ def import_practice(base, drive, cards_folder='', cases_folder='', card_format='
                 values.append(item)
             if len({v['id'] for v in values}) != len(values):
                 raise ValueError('Doppelte Fall-ID')
-            values.sort(key=lambda c: c['id'])
-        if not (kind == 'cards' and card_format == 'revised') and not {v['id'] for v in base[kind]}.issubset({v['id'] for v in values}):
+            if case_format == 'revised':
+                result['retiredCaseIds'] = retire_replaced_cases(base, values)
+                # case_files were sorted by day and number; preserve this order.
+            else:
+                values.sort(key=lambda c: c['id'])
+        replaced = (kind == 'cards' and card_format == 'revised') or (kind == 'cases' and case_format == 'revised')
+        if not replaced and not {v['id'] for v in base[kind]}.issubset({v['id'] for v in values}):
             raise ValueError('Bestehende Karten oder Fälle fehlen; kein Update veröffentlicht')
         result[kind] = values
         snapshots.append((inventory_kind, folder, before))

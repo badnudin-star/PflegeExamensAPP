@@ -48,6 +48,15 @@ class SyncTests(unittest.TestCase):
             with self.subTest(retired=retired), self.assertRaises(ValueError):
                 validate_base(dict(base, retiredCardIds=retired))
 
+    def test_retired_case_ids_are_validated(self):
+        case = {'id':'case-a', 'published':'2026-01-01', 'text':'T', 'sources':['S'],
+                'diseases':['D'], 'questions':[{'question':'Q', 'answer':'A', 'sources':['S']}]}
+        base = dict(BUNDLED, cases=[case])
+        validate_base(dict(base, retiredCaseIds=['case-old']))
+        for retired in (['case-a'], ['case-old', 'case-old'], [''], 'case-old'):
+            with self.subTest(retired=retired), self.assertRaises(ValueError):
+                validate_base(dict(base, retiredCaseIds=retired))
+
     def test_origin_requires_safe_https(self):
         for value in ('http://a', 'https://user:pass@a', 'https://a/path', 'https://a?x=1'):
             with self.assertRaises(ValueError): origin(value)
