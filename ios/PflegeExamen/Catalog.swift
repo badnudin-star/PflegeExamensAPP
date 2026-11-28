@@ -8,6 +8,7 @@ struct Catalog: Decodable {
     let cases: [StudyCase]
     let quizzes: [Quiz]
     var retiredCardIds: [String]? = nil
+    var retiredCaseIds: [String]? = nil
 
     func validate() throws {
         func text(_ value: String) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -17,7 +18,8 @@ struct Catalog: Decodable {
         guard schemaVersion == 1, revision >= 0, revision < 9_007_199_254_740_991,
               !notes.isEmpty, unique(notes.map(\.topic)), unique(cards.map(\.id)),
               unique(retiredCardIds ?? []), Set(retiredCardIds ?? []).isDisjoint(with: Set(cards.map(\.id))),
-              unique(cases.map(\.id)), unique(quizzes.map(\.id)),
+              unique(cases.map(\.id)), unique(retiredCaseIds ?? []),
+              Set(retiredCaseIds ?? []).isDisjoint(with: Set(cases.map(\.id))), unique(quizzes.map(\.id)),
               notes.allSatisfy({ text($0.short) && text($0.balanced) && text($0.detailed) && sources($0.sources) }),
               cards.allSatisfy({ topics.contains($0.topic) && text($0.front) && text($0.back) && sources($0.sources) }),
               cases.allSatisfy({ text($0.published) && text($0.text) && sources($0.sources) &&
@@ -112,10 +114,12 @@ struct CatalogSnapshot {
         let next = try CatalogSnapshot(raw)
         let retired = Set(next.catalog.retiredCardIds ?? [])
         let cards = Set(next.catalog.cards.map(\.id))
+        let retiredCases = Set(next.catalog.retiredCaseIds ?? [])
         guard Set(next.catalog.notes.map(\.topic)) == Set(catalog.notes.map(\.topic)),
               Set(catalog.retiredCardIds ?? []).isSubset(of: retired),
               Set(catalog.cards.map(\.id)).isSubset(of: cards.union(retired)),
-              Set(catalog.cases.map(\.id)).isSubset(of: Set(next.catalog.cases.map(\.id)))
+              Set(catalog.retiredCaseIds ?? []).isSubset(of: retiredCases),
+              Set(catalog.cases.map(\.id)).isSubset(of: Set(next.catalog.cases.map(\.id)).union(retiredCases))
         else { throw CatalogError.incomplete }
         guard next.catalog.revision >= catalog.revision else { throw CatalogError.older }
         if next.catalog.revision == catalog.revision {
