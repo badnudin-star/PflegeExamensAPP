@@ -29,6 +29,32 @@ jobs:
           printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
           unset GOOGLE_CREDS
           python tools/learning_import/audit_notes.py
+  revised-card-audit:
+    # Read-only: no publication token, and only the reviewed default branch.
+    if: ${{ github.ref == 'refs/heads/main' && vars.PRACTICE_CARDS_FOLDER_ID != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r tools/learning_import/requirements.txt
+      - name: Überarbeitete Karten lesend prüfen
+        env:
+          GOOGLE_CREDS: ${{ secrets.LEARNING_DRIVE_CREDENTIALS }}
+          PRACTICE_CARDS_FOLDER_ID: ${{ vars.PRACTICE_CARDS_FOLDER_ID }}
+        run: |
+          set -eu
+          test -n "$GOOGLE_CREDS"
+          umask 077
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/revised-cards-credentials.json"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          printf '%s' "$GOOGLE_CREDS" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          unset GOOGLE_CREDS
+          python tools/learning_import/audit_revised_cards.py
   practice-audit:
     # This job only reads Drive and the public catalog. It has no publish token.
     if: ${{ vars.PRACTICE_CARDS_FOLDER_ID != '' || vars.PRACTICE_CASES_FOLDER_ID != '' }}
