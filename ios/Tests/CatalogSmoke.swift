@@ -87,14 +87,15 @@ struct CatalogSmoke {
         migratedCards[0]["id"] = "card-v2-synthetic"
         migration["cards"] = migratedCards
         migration["revision"] = catalog.revision + 1
-        migration["retiredCardIds"] = [oldID]
+        let priorRetiredCards = catalog.retiredCardIds ?? []
+        migration["retiredCardIds"] = priorRetiredCards + [oldID]
         let migrated = try original.replacing(with: JSONSerialization.data(withJSONObject: migration))
         migration["revision"] = catalog.revision + 2
-        migration["retiredCardIds"] = []
+        migration["retiredCardIds"] = priorRetiredCards
         do { _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration)); fatalError("Tombstone verloren") } catch {}
-        migration["retiredCardIds"] = [oldID, "card-v2-synthetic"]
+        migration["retiredCardIds"] = priorRetiredCards + [oldID, "card-v2-synthetic"]
         do { _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration)); fatalError("Aktive ID ist stillgelegt") } catch {}
-        migration["retiredCardIds"] = [oldID]
+        migration["retiredCardIds"] = priorRetiredCards + [oldID]
         _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration))
         print("Explizite und dauerhafte Kartenstilllegung geprüft")
         var caseMigration = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
@@ -103,12 +104,13 @@ struct CatalogSmoke {
         migratedCases[0]["id"] = "case-v2-synthetic"
         caseMigration["cases"] = migratedCases
         caseMigration["revision"] = catalog.revision + 1
-        caseMigration["retiredCaseIds"] = [oldCaseID]
+        let priorRetiredCases = catalog.retiredCaseIds ?? []
+        caseMigration["retiredCaseIds"] = priorRetiredCases + [oldCaseID]
         let changedCases = try original.replacing(with: JSONSerialization.data(withJSONObject: caseMigration))
         caseMigration["revision"] = catalog.revision + 2
-        caseMigration["retiredCaseIds"] = []
+        caseMigration["retiredCaseIds"] = priorRetiredCases
         do { _ = try changedCases.replacing(with: JSONSerialization.data(withJSONObject: caseMigration)); fatalError("Fallstilllegung verloren") } catch {}
-        caseMigration["retiredCaseIds"] = [oldCaseID, "case-v2-synthetic"]
+        caseMigration["retiredCaseIds"] = priorRetiredCases + [oldCaseID, "case-v2-synthetic"]
         do { _ = try changedCases.replacing(with: JSONSerialization.data(withJSONObject: caseMigration)); fatalError("Aktiver Fall stillgelegt") } catch {}
         print("Explizite und dauerhafte Fallstilllegung geprüft")
 
