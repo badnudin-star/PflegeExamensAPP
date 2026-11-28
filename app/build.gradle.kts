@@ -41,8 +41,8 @@ android {
         buildConfigField("String", "RANKING_URL", "\"$rankingUrl\"")
         buildConfigField("boolean", "ENABLE_RANKED_PARTICIPATION", enableRankedParticipation)
         buildConfigField("boolean", "ENABLE_APP_UPDATES", enableAppUpdates)
-        versionCode = 21
-        versionName = "3.0.10"
+        versionCode = 22
+        versionName = "3.0.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -78,6 +78,26 @@ struct CatalogSmoke {
         rejected(Data("{}".utf8))
         print("Katalogupdate: Persistenz, Rollback, Konflikt und Fehlerfall geprüft")
 
+        // A declared retirement survives skipped revisions, but silent removal,
+        // tombstone loss and resurrection of old IDs must remain impossible.
+        let original = try CatalogSnapshot(raw)
+        var migration = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        var migratedCards = migration["cards"] as! [[String: Any]]
+        let oldID = migratedCards[0]["id"] as! String
+        migratedCards[0]["id"] = "card-v2-synthetic"
+        migration["cards"] = migratedCards
+        migration["revision"] = catalog.revision + 1
+        migration["retiredCardIds"] = [oldID]
+        let migrated = try original.replacing(with: JSONSerialization.data(withJSONObject: migration))
+        migration["revision"] = catalog.revision + 2
+        migration["retiredCardIds"] = []
+        do { _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration)); fatalError("Tombstone verloren") } catch {}
+        migration["retiredCardIds"] = [oldID, "card-v2-synthetic"]
+        do { _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration)); fatalError("Aktive ID ist stillgelegt") } catch {}
+        migration["retiredCardIds"] = [oldID]
+        _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration))
+        print("Explizite und dauerhafte Kartenstilllegung geprüft")
+
         let suite = "pflege.ios.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }

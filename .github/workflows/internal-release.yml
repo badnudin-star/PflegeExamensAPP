@@ -110,7 +110,7 @@ jobs:
           # Public certificate previously checked against the tested 3.0.3 APK.
           printf '%s\n' 'Signer #1 certificate SHA-256 digest: 131ca778b5fac3e9d0cb30b3b49b6db476ed7745572f3c038805952672967425' > "$RUNNER_TEMP/expected-cert.txt"
           python tools/android_checks/compare_release_certificates.py "$RUNNER_TEMP/expected-cert.txt" "$RUNNER_TEMP/current-certs.txt"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='de.pflegeexamen.app' versionCode='21' versionName='3.0.10'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='de.pflegeexamen.app' versionCode='22' versionName='3.0.11'"
           python tools/android_checks/verify_release_apk.py "$APK" app/src/main/assets/learning_content.json
           python tools/learning_import/verify_pdf_bundle.py "$APK" app/src/main/assets/private/note_pdfs
       - name: Interne APK als zeitlich begrenztes Artifact bereitstellen

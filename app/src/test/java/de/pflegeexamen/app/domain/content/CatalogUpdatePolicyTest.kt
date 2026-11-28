@@ -32,6 +32,20 @@ class CatalogUpdatePolicyTest {
         }
     }
 
+    @Test fun `explicit cumulative retirement permits replacement but not silent removal or revival`() {
+        val replacement = base.copy(revision = 6, cards = listOf(base.cards[0].copy(id = "new")), retiredCardIds = listOf("a"))
+        assertTrue(CatalogUpdatePolicy.canRefresh(base, replacement))
+        assertTrue(CatalogUpdatePolicy.canUseAtStartup(base, replacement))
+        assertFalse(CatalogUpdatePolicy.canRefresh(base, replacement.copy(retiredCardIds = emptyList())))
+        assertFalse(CatalogUpdatePolicy.canRefresh(base, replacement.copy(retiredCardIds = listOf("a", "new"))))
+        val later = replacement.copy(revision = 7, cards = listOf(base.cards[0].copy(id = "newer")), retiredCardIds = listOf("a", "new"))
+        assertTrue(CatalogUpdatePolicy.canRefresh(replacement, later))
+        assertTrue(CatalogUpdatePolicy.canRefresh(base, later)) // a device may skip releases
+        assertFalse(CatalogUpdatePolicy.canRefresh(replacement, later.copy(retiredCardIds = listOf("new"))))
+        assertFalse(CatalogUpdatePolicy.canRefresh(replacement, later.copy(cards = base.cards, retiredCardIds = listOf("new"))))
+        assertFalse(CatalogUpdatePolicy.canRefresh(replacement, later.copy(cases = emptyList())))
+    }
+
     @Test fun `older or conflicting equal revisions cannot override the packaged catalog`() {
         assertFalse(CatalogUpdatePolicy.canUseAtStartup(base, base.copy(revision = 4)))
         assertTrue(CatalogUpdatePolicy.canUseAtStartup(base, base.copy()))
