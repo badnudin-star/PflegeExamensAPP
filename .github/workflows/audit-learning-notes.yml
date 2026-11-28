@@ -74,6 +74,7 @@ jobs:
           LEARNING_DRIVE_FOLDER_ID: ${{ vars.LEARNING_DRIVE_FOLDER_ID }}
           PRACTICE_CARDS_FOLDER_ID: ${{ vars.PRACTICE_CARDS_FOLDER_ID }}
           PRACTICE_CASES_FOLDER_ID: ${{ vars.PRACTICE_CASES_FOLDER_ID }}
+          PRACTICE_CARD_FORMAT: revised
           CONTENT_WORKER_ORIGIN: ${{ vars.CONTENT_WORKER_ORIGIN }}
         run: |
           set -eu

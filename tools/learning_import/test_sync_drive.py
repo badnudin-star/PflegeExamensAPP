@@ -41,6 +41,13 @@ class SyncTests(unittest.TestCase):
             self.assertIsNone(read_remote(Http(), 'https://worker.example'))
             report.assert_not_called()
 
+    def test_retired_ids_are_validated_and_cannot_overlap_active_cards(self):
+        base = dict(BUNDLED, cards=[{'id':'card-a', 'topic':TOPICS[0][1], 'front':'Q', 'back':'A', 'sources':['S']}])
+        validate_base(dict(base, retiredCardIds=['card-old']))
+        for retired in (['card-a'], ['card-old', 'card-old'], [''], 'card-old'):
+            with self.subTest(retired=retired), self.assertRaises(ValueError):
+                validate_base(dict(base, retiredCardIds=retired))
+
     def test_origin_requires_safe_https(self):
         for value in ('http://a', 'https://user:pass@a', 'https://a/path', 'https://a?x=1'):
             with self.assertRaises(ValueError): origin(value)
