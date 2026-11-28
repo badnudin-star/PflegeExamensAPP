@@ -97,6 +97,20 @@ struct CatalogSmoke {
         migration["retiredCardIds"] = [oldID]
         _ = try migrated.replacing(with: JSONSerialization.data(withJSONObject: migration))
         print("Explizite und dauerhafte Kartenstilllegung geprüft")
+        var caseMigration = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        var migratedCases = caseMigration["cases"] as! [[String: Any]]
+        let oldCaseID = migratedCases[0]["id"] as! String
+        migratedCases[0]["id"] = "case-v2-synthetic"
+        caseMigration["cases"] = migratedCases
+        caseMigration["revision"] = catalog.revision + 1
+        caseMigration["retiredCaseIds"] = [oldCaseID]
+        let changedCases = try original.replacing(with: JSONSerialization.data(withJSONObject: caseMigration))
+        caseMigration["revision"] = catalog.revision + 2
+        caseMigration["retiredCaseIds"] = []
+        do { _ = try changedCases.replacing(with: JSONSerialization.data(withJSONObject: caseMigration)); fatalError("Fallstilllegung verloren") } catch {}
+        caseMigration["retiredCaseIds"] = [oldCaseID, "case-v2-synthetic"]
+        do { _ = try changedCases.replacing(with: JSONSerialization.data(withJSONObject: caseMigration)); fatalError("Aktiver Fall stillgelegt") } catch {}
+        print("Explizite und dauerhafte Fallstilllegung geprüft")
 
         let suite = "pflege.ios.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

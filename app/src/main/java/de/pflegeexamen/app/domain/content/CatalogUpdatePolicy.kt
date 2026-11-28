@@ -13,12 +13,16 @@ object CatalogUpdatePolicy {
         val cards = candidate.cards.map { it.id }.toSet()
         val retired = candidate.retiredCardIds.toSet()
         val cases = candidate.cases.map { it.id }.toSet()
+        val retiredCases = candidate.retiredCaseIds.toSet()
         // Explicit, cumulative retirement is different from accidental omission.
         // Retired IDs may never become active again, avoiding stale learned marks.
         return retired.size == candidate.retiredCardIds.size && retired.none { it.isBlank() || it in cards } &&
             base.retiredCardIds.all { it in retired } &&
+            retiredCases.size == candidate.retiredCaseIds.size && retiredCases.none { it.isBlank() || it in cases } &&
+            base.retiredCaseIds.all { it in retiredCases } &&
             base.notes.all { it.topic in topics } &&
-            base.cards.all { it.id in cards || it.id in retired } && base.cases.all { it.id in cases }
+            base.cards.all { it.id in cards || it.id in retired } &&
+            base.cases.all { it.id in cases || it.id in retiredCases }
     }
 
     /** Equal revisions must describe the same parsed catalog, not competing snapshots. */

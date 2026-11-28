@@ -46,6 +46,18 @@ class CatalogUpdatePolicyTest {
         assertFalse(CatalogUpdatePolicy.canRefresh(replacement, later.copy(cases = emptyList())))
     }
 
+    @Test fun `case retirement is explicit cumulative and cannot revive old progress`() {
+        val next = base.copy(revision = 6, cases = listOf(base.cases[0].copy(id = "case-v2-new")), retiredCaseIds = listOf("fall"))
+        assertTrue(CatalogUpdatePolicy.canRefresh(base, next))
+        assertFalse(CatalogUpdatePolicy.canRefresh(base, next.copy(retiredCaseIds = emptyList())))
+        assertFalse(CatalogUpdatePolicy.canRefresh(base, next.copy(retiredCaseIds = listOf("fall", "case-v2-new"))))
+        val later = next.copy(revision = 7, cases = listOf(base.cases[0].copy(id = "case-v2-next")), retiredCaseIds = listOf("fall", "case-v2-new"))
+        assertTrue(CatalogUpdatePolicy.canRefresh(next, later))
+        assertTrue(CatalogUpdatePolicy.canRefresh(base, later))
+        assertFalse(CatalogUpdatePolicy.canRefresh(next, later.copy(retiredCaseIds = listOf("case-v2-new"))))
+        assertFalse(CatalogUpdatePolicy.canRefresh(next, later.copy(cards = emptyList())))
+    }
+
     @Test fun `older or conflicting equal revisions cannot override the packaged catalog`() {
         assertFalse(CatalogUpdatePolicy.canUseAtStartup(base, base.copy(revision = 4)))
         assertTrue(CatalogUpdatePolicy.canUseAtStartup(base, base.copy()))
