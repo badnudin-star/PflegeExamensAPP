@@ -7,6 +7,7 @@ struct Catalog: Decodable {
     let cards: [Card]
     let cases: [StudyCase]
     let quizzes: [Quiz]
+    var retiredCardIds: [String]? = nil
 
     func validate() throws {
         func text(_ value: String) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -15,6 +16,7 @@ struct Catalog: Decodable {
         let topics = Set(notes.map(\.topic))
         guard schemaVersion == 1, revision >= 0, revision < 9_007_199_254_740_991,
               !notes.isEmpty, unique(notes.map(\.topic)), unique(cards.map(\.id)),
+              unique(retiredCardIds ?? []), Set(retiredCardIds ?? []).isDisjoint(with: Set(cards.map(\.id))),
               unique(cases.map(\.id)), unique(quizzes.map(\.id)),
               notes.allSatisfy({ text($0.short) && text($0.balanced) && text($0.detailed) && sources($0.sources) }),
               cards.allSatisfy({ topics.contains($0.topic) && text($0.front) && text($0.back) && sources($0.sources) }),
@@ -108,8 +110,11 @@ struct CatalogSnapshot {
     init(_ data: Data) throws { self.data = data; self.catalog = try Catalog.decode(data) }
     func replacing(with raw: Data) throws -> CatalogSnapshot {
         let next = try CatalogSnapshot(raw)
+        let retired = Set(next.catalog.retiredCardIds ?? [])
+        let cards = Set(next.catalog.cards.map(\.id))
         guard Set(next.catalog.notes.map(\.topic)) == Set(catalog.notes.map(\.topic)),
-              Set(catalog.cards.map(\.id)).isSubset(of: Set(next.catalog.cards.map(\.id))),
+              Set(catalog.retiredCardIds ?? []).isSubset(of: retired),
+              Set(catalog.cards.map(\.id)).isSubset(of: cards.union(retired)),
               Set(catalog.cases.map(\.id)).isSubset(of: Set(next.catalog.cases.map(\.id)))
         else { throw CatalogError.incomplete }
         guard next.catalog.revision >= catalog.revision else { throw CatalogError.older }

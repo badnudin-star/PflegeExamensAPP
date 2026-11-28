@@ -55,6 +55,12 @@ class LearningCatalogTest {
         assertNull(parse(complete.copy(quizzes = listOf(complete.quizzes.first().copy(options = listOf("A", "A", "C", "D"))))))
         assertNull(parse(complete.copy(cases = listOf(complete.cases.first().copy(sources = emptyList())))))
     }
+    @Test fun `retired ids must be unique nonblank and inactive`() {
+        assertNotNull(parse(complete.copy(retiredCardIds = listOf("old"))))
+        assertNull(parse(complete.copy(retiredCardIds = listOf(""))))
+        assertNull(parse(complete.copy(retiredCardIds = listOf("old", "old"))))
+        assertNull(parse(complete.copy(retiredCardIds = listOf("card-1"))))
+    }
     @Test fun `unknown topics duplicates and incompatible schemas are rejected`() {
         assertNull(parse(complete.copy(notes = listOf(complete.notes.first().copy(topic = "Nicht auf der Liste")))))
         assertNull(parse(complete.copy(cards = complete.cards + complete.cards)))

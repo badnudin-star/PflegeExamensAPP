@@ -11,9 +11,14 @@ object CatalogUpdatePolicy {
     private fun preservesLearningItems(base: LearningCatalog, candidate: LearningCatalog): Boolean {
         val topics = candidate.notes.map { it.topic }.toSet()
         val cards = candidate.cards.map { it.id }.toSet()
+        val retired = candidate.retiredCardIds.toSet()
         val cases = candidate.cases.map { it.id }.toSet()
-        return base.notes.all { it.topic in topics } &&
-            base.cards.all { it.id in cards } && base.cases.all { it.id in cases }
+        // Explicit, cumulative retirement is different from accidental omission.
+        // Retired IDs may never become active again, avoiding stale learned marks.
+        return retired.size == candidate.retiredCardIds.size && retired.none { it.isBlank() || it in cards } &&
+            base.retiredCardIds.all { it in retired } &&
+            base.notes.all { it.topic in topics } &&
+            base.cards.all { it.id in cards || it.id in retired } && base.cases.all { it.id in cases }
     }
 
     /** Equal revisions must describe the same parsed catalog, not competing snapshots. */

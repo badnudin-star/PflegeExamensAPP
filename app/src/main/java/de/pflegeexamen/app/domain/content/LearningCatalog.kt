@@ -11,7 +11,9 @@ data class LearningCatalog(
     val notes: List<PublishedNote> = emptyList(),
     val cards: List<PublishedCard> = emptyList(),
     val cases: List<PublishedCase> = emptyList(),
-    val quizzes: List<PublishedQuiz> = emptyList()
+    val quizzes: List<PublishedQuiz> = emptyList(),
+    // Tombstones are cumulative, so devices skipping revisions can safely retire cards.
+    val retiredCardIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -36,6 +38,10 @@ object LearningCatalogCodec {
         fun <T> unique(items: List<T>, key: (T) -> String): Boolean = items.map(key).let { values -> values.all { it.isNotBlank() } && values.size == values.toSet().size }
         if (!unique(catalog.notes) { it.topic } || catalog.notes.any { it.topic !in titles || it.short.isBlank() || it.balanced.isBlank() || it.detailed.isBlank() || !hasSources(it.sources) }) return null
         if (!unique(catalog.cards) { it.id } || catalog.cards.any { it.topic !in titles || it.front.isBlank() || it.back.isBlank() || !hasSources(it.sources) }) return null
+        val retired = catalog.retiredCardIds
+        val retiredSet = retired.toSet()
+        if (retired.any { it.isBlank() } || retired.size != retiredSet.size ||
+            catalog.cards.any { it.id in retiredSet }) return null
         if (!unique(catalog.cases) { it.id } || catalog.cases.any { c -> c.published.isBlank() || c.text.isBlank() || !hasSources(c.sources) || c.diseases.isEmpty() || c.diseases.any { it.isBlank() } || c.questions.isEmpty() || c.questions.any { it.question.isBlank() || it.answer.isBlank() || !hasSources(it.sources) } }) return null
         if (!unique(catalog.quizzes) { it.id } || catalog.quizzes.any { q -> q.published.isBlank() || q.topic !in titles || q.question.isBlank() || q.options.size != 4 || q.options.any { it.isBlank() } || q.options.distinct().size != 4 || q.correctIndex !in 0..3 || q.explanation.isBlank() || !hasSources(q.sources) }) return null
         return catalog
