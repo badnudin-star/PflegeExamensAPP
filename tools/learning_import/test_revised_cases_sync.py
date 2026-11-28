@@ -51,6 +51,14 @@ class RevisedCaseSyncTest(unittest.TestCase):
         with patch('sync_practice.list_children', return_value=[FOLDER, FOLDER]):
             with self.assertRaises(ValueError): inventory(object(), 'parent', 'cases-v2')
 
+    def test_first_migration_rejects_changed_inventory_fingerprint(self):
+        base = {'cases': legacy(), 'cards': [], 'notes': [], 'quizzes': []}
+        snap = {'folder': FOLDER, 'files': files()}
+        with patch('sync_practice.inventory', return_value=snap), \
+             patch.dict('os.environ', {'PRACTICE_CASE_INVENTORY_SHA256': '0' * 64}):
+            with self.assertRaisesRegex(ValueError, 'Fallquellen weichen'):
+                import_practice(base, object(), cases_folder='folder', case_format='revised')
+
     def test_import_preserves_other_sections_and_rechecks_source(self):
         base = {'cases': legacy(), 'cards': [{'id': 'c'}], 'notes': [{'topic': 'x'}], 'quizzes': [{'id': 'q'}]}
         snap = {'folder': FOLDER, 'files': files()}

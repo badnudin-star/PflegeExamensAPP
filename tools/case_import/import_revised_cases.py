@@ -60,7 +60,10 @@ def parse_revised_case(name, raw, modified_date):
             raise ValueError('Lösung oder Fundstelle fehlt')
         parsed_answers.append(answer)
     source = f'Fallbeispiele/Fallbeispiele mit Zeilennummern – Arbeitsstand/{name}'
-    body = 'Arbeitsstand: ' + description.strip() + '\n\nFALLSITUATION\n' + case_text
+    # Separate numbered source lines into paragraphs so the Android display
+    # formatter does not join them together and invalidate visual references.
+    numbered_text = CASE_LINE.sub(lambda match: '\n' + match.group(0), case_text).strip()
+    body = 'Arbeitsstand: ' + description.strip() + '\n\nFALLSITUATION\n' + numbered_text
     # The ID changes when content changes, so an old completed flag cannot
     # transfer to a different case; dates and filenames do not affect identity.
     identity = [day, title, body, instructions, answer_note, list(zip(questions, parsed_answers))]

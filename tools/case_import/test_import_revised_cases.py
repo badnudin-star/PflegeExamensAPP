@@ -37,7 +37,7 @@ class RevisedCasesTest(unittest.TestCase):
     def test_roundtrip_fields_line_numbers_and_distinct_identity(self):
         case = parse_revised_case(NAME, TEXT, '2026-01-01')
         self.assertEqual(case['examDay'], 1)
-        self.assertIn('02   Sie möchte selbst entscheiden.', case['text'])
+        self.assertIn('01   Eine erfundene Person braucht Hilfe.\n\n02   Sie möchte selbst entscheiden.', case['text'])
         self.assertEqual(len(case['questions']), 2)
         self.assertIn('Fundstelle:', case['questions'][1]['answer'])
         self.assertNotIn('Analysieren Sie', case['questions'][1]['answer'])

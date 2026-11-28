@@ -1,6 +1,8 @@
 """Read validated, complete practice-content snapshots from optional Drive folders."""
 import hashlib
 import io
+import json
+import os
 import re
 import sys
 from datetime import date
@@ -55,6 +57,13 @@ def inventory(drive, folder, kind):
     if any(f.get('mimeType') != expected_mime for f in selected):
         raise ValueError('Falscher Dateityp im Übungsordner')
     return sorted(selected, key=lambda f: (f['name'], f['id']))
+
+
+def revised_case_fingerprint(snapshot):
+    # Inventory includes file identity, metadata, and Drive checksums. The same
+    # inventory is checked again after downloads by import_practice.
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
 def download(drive, f):
@@ -146,6 +155,10 @@ def import_practice(base, drive, cards_folder='', cases_folder='', card_format='
         inventory_kind = ('cards-v2' if kind == 'cards' and card_format == 'revised' else
                           'cases-v2' if kind == 'cases' and case_format == 'revised' else kind)
         before = inventory(drive, folder, inventory_kind)
+        if kind == 'cases' and case_format == 'revised' and any(not c['id'].startswith('case-v2-') for c in base['cases']):
+            expected = os.environ.get('PRACTICE_CASE_INVENTORY_SHA256', '')
+            if expected and (not re.fullmatch(r'[0-9a-f]{64}', expected) or revised_case_fingerprint(before) != expected):
+                raise ValueError('Fallquellen weichen vom geprüften Bestand ab')
         if kind == 'cards':
             if card_format == 'revised':
                 values = read_revised_cards(workbook(download(drive, before[0])))

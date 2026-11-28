@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import sys
 from sync_drive import origin, read_remote, validate_base, sync
-from sync_practice import import_practice
+from sync_practice import import_practice, inventory, revised_case_fingerprint
 
 
 def summarize(base, candidate):
@@ -40,8 +40,10 @@ def main():
     drive = AuthorizedSession(credentials)
     card_format = os.environ.get('PRACTICE_CARD_FORMAT', 'legacy')
     case_format = os.environ.get('PRACTICE_CASE_FORMAT', 'legacy')
+    case_inventory = inventory(drive, cases, 'cases-v2') if case_format == 'revised' else None
     candidate = validate_base(import_practice(remote, drive, cards, cases, card_format=card_format, case_format=case_format))
     print('::notice title=Übungsinhalte-Abgleich::' + summarize(remote, candidate) + '. Keine Veröffentlichung.', flush=True)
+    print('::notice title=Fallaufgaben::' + str(sum(len(item['questions']) for item in candidate['cases'])) + ' Aufgaben in ' + str(len(candidate['cases'])) + ' Fällen geprüft.', flush=True)
     # Use the real complete pipeline with a transport that cannot publish, even
     # if the check-only implementation regresses. No publication secret is used.
     class ReadOnlyHttp:
@@ -52,6 +54,10 @@ def main():
     bundled = json.loads(Path('app/src/main/assets/learning_content.json').read_text(encoding='utf-8'))
     state = sync(ReadOnlyHttp(), origin(os.environ.get('CONTENT_WORKER_ORIGIN', '')),
                  bundled, folder, drive, 'x' * 32, cards, cases, check_only=True, card_format=card_format, case_format=case_format)
+    if case_inventory is not None:
+        if inventory(drive, cases, 'cases-v2') != case_inventory:
+            raise ValueError('Fallquellen weichen vom geprüften Bestand ab')
+        print('::notice title=Fallquellen-Prüfsumme::' + revised_case_fingerprint(case_inventory), flush=True)
     print('::notice title=Vollständiger Import::' + ('Keine Änderungen erkannt.' if state == 'checked-unchanged' else 'Änderungen erkannt; nicht veröffentlicht.'), flush=True)
     print('::notice title=Prüfgrenzen::Nur Struktur und Vergleich getestet, keine fachliche Prüfung oder Geräteprüfung.', flush=True)
 
