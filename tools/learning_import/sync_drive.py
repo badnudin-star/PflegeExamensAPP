@@ -37,6 +37,10 @@ def validate_base(c):
             len(retired) != len(set(retired)) or not set(retired).isdisjoint(x['id'] for x in c['cards'])):
         raise ValueError('Ungültige stillgelegte Karten-IDs')
     if (not unique(c['cases'], 'id') or any(not all(text(x.get(k)) for k in ('published','text')) or not sources(x.get('sources')) or not isinstance(x.get('diseases'),list) or not x['diseases'] or not all(text(t) for t in x['diseases']) or not isinstance(x.get('questions'),list) or not x['questions'] or any(not isinstance(q,dict) or not text(q.get('question')) or not text(q.get('answer')) or not sources(q.get('sources')) for q in x['questions']) for x in c['cases'])): raise ValueError('Ungültige Fallbeispiele')
+    retired_cases = c.get('retiredCaseIds', [])
+    if (not isinstance(retired_cases, list) or not all(text(x) for x in retired_cases) or
+            len(retired_cases) != len(set(retired_cases)) or not set(retired_cases).isdisjoint(x['id'] for x in c['cases'])):
+        raise ValueError('Ungültige stillgelegte Fall-IDs')
     if (not unique(c['quizzes'], 'id') or any(x.get('topic') not in titles or not all(text(x.get(k)) for k in ('published','question','explanation')) or not sources(x.get('sources')) or not isinstance(x.get('options'),list) or len(x['options']) != 4 or not all(text(t) for t in x['options']) or len(set(x['options'])) != 4 or type(x.get('correctIndex')) is not int or x['correctIndex'] not in range(4) for x in c['quizzes'])): raise ValueError('Ungültige Quizfragen')
     return c
 
@@ -60,7 +64,7 @@ def read_remote(http, url):
     return catalog
 
 
-def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder="", check_only=False, card_format='legacy'):
+def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder="", check_only=False, card_format='legacy', case_format='legacy'):
     url = origin(url)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', folder): raise ValueError('Ungültige Ordner-ID')
     if len(token) < 32: raise ValueError('Publikations-Secret nicht eingerichtet')
@@ -77,10 +81,11 @@ def sync(http, url, bundled, folder, drive, token, cards_folder="", cases_folder
             raise ValueError(f"Quellenabschnitt fehlt: {f['name']}")
         return value
     payload = assemble(base, before, extract)
-    if card_format == 'legacy':
+    if card_format == 'legacy' and case_format == 'legacy':
         candidate = import_practice(json.loads(payload), drive, cards_folder, cases_folder)
     else:
-        candidate = import_practice(json.loads(payload), drive, cards_folder, cases_folder, card_format=card_format)
+        candidate = import_practice(json.loads(payload), drive, cards_folder, cases_folder,
+                                    card_format=card_format, case_format=case_format)
     payload = (json.dumps(candidate, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
     if len(payload) > MAX_CATALOG: raise ValueError('Katalog überschreitet das 8-MB-Limit')
     report_capacity(len(payload), 'notes_candidate')
@@ -113,7 +118,8 @@ def main():
     result = sync(requests.Session(), args.worker, json.loads(args.bundled.read_text(encoding='utf-8')),
                   args.folder, AuthorizedSession(credentials), os.environ.get('CONTENT_PUBLISH_TOKEN',''),
                   os.environ.get('PRACTICE_CARDS_FOLDER_ID', ''), os.environ.get('PRACTICE_CASES_FOLDER_ID', ''),
-                  card_format=os.environ.get('PRACTICE_CARD_FORMAT', 'legacy'))
+                  card_format=os.environ.get('PRACTICE_CARD_FORMAT', 'legacy'),
+                  case_format=os.environ.get('PRACTICE_CASE_FORMAT', 'legacy'))
     print('Aktualisierter Katalog veröffentlicht.' if result == 'published' else 'Keine Änderung des Inhaltskatalogs.')
 
 
