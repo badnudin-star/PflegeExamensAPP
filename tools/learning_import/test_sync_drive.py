@@ -124,6 +124,14 @@ class SyncTests(unittest.TestCase):
         self.assertIn("PRACTICE_CASES_FOLDER_ID: ''", part)
         self.assertIn('tools/learning_import/sync_drive.py', part)
 
+    def test_revised_cards_are_enabled_only_in_practice_step(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/sync-learning-content.yml').read_text()
+        notes = workflow.split('Lernzettel unabhängig von Übungsdateien veröffentlichen', 1)[1].split('Drive prüfen und Katalog veröffentlichen', 1)[0]
+        practice = workflow.split('Drive prüfen und Katalog veröffentlichen', 1)[1]
+        self.assertNotIn('PRACTICE_CARD_FORMAT: revised', notes)
+        self.assertIn('PRACTICE_CARD_FORMAT: revised', practice)
+
     def test_practice_only_change_publishes_and_preserves_other_sections(self):
         first = Http(); self.run_sync(first)
         remote = json.loads(first.puts[0][1]['data'])
